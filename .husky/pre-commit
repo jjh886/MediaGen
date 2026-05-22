@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+
+# 提交前先跑一轮最小必要门禁，尽量把低级问题拦在本地。
+bash scripts/pre-commit-checks.sh

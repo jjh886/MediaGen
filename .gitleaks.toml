@@ -1,0 +1,21 @@
+title = "AiDuanju Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Ignore generated caches and local tooling artifacts"
+paths = [
+  '''(^|/)\.claude/''',
+  '''(^|/)\.env\.local$''',
+  '''(^|/)\.playwright-cli/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)\.next/''',
+  '''(^|/)coverage/''',
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''(^|/)tmp/''',
+  '''(^|/)target/''',
+  '''(^|/)out/''',
+  '''(^|/)reference/''',
+]

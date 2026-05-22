@@ -1,0 +1,216 @@
+{
+  "platform_id": "doubao",
+  "display_name": "豆包",
+  "sort_order": 20,
+  "adapter_mode": "browser",
+  "login_url": "https://www.doubao.com/chat/",
+  "workspace_url": "https://www.doubao.com/chat/",
+  "models": [
+    {
+      "model_id": "doubao_Seedream_5.0_Lite",
+      "display_name": "Seedream 5.0 Lite",
+      "task_kind": "image"
+    },
+    {
+      "model_id": "doubao_Seedream_4.5",
+      "display_name": "Seedream 4.5",
+      "task_kind": "image"
+    }
+  ],
+  "tiers": {
+    "free": {
+      "display_name": "免费用户",
+      "is_default": true,
+      "concurrency_limit": 1,
+      "daily_limit": 60,
+      "total_limit": 0,
+      "cooldown_seconds": 30
+    }
+  },
+  "login_detection": {
+    "method": "js_script",
+    "script_file": "check_login.js",
+    "await_promise": false
+  },
+  "login_check": {
+    "url": "https://www.doubao.com/passport/account/info/v2/?aid=497858&account_sdk_source=web&sdk_version=2.2.11-doubao.0",
+    "cookie_domain": "doubao.com",
+    "success_field": "data.avatar_url"
+  },
+  "watermark": {
+    "has_watermark": true,
+    "removal_strategy": "stitch",
+    "config": {
+      "top_source": "input_b",
+      "split_ratio": 0.5
+    }
+  },
+  "flows": {
+    "generate_image": {
+      "steps": [
+        {
+          "_comment": "1. 打开浏览器 + cookie 恢复",
+          "action": "browser.open",
+          "profile_dir": "{{profile_dir}}",
+          "chrome_path": "{{chrome_path}}",
+          "headless": true,
+          "cookies_json": "{{account_cookies}}",
+          "restore_url": "https://www.doubao.com/",
+          "save_as": "browser"
+        },
+        {
+          "_comment": "2. 导航到聊天页",
+          "action": "browser.navigate",
+          "session_id": "{{browser.session_id}}",
+          "url": "https://www.doubao.com/chat/",
+          "wait_ms": 5000,
+          "save_as": "nav"
+        },
+        {
+          "_comment": "3. 关闭弹窗 + 新对话",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "prepare_page.js",
+          "await_promise": true,
+          "save_as": "prepare"
+        },
+        {
+          "_comment": "4. 点击底部能力栏的'图像生成'按钮 — JS click 即可，不需要 CDP 鼠标",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "enter_imagegen_mode.js",
+          "await_promise": true,
+          "save_as": "mode_switch"
+        },
+        {
+          "_comment": "注入参数到 window[Symbol.for('_s')].params（供后续脚本读取 model_display_name, image_aspect_ratio, prompt）",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script": "(() => { const SK = Symbol.for('_s'); const s = window[SK] || (window[SK] = {}); s.params = { model_display_name: '{{js:model_display_name}}', image_aspect_ratio: '{{js:image_aspect_ratio}}', prompt: '{{js:prompt}}' }; return JSON.stringify({set:true}); })()",
+          "save_as": "inject_params"
+        },
+        {
+          "_comment": "5. 打开模型下拉 — Radix popover 需要 CDP 真实鼠标事件（click_text 走 CDP click_point + 鼠标轨迹）",
+          "action": "browser.click_text",
+          "session_id": "{{browser.session_id}}",
+          "text": "Seedream",
+          "tag": "*",
+          "save_as": "model_menu"
+        },
+        {
+          "_comment": "等待下拉弹出（随机 500-1500ms）",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script": "(() => new Promise(r => setTimeout(() => r(JSON.stringify({w:1})), 500 + Math.random()*1000)))()",
+          "await_promise": true,
+          "save_as": "w1"
+        },
+        {
+          "_comment": "6. 选择模型 — click_text 按 role=menuitem 查找并用 CDP click_point（isTrusted=true）",
+          "action": "browser.click_text",
+          "session_id": "{{browser.session_id}}",
+          "text": "{{model_display_name}}",
+          "tag": "[role=menuitem]",
+          "save_as": "model_selected"
+        },
+        {
+          "_comment": "等待菜单关闭（随机 500-1500ms）",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script": "(() => new Promise(r => setTimeout(() => r(JSON.stringify({w:1})), 500 + Math.random()*1000)))()",
+          "await_promise": true,
+          "save_as": "w2"
+        },
+        {
+          "_comment": "7. 打开比例下拉 — Radix popover 需要 CDP 真实鼠标事件",
+          "action": "browser.click_text",
+          "session_id": "{{browser.session_id}}",
+          "text": "比例",
+          "tag": "*",
+          "save_as": "ratio_menu"
+        },
+        {
+          "_comment": "等待下拉弹出（随机 500-1500ms）",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script": "(() => new Promise(r => setTimeout(() => r(JSON.stringify({w:1})), 500 + Math.random()*1000)))()",
+          "await_promise": true,
+          "save_as": "w3"
+        },
+        {
+          "_comment": "8. 选择比例 — click_text 按 role=menuitem + startsWith 匹配（如 '16:9 桌面壁纸...'）",
+          "action": "browser.click_text",
+          "session_id": "{{browser.session_id}}",
+          "text": "{{image_aspect_ratio}}",
+          "tag": "[role=menuitem]",
+          "save_as": "ratio_selected"
+        },
+        {
+          "_comment": "9. 关闭残留 popover + 恢复 Slate editor 焦点",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "focus_recovery.js",
+          "await_promise": true,
+          "save_as": "focus"
+        },
+        {
+          "_comment": "10. 上传所有参考图（如有）— 通过 CDP DOM.setFileInputFiles 一次性塞多个文件",
+          "action": "browser.set_file",
+          "session_id": "{{browser.session_id}}",
+          "selector": "input[type=file][accept*=jpg]",
+          "file_paths": "{{ref_image_locals}}",
+          "save_as": "ref_upload"
+        },
+        {
+          "_comment": "等待参考图上传处理（随机 1500-2500ms）",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script": "(() => new Promise(r => setTimeout(() => r(JSON.stringify({w:1})), 1500 + Math.random()*1000)))()",
+          "await_promise": true,
+          "save_as": "w_ref"
+        },
+        {
+          "_comment": "11. 安装 SSE 拦截器（必须在发送前！SPA 路由变化不重置 JS 上下文）",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "setup_interceptor.js",
+          "save_as": "interceptor"
+        },
+        {
+          "_comment": "12. 通过 Slate JS API 输入 prompt（无头模式下 CDP 键盘不生效）",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "input_prompt.js",
+          "await_promise": true,
+          "save_as": "typed"
+        },
+        {
+          "_comment": "14. 点击发送按钮",
+          "action": "browser.click",
+          "session_id": "{{browser.session_id}}",
+          "selector": "#flow-end-msg-send",
+          "save_as": "sent"
+        },
+        {
+          "_comment": "15. 轮询等待生成完成（10分钟超时，SSE 拦截器会捕获 URL）",
+          "action": "browser.poll_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "generate_image_poll.js",
+          "until": "status == 'done'",
+          "interval_ms": 3000,
+          "timeout_ms": 600000,
+          "save_as": "poll"
+        },
+        {
+          "_comment": "18. 并发安全关闭：session_id 定位当前 tab，profile_dir 驱动'最后一个才关 Chrome'——并发多 tab 时只关自己，Chrome 保留给其他任务",
+          "action": "browser.close",
+          "session_id": "{{browser.session_id}}",
+          "profile_dir": "{{profile_dir}}"
+        }
+      ]
+    }
+  },
+  "registration": {
+    "enabled": false
+  }
+}

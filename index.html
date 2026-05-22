@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Frame64 Studio</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      window.onerror = function(msg, src, line, col, err) {
+        document.body.style.background = '#fff';
+        document.body.style.color = '#000';
+        document.body.innerHTML = '<pre style="padding:20px;font-size:14px;">JS Error:\n' + msg + '\n' + src + ':' + line + ':' + col + '\n' + (err && err.stack || '') + '</pre>';
+      };
+      window.addEventListener('unhandledrejection', function(e) {
+        document.body.style.background = '#fff';
+        document.body.style.color = '#000';
+        document.body.innerHTML = '<pre style="padding:20px;font-size:14px;">Unhandled Promise:\n' + (e.reason && e.reason.stack || e.reason) + '</pre>';
+      });
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

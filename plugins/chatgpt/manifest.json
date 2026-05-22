@@ -1,0 +1,249 @@
+{
+  "platform_id": "chatgpt",
+  "display_name": "ChatGPT",
+  "sort_order": 30,
+  "adapter_mode": "browser",
+  "browser_lifecycle": "persistent",
+  "login_url": "https://chatgpt.com/",
+  "workspace_url": "https://chatgpt.com/",
+  "models": [
+    {
+      "model_id": "GPT_5_mini",
+      "display_name": "GPT_5_mini",
+      "task_kind": "image"
+    }
+  ],
+  "tiers": {
+    "free": {
+      "display_name": "默认用户",
+      "is_default": true,
+      "concurrency_limit": 1,
+      "daily_limit": 40,
+      "total_limit": 0,
+      "cooldown_seconds": 30
+    }
+  },
+  "login_detection": {
+    "method": "js_script",
+    "script_file": "check_login.js",
+    "await_promise": true
+  },
+  "login_check": {
+    "url": "https://chatgpt.com/api/auth/session",
+    "cookie_domain": "chatgpt.com",
+    "success_field": "user.email",
+    "expires_field": "expires"
+  },
+  "watermark": {
+    "has_watermark": false,
+    "removal_strategy": "none"
+  },
+  "flows": {
+    "generate_image": {
+      "steps": [
+        {
+          "_comment": "1. 启动或复用浏览器，并尝试恢复已有登录 cookies",
+          "action": "browser.open",
+          "session_id": "{{browser_session_id}}",
+          "profile_dir": "{{profile_dir}}",
+          "chrome_path": "{{chrome_path}}",
+          "headless": true,
+          "cookies_json": "{{account_cookies}}",
+          "restore_url": "https://chatgpt.com/",
+          "save_as": "browser"
+        },
+        {
+          "_comment": "2. 导航到 ChatGPT 首页",
+          "action": "browser.navigate",
+          "session_id": "{{browser.session_id}}",
+          "url": "https://chatgpt.com/",
+          "wait_ms": 5000,
+          "save_as": "nav"
+        },
+        {
+          "_comment": "3. 页面准备：确认登录态并等待 composer 就绪",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "prepare_page.js",
+          "await_promise": true,
+          "save_as": "prepared"
+        },
+        {
+          "_comment": "3.5 先探测当前是否已经在图片模式；已在图片模式时不要重复点加号菜单",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "probe_image_mode.js",
+          "await_promise": true,
+          "save_as": "image_mode_probe"
+        },
+        {
+          "_comment": "4. 优先点击当前 tab 里的直接图片入口；找不到时才退回加号菜单",
+          "action": "browser.click",
+          "session_id": "{{browser.session_id}}",
+          "selector": "{{image_mode_probe.plus_selector}}",
+          "skip_if_empty": true,
+          "wait_ms": 5000,
+          "save_as": "plus_menu"
+        },
+        {
+          "_comment": "4.5 仅在加号菜单路径下等待创建图片入口；直接图片入口或已在图片模式时跳过",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "skip_if": "{{image_mode_probe.skip_create_image_entry}}",
+          "script_file": "wait_create_image_entry.js",
+          "await_promise": true,
+          "save_as": "w_plus_menu"
+        },
+        {
+          "_comment": "5. 仅在加号菜单路径下选择创建图片；Radix 菜单需要 CDP 真实鼠标事件",
+          "action": "browser.click_text",
+          "session_id": "{{browser.session_id}}",
+          "skip_if": "{{image_mode_probe.skip_create_image_entry}}",
+          "text": "{{w_plus_menu.target_text}}",
+          "tag": "[role=menuitem], [role=menuitemradio], button, [role=option]",
+          "skip_if_empty": true,
+          "exact": false,
+          "save_as": "image_mode"
+        },
+        {
+          "_comment": "6. 等待图片模式初始化（HAR 中会触发 images/init 与 images/styles）",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script": "(() => new Promise(r => setTimeout(() => r(JSON.stringify({w:1})), 1200)))()",
+          "await_promise": true,
+          "save_as": "w_image_mode"
+        },
+        {
+          "_comment": "7. 注入参数到运行时状态，供后续脚本读取",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script": "(() => { const normalizeRatio = (value) => { const v = String(value || '').trim(); return ['9:16', '16:9', '1:1', '3:4', '4:3'].includes(v) ? v : '9:16'; }; const ratioLabelMap = { '9:16': '故事', '16:9': '宽屏', '1:1': '方形', '3:4': '竖版', '4:3': '横屏' }; const refs = Array.isArray(JSON.parse('{{js:ref_image_dataurls}}' || '[]')) ? JSON.parse('{{js:ref_image_dataurls}}' || '[]') : []; const ratio = normalizeRatio('{{js:image_aspect_ratio}}'); const SK = Symbol.for('_cgpt'); const s = window[SK] || (window[SK] = {}); s.params = { prompt: '{{js:prompt}}', ratio, ratioLabel: ratioLabelMap[ratio] || '故事', refCount: refs.length, refImageDataUrls: refs }; return JSON.stringify({ set: true, refCount: s.params.refCount, normalized_ratio: s.params.ratio, ratio_label: s.params.ratioLabel }); })()",
+          "save_as": "params"
+        },
+        {
+          "_comment": "8. 定位比例触发器并写入稳定标记",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "select_ratio.js",
+          "await_promise": true,
+          "save_as": "ratio_prepared"
+        },
+        {
+          "_comment": "8.1 用 CDP 真实点击打开比例菜单（当前触发器通常显示为 Auto 或当前已选比例）",
+          "action": "browser.click",
+          "session_id": "{{browser.session_id}}",
+          "selector": "{{ratio_prepared.trigger_selector}}",
+          "skip_if_empty": true,
+          "wait_ms": 5000,
+          "save_as": "ratio_menu"
+        },
+        {
+          "_comment": "8.2 等待比例菜单展开并出现目标选项",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "wait_ratio_menu_option.js",
+          "await_promise": true,
+          "save_as": "w_ratio_menu"
+        },
+        {
+          "_comment": "8.3 用 CDP 真实点击选择已标记的目标比例项，避免中英文文案差异导致漏点",
+          "action": "browser.click",
+          "session_id": "{{browser.session_id}}",
+          "selector": "{{w_ratio_menu.selector}}",
+          "skip_if_empty": true,
+          "save_as": "ratio_selected"
+        },
+        {
+          "_comment": "9. 安装上传/对话/结果下载拦截器",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "setup_interceptor.js",
+          "save_as": "interceptor"
+        },
+        {
+          "_comment": "10. 参考 Flow：把参考图以 paste 事件注入 composer，避免隐藏 file input 不触发上传",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "paste_references.js",
+          "await_promise": true,
+          "save_as": "ref_paste"
+        },
+        {
+          "_comment": "11. 等待参考图上传完成；无参考图时自动跳过",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "wait_attachments.js",
+          "await_promise": true,
+          "save_as": "attachments"
+        },
+        {
+          "_comment": "12. 在 ChatGPT composer 中输入提示词，并追加比例要求作为最终兜底",
+          "action": "browser.type_text",
+          "session_id": "{{browser.session_id}}",
+          "selector": "#prompt-textarea[contenteditable=\"true\"]",
+          "text": "{{prompt}} Make the aspect ratio {{params.normalized_ratio}}",
+          "clear_first": true,
+          "save_as": "typed"
+        },
+        {
+          "_comment": "13. 稍等输入事件链稳定",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script": "(() => new Promise(r => setTimeout(() => r(JSON.stringify({w:1})), 500)))()",
+          "await_promise": true,
+          "save_as": "w_submit"
+        },
+        {
+          "_comment": "13.2 等待参考图真正可提交，并标记发送按钮",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "wait_submit_ready.js",
+          "await_promise": true,
+          "save_as": "submit_ready"
+        },
+        {
+          "_comment": "13.5 真正提交前再次重置本轮结果态，避免别的 tab 背景同步污染当前任务",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "mark_submit.js",
+          "save_as": "submit_marked"
+        },
+        {
+          "_comment": "14. 点击已确认可用的发送按钮",
+          "action": "browser.click",
+          "session_id": "{{browser.session_id}}",
+          "selector": "{{submit_ready.selector}}",
+          "wait_ms": 5000,
+          "save_as": "submitted"
+        },
+        {
+          "_comment": "15. 轮询等待生成完成并拿到结果下载地址",
+          "action": "browser.poll_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "generate_image_poll.js",
+          "until": "status == 'done'",
+          "interval_ms": 3000,
+          "timeout_ms": 600000,
+          "await_promise": true,
+          "save_as": "poll"
+        },
+        {
+          "_comment": "16. 在浏览器上下文中下载结果，避免鉴权问题",
+          "action": "browser.download",
+          "session_id": "{{browser.session_id}}",
+          "url": "{{poll.download_url}}",
+          "save_as": "local_file"
+        },
+        {
+          "_comment": "17. 并发安全关闭：session_id 定位当前 tab，profile_dir 避免影响同账号其他任务",
+          "action": "browser.close",
+          "session_id": "{{browser.session_id}}",
+          "profile_dir": "{{profile_dir}}"
+        }
+      ]
+    }
+  },
+  "registration": {
+    "enabled": false
+  }
+}

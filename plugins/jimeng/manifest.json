@@ -1,0 +1,289 @@
+{
+  "platform_id": "jimeng",
+  "display_name": "即梦",
+  "adapter_mode": "browser",
+  "browser_lifecycle": "per_task",
+  "login_url": "https://jimeng.jianying.com/ai-tool/home?type=image",
+  "workspace_url": "https://jimeng.jianying.com/ai-tool/home?type=image&workspace=undefined",
+  "models": [
+    {
+      "model_id": "jimeng_图片_4.1",
+      "display_name": "jimeng_图片_4.1",
+      "task_kind": "image"
+    },
+    {
+      "model_id": "jimeng_图片_4.0",
+      "display_name": "jimeng_图片_4.0",
+      "task_kind": "image"
+    },
+    {
+      "model_id": "jimeng_图片_4.5",
+      "display_name": "jimeng_图片_4.5",
+      "task_kind": "image"
+    },
+    {
+      "model_id": "jimeng_图片4.6",
+      "display_name": "jimeng_图片4.6",
+      "task_kind": "image"
+    },
+    {
+      "model_id": "jimeng_图片5.0_Lite",
+      "display_name": "jimeng_图片5.0_Lite",
+      "task_kind": "image"
+    }
+  ],
+  "tiers": {
+    "free": {
+      "display_name": "免费用户",
+      "is_default": true,
+      "concurrency_limit": 3,
+      "daily_limit": 100,
+      "total_limit": 0,
+      "cooldown_seconds": 180
+    }
+  },
+  "login_detection": {
+    "method": "js_script",
+    "script_file": "check_login.js",
+    "await_promise": true
+  },
+  "login_check": {
+    "url": "https://jimeng.jianying.com/passport/account/info/v2/?aid=513695&account_sdk_source=web&sdk_version=2.2.6",
+    "cookie_domain": "jianying.com",
+    "success_field": "data.user_id_str"
+  },
+  "watermark": {
+    "has_watermark": false,
+    "removal_strategy": "none"
+  },
+  "flows": {
+    "generate_image": {
+      "steps": [
+        {
+          "_comment": "1. 启动或复用即梦账号浏览器",
+          "action": "browser.open",
+          "session_id": "{{browser_session_id}}",
+          "profile_dir": "{{profile_dir}}",
+          "chrome_path": "{{chrome_path}}",
+          "headless": true,
+          "cookies_json": "{{account_cookies}}",
+          "restore_url": "https://jimeng.jianying.com/",
+          "save_as": "browser"
+        },
+        {
+          "_comment": "2. 进入即梦图片生成页",
+          "action": "browser.navigate",
+          "session_id": "{{browser.session_id}}",
+          "url": "https://jimeng.jianying.com/ai-tool/home?type=image&workspace=undefined",
+          "wait_ms": 8000,
+          "save_as": "nav"
+        },
+        {
+          "_comment": "3. 等待编辑器和上传入口就绪；提交按钮在写入提示词后单独严格定位",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "prepare_page.js",
+          "await_promise": true,
+          "save_as": "prepared"
+        },
+        {
+          "_comment": "4. 注入提示词、比例、参考图数量和模型名称",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script": "(() => { const SK = Symbol.for('_jimeng'); const s = window[SK] || (window[SK] = {}); const refs = JSON.parse('{{js:ref_image_locals}}' || '[]'); const ratio = String('{{js:image_aspect_ratio}}' || '9:16').trim() || '9:16'; const modelDisplayName = String('{{js:model_display_name}}' || '').trim(); const modelId = String('{{js:model_id}}' || '').trim(); s.params = { prompt: '{{js:prompt}}', ratio, refCount: Array.isArray(refs) ? refs.length : 0, modelDisplayName, modelId }; return JSON.stringify({ set: true, ratio, refCount: s.params.refCount, modelDisplayName, modelId }); })()",
+          "save_as": "params"
+        },
+        {
+          "_comment": "5. 定位模型下拉；若当前已是目标模型则后续模型点击自动跳过",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "select_model.js",
+          "await_promise": true,
+          "save_as": "model_prepared"
+        },
+        {
+          "_comment": "5.1 用 CDP 真实点击打开模型下拉",
+          "action": "browser.click",
+          "session_id": "{{browser.session_id}}",
+          "selector": "{{model_prepared.trigger_selector}}",
+          "skip_if_empty": true,
+          "wait_ms": 5000,
+          "save_as": "model_menu"
+        },
+        {
+          "_comment": "5.2 等待目标模型选项出现",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "wait_model_option.js",
+          "await_promise": true,
+          "save_as": "model_option"
+        },
+        {
+          "_comment": "5.3 用 CDP 真实点击选择目标模型",
+          "action": "browser.click",
+          "session_id": "{{browser.session_id}}",
+          "selector": "{{model_option.selector}}",
+          "skip_if_empty": true,
+          "wait_ms": 5000,
+          "save_as": "model_selected"
+        },
+        {
+          "_comment": "5.4 等待模型选择写回 UI，再次确认当前模型",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script": "(() => new Promise(r => setTimeout(() => r(JSON.stringify({w:1})), 600)))()",
+          "await_promise": true,
+          "save_as": "w_model_selected"
+        },
+        {
+          "_comment": "5.5 确认模型已切换到目标项",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "select_model.js",
+          "await_promise": true,
+          "save_as": "model_verified"
+        },
+        {
+          "_comment": "6. 定位比例下拉；若当前已是目标比例则后续比例点击自动跳过",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "select_ratio.js",
+          "await_promise": true,
+          "save_as": "ratio_prepared"
+        },
+        {
+          "_comment": "6.1 用 CDP 真实点击打开比例下拉",
+          "action": "browser.click",
+          "session_id": "{{browser.session_id}}",
+          "selector": "{{ratio_prepared.trigger_selector}}",
+          "skip_if_empty": true,
+          "wait_ms": 5000,
+          "save_as": "ratio_menu"
+        },
+        {
+          "_comment": "6.2 等待目标比例选项出现",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "wait_ratio_option.js",
+          "await_promise": true,
+          "save_as": "ratio_option"
+        },
+        {
+          "_comment": "6.3 用 CDP 真实点击选择目标比例",
+          "action": "browser.click",
+          "session_id": "{{browser.session_id}}",
+          "selector": "{{ratio_option.selector}}",
+          "skip_if_empty": true,
+          "wait_ms": 5000,
+          "save_as": "ratio_selected"
+        },
+        {
+          "_comment": "6.4 等待比例选择写回 UI，再次确认当前比例",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script": "(() => new Promise(r => setTimeout(() => r(JSON.stringify({w:1})), 500)))()",
+          "await_promise": true,
+          "save_as": "w_ratio_selected"
+        },
+        {
+          "_comment": "6.5 确认比例已切换到目标项",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "select_ratio.js",
+          "await_promise": true,
+          "save_as": "ratio_verified"
+        },
+        {
+          "_comment": "7. 安装 fetch/XHR 拦截器，捕获上传 uri、submit_id 和结果 URL，并在提交接口里强制写入模型和比例",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "setup_interceptor.js",
+          "save_as": "interceptor"
+        },
+        {
+          "_comment": "8. 注入参考图文件；无参考图时 browser.set_file 会自动跳过",
+          "action": "browser.set_file",
+          "session_id": "{{browser.session_id}}",
+          "selector": "input[type=file][accept*=image]",
+          "file_paths": "{{ref_image_locals}}",
+          "save_as": "ref_upload"
+        },
+        {
+          "_comment": "9. 等待参考图上传完成或 DOM 卡片稳定，防止未上传好就提交",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "wait_uploads.js",
+          "await_promise": true,
+          "save_as": "uploads_ready"
+        },
+        {
+          "_comment": "10. 写入提示词；额外追加比例兜底，防止比例控件未选中",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "input_prompt.js",
+          "await_promise": true,
+          "save_as": "typed"
+        },
+        {
+          "_comment": "11. 等待提交按钮可用，并写入稳定选择器",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "wait_submit_ready.js",
+          "await_promise": true,
+          "save_as": "submit_ready"
+        },
+        {
+          "_comment": "12. 提交前重置本轮结果态，避免历史轮询结果污染当前任务",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "mark_submit.js",
+          "save_as": "submit_marked"
+        },
+        {
+          "_comment": "13. 点击即梦提交按钮",
+          "action": "browser.click",
+          "session_id": "{{browser.session_id}}",
+          "selector": "{{submit_ready.selector}}",
+          "wait_ms": 5000,
+          "save_as": "submitted"
+        },
+        {
+          "_comment": "13.5 确认提交请求已触发；未捕获到 generate 请求时对同一个已标记按钮补点",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "confirm_submit_started.js",
+          "await_promise": true,
+          "save_as": "submit_confirmed"
+        },
+        {
+          "_comment": "14. 等待 get_history_by_ids 返回生成图片",
+          "action": "browser.poll_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "generate_image_poll.js",
+          "until": "status == 'done'",
+          "interval_ms": 3000,
+          "timeout_ms": 600000,
+          "await_promise": true,
+          "save_as": "poll"
+        },
+        {
+          "_comment": "15. 删除本次即梦会话；优先用提交前标记，兜底用本次生成图片缩略图匹配，失败不影响生成结果",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "delete_current_conversation.js",
+          "await_promise": true,
+          "save_as": "conversation_deleted"
+        },
+        {
+          "_comment": "16. 并发安全关闭：只关闭当前 session 的 tab；同 profile 还有任务时保留 Chrome，最后一个任务才关闭浏览器",
+          "action": "browser.close",
+          "session_id": "{{browser.session_id}}",
+          "profile_dir": "{{profile_dir}}"
+        }
+      ]
+    }
+  },
+  "registration": {
+    "enabled": false
+  }
+}

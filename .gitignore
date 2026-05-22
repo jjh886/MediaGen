@@ -1,0 +1,70 @@
+# Dependencies
+node_modules/
+vendor/
+.playwright-cli/
+.playwright-mcp/
+
+# Build outputs
+dist/
+build/
+target/
+bin/
+tmp/
+out/
+coverage/
+src-tauri/target/
+src-tauri/gen/
+
+# Caches
+.vite/
+.turbo/
+.quality/
+.scannerwork/
+.semgrep-cache/
+
+# Documentation scratch space
+docs/*.bak
+docs/.DS_Store
+docs/experiments/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+tsconfig.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Native build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+
+# Logs
+*.log
+
+# Local agent/runtime state
+.agent/
+.agents/
+.claude/
+.codex/
+.omx/
+.serena/
+.superpowers/
+
+# Old external references and backups
+reference/
+desktop_bak/

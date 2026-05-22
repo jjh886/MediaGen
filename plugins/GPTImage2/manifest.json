@@ -1,0 +1,64 @@
+{
+  "platform_id": "GPTImage2",
+  "display_name": "GPTImage2",
+  "sort_order": 40,
+  "adapter_mode": "api",
+  "login_url": "https://auth.openai.com/oauth/authorize",
+  "workspace_url": "https://chatgpt.com/",
+  "models": [
+    {
+      "model_id": "GPTImage2_gpt_5_5",
+      "display_name": "GPT Image 2",
+      "task_kind": "image"
+    }
+  ],
+  "tiers": {
+    "free": {
+      "display_name": "默认用户",
+      "is_default": true,
+      "concurrency_limit": 1,
+      "daily_limit": 40,
+      "total_limit": 0,
+      "cooldown_seconds": 30
+    }
+  },
+  "watermark": {
+    "has_watermark": false,
+    "removal_strategy": "none"
+  },
+  "flows": {
+    "add_account": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_file": "login.js",
+          "timeout_ms": 300000,
+          "save_as": "account"
+        }
+      ]
+    },
+    "relogin_account": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_file": "login.js",
+          "timeout_ms": 300000,
+          "save_as": "account"
+        }
+      ]
+    },
+    "generate_image": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_file": "generate_image.js",
+          "timeout_ms": 1800000,
+          "save_as": "poll"
+        }
+      ]
+    }
+  },
+  "registration": {
+    "enabled": false
+  }
+}

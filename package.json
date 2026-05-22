@@ -1,0 +1,69 @@
+{
+  "name": "frame64",
+  "private": true,
+  "version": "0.1.0",
+  "description": "OpenAI-compatible image and video generation desktop app.",
+  "type": "module",
+  "scripts": {
+    "prepare": "husky",
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "type-check": "tsc --noEmit",
+    "lint": "node scripts/check-code-line-limit.mjs --scope app --max 500 && node scripts/check-import-boundaries.mjs && eslint src/ --max-warnings 0",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage:gate": "node scripts/gates/check-coverage-gate.mjs --app",
+    "check": "npm run type-check && npm run lint && npm run test && npm run build && npm run cargo-check",
+    "cargo-check": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "cargo-test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "format:check": "node scripts/check-prettier-format.mjs --all",
+    "quality:start": "node scripts/gates/run-start-quality-gate.mjs",
+    "quality:semgrep": "node scripts/run-semgrep-local.mjs",
+    "preflight": "make preflight",
+    "check:compat-expiry": "bash scripts/check-compat-expiry.sh"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "lucide-react": "^0.460.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "@vitest/coverage-istanbul": "^3.2.4",
+    "eslint": "^8.57.0",
+    "husky": "^9.1.7",
+    "jsdom": "^26.0.0",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.6.2",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0",
+    "vitest": "^3.1.0"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx}": [
+      "prettier --write",
+      "bash -lc 'node scripts/check-code-line-limit.mjs --scope app --max 500 && node scripts/check-import-boundaries.mjs && npm exec eslint -- --fix --max-warnings 0 \"$@\"' --"
+    ],
+    "src-tauri/src/**/*.rs": [
+      "bash -lc 'cargo fmt --manifest-path src-tauri/Cargo.toml' --"
+    ],
+    "plugins/**/*.{js,json}": [
+      "prettier --write"
+    ],
+    "**/*.{json,md,yml,yaml,css}": [
+      "prettier --write"
+    ]
+  }
+}
