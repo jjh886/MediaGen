@@ -106,14 +106,14 @@ pub fn run() {
 }
 
 fn init_tracing() {
-    let env_filter = EnvFilter::from_default_env().add_directive("frame64=debug".parse().unwrap());
+    let env_filter = EnvFilter::from_default_env().add_directive("mediagen=debug".parse().unwrap());
     let fmt_layer = tracing_subscriber::fmt::layer();
 
     let app_dir = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("com.jjh886.frame64");
+        .join("com.jjh886.mediagen");
     std::fs::create_dir_all(&app_dir).ok();
-    let db_path = app_dir.join("frame64.db");
+    let db_path = app_dir.join("mediagen.db");
 
     let registry = tracing_subscriber::registry()
         .with(env_filter)
@@ -133,7 +133,7 @@ fn init_app_state(app: &tauri::App) -> Result<Arc<AppState>, Box<dyn std::error:
         .expect("failed to get app data dir");
     std::fs::create_dir_all(&app_dir).ok();
 
-    let db_path = app_dir.join("frame64.db");
+    let db_path = app_dir.join("mediagen.db");
     let storage = Storage::new(&db_path).expect("failed to init database");
 
     let resource_dir = app.path().resource_dir().ok();
@@ -191,7 +191,7 @@ fn setup_tray_icon(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     TrayIconBuilder::new()
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
-        .tooltip("Frame64 Studio")
+        .tooltip("MediaGen Studio")
         .on_menu_event(|app, event| match event.id().as_ref() {
             "quit" => app.exit(0),
             "show" => {

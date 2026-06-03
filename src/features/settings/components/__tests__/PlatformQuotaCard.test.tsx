@@ -16,7 +16,7 @@ const settings: AppSettings = {
   chrome_path: '/tmp/chrome',
   check_interval_minutes: 7,
   cooldown_default_seconds: 42,
-  cache_dir: '/tmp/frame64-test-cache',
+  cache_dir: '/tmp/mediagen-test-cache',
   auto_register_enabled: false,
   auto_register_password_mode: 'default',
   auto_register_password: 'TestOnly@2026',

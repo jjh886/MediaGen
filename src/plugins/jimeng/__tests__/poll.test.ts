@@ -129,7 +129,7 @@ describe('jimeng plugin scripts', () => {
     expect(result.conversation.marked).toBe(true)
     expect(result.conversation.submit_id).toBe('submit_1')
     expect(
-      document.querySelector('#target')?.getAttribute('data-frame64-jimeng-task-conversation')
+      document.querySelector('#target')?.getAttribute('data-mediagen-jimeng-task-conversation')
     ).toBe('jimeng_task_1')
   })
 })

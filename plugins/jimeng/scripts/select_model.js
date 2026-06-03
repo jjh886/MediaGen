@@ -3,49 +3,42 @@
   const SK = Symbol.for('_jimeng')
   const state = window[SK] || {}
   const rawTarget = String(state.params?.modelDisplayName || state.params?.modelId || '').trim()
-  const markerAttr = 'data-frame64-jimeng-model-trigger'
+  const markerAttr = 'data-mediagen-jimeng-model-trigger'
 
   const isVisible = (el) => {
-    if (!el) return false
-    const rect = el.getBoundingClientRect?.()
+    const rect = el?.getBoundingClientRect?.()
     if (!rect || rect.width <= 0 || rect.height <= 0) return false
     const style = window.getComputedStyle?.(el)
     return (
-      !style || (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0')
+      !style ||
+      !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')
     )
   }
 
   const textOf = (el) => {
-    const imgAlts = el?.querySelectorAll
-      ? [...el.querySelectorAll('img[alt]')].map((img) => img.getAttribute('alt') || '')
-      : []
-    return [
-      el?.textContent,
-      el?.getAttribute?.('aria-label'),
-      el?.getAttribute?.('title'),
-      el?.getAttribute?.('alt'),
-      ...imgAlts,
-    ]
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim()
+    const attrs = ['aria-label', 'title', 'alt'].map((name) => el?.getAttribute?.(name) || '')
+    const imgAlts = Array.from(el?.querySelectorAll?.('img[alt]') || []).map(
+      (img) => img.getAttribute('alt') || ''
+    )
+    return [el?.textContent || '', ...attrs, ...imgAlts].join(' ').replace(/\s+/g, ' ').trim()
   }
 
   const normalizeModelName = (value) => {
-    let text = String(value || '').trim()
-    text = text.replace(/^jimeng[_\s-]*/i, '')
-    text = text.replace(/_/g, ' ')
-    text = text.replace(/图片\s*([0-9])/g, '图片$1')
-    text = text.replace(/\s+/g, '')
-    return text.toLowerCase()
-  }
-
-  const displayTarget = (value) => {
-    let text = String(value || '')
+    return String(value || '')
       .trim()
       .replace(/^jimeng[_\s-]*/i, '')
       .replace(/_/g, ' ')
-    text = text.replace(/图片\s*([0-9])/g, '图片 $1')
+      .replace(/图片\s*([0-9])/g, '图片$1')
+      .replace(/\s+/g, '')
+      .toLowerCase()
+  }
+
+  const displayTarget = (value) => {
+    const text = String(value || '')
+      .trim()
+      .replace(/^jimeng[_\s-]*/i, '')
+      .replace(/_/g, ' ')
+      .replace(/图片\s*([0-9])/g, '图片 $1')
     return text.replace(/\s+/g, ' ').trim()
   }
 

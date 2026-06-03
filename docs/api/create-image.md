@@ -2,13 +2,15 @@
 
 **post** `/v1/images/generations`
 
-Frame64 的图片生成接口按 OpenAI Image API 的响应结构返回结果。生成完成后不会上传到任何业务系统，图片字节会直接放在 `data[].b64_json` 中。
+MediaGen 的图片生成接口按 OpenAI Image API 的响应结构返回结果。生成完成后不会上传到任何业务系统，图片字节会直接放在 `data[].b64_json` 中。
 
 ## Body Parameters
 
 - `model: string`
 
-  必填。使用 `/v1/models` 返回的模型 ID。
+  必填。使用 `/v1/models` 返回的模型 ID。为了兼容标准 OpenAI 应用，MediaGen 也接受
+  `gpt-image-2`、`gpt-image-1.5`、`gpt-image-1`、`gpt-image-1-mini` 和
+  `chatgpt-image-latest` 这些别名。
 
 - `prompt: string`
 
@@ -20,7 +22,7 @@ Frame64 的图片生成接口按 OpenAI Image API 的响应结构返回结果。
 
 - `size: optional "auto" or "1024x1024" or "1536x1024" or "1024x1536"`
 
-  输出尺寸。Frame64 会把它映射成平台侧比例选项。
+  输出尺寸。MediaGen 会把它映射成平台侧比例选项。
 
 - `quality: optional "low" or "medium" or "high" or "auto"`
 
@@ -32,7 +34,16 @@ Frame64 的图片生成接口按 OpenAI Image API 的响应结构返回结果。
 
 - `response_format: optional "b64_json"`
 
-  Frame64 只返回 base64，不返回远程 URL。
+  MediaGen 只返回 base64，不返回远程 URL。
+
+- `stream: optional boolean`
+
+  为 `true` 时返回 `text/event-stream`。当前插件会在生成完成后发送
+  `image_generation.completed` 事件。
+
+- `partial_images: optional number`
+
+  OpenAI 兼容参数，范围 `0..3`。当前本地插件不生成中间预览图，所以只会收到最终事件。
 
 ## Returns
 
@@ -50,13 +61,20 @@ Frame64 的图片生成接口按 OpenAI Image API 的响应结构返回结果。
 }
 ```
 
+## Streaming Returns
+
+```text
+event: image_generation.completed
+data: {"type":"image_generation.completed","b64_json":"...","created_at":0,"size":"1024x1024","quality":"high","output_format":"png"}
+```
+
 ## Example
 
 ```bash
 curl http://127.0.0.1:18080/v1/images/generations \
   -H 'Content-Type: application/json' \
   -d '{
-    "model": "flow_Nano_Banana_Pro",
+    "model": "gpt-image-1",
     "prompt": "A clean product photo of a glass water bottle on a white desk",
     "size": "1024x1024",
     "quality": "high",

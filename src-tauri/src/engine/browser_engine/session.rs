@@ -127,7 +127,7 @@ impl super::BrowserEngine {
             "bin"
         };
         let unique_id = uuid::Uuid::new_v4().to_string();
-        let tmp_path = std::env::temp_dir().join(format!("frame64_{unique_id}.{ext}"));
+        let tmp_path = std::env::temp_dir().join(format!("mediagen_{unique_id}.{ext}"));
         std::fs::write(&tmp_path, &bytes)
             .map_err(|e| AppError::BrowserError(format!("保存文件失败: {e}")))?;
 

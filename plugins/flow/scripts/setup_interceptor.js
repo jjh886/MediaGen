@@ -6,7 +6,7 @@
     'img[alt="生成的图片"], img[alt="Generated image"], img[src*="getMediaUrlRedirect"]'
   )
 
-  window.__frame64 = {
+  window.__mediagen = {
     status: 'generating',
     startTime: Date.now(),
     _initialImgCount: currentImgs.length,
@@ -15,12 +15,12 @@
     ).length,
   }
 
-  if (window.__frame64_fetch_hooked) {
+  if (window.__mediagen_fetch_hooked) {
     return JSON.stringify({ hooked: true, reused: true, baseline: currentImgs.length })
   }
 
   // 初始化 fetch 日志（用于诊断）
-  if (!window.__frame64_fetch_log) window.__frame64_fetch_log = []
+  if (!window.__mediagen_fetch_log) window.__mediagen_fetch_log = []
 
   // 解析 batchGenerateImages 响应（支持多张图片）
   const parseGenerateResponse = (data) => {
@@ -43,8 +43,8 @@
       }
 
       if (images.length > 0) {
-        window.__frame64 = {
-          ...window.__frame64,
+        window.__mediagen = {
+          ...window.__mediagen,
           status: 'done',
           url: images[0].url,
           name: images[0].name,
@@ -66,9 +66,9 @@
       if (data?.error) {
         const reason = data.error.details?.[0]?.reason || data.error.message || ''
         if (reason.includes('UNSAFE')) {
-          window.__frame64 = { status: 'error', message: '内容审核拦截: ' + reason }
+          window.__mediagen = { status: 'error', message: '内容审核拦截: ' + reason }
         } else {
-          window.__frame64 = { status: 'error', message: 'API 错误: ' + reason }
+          window.__mediagen = { status: 'error', message: 'API 错误: ' + reason }
         }
         return true
       }
@@ -82,7 +82,7 @@
   const isUploadImage = (url) => url.includes('uploadImage')
 
   // 初始化参考图追踪
-  if (!window.__frame64_uploaded_refs) window.__frame64_uploaded_refs = []
+  if (!window.__mediagen_uploaded_refs) window.__mediagen_uploaded_refs = []
 
   // ── 策略一：拦截 fetch ──
   const origFetch = window.fetch
@@ -91,12 +91,12 @@
     const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || ''
 
     // 诊断日志
-    window.__frame64_fetch_log.push({ url: url.substring(0, 120), time: Date.now() })
+    window.__mediagen_fetch_log.push({ url: url.substring(0, 120), time: Date.now() })
 
     const resp = await origFetch.apply(this, args)
 
     // 拦截生成请求
-    if (isBatchGenerate(url) && window.__frame64?.status === 'generating') {
+    if (isBatchGenerate(url) && window.__mediagen?.status === 'generating') {
       try {
         const cloned = resp.clone()
         const data = await cloned.json()
@@ -114,7 +114,7 @@
         const cloned = resp.clone()
         const data = await cloned.json()
         if (data?.media?.workflowId) {
-          window.__frame64_uploaded_refs.push({
+          window.__mediagen_uploaded_refs.push({
             name: data.media.name,
             workflowId: data.media.workflowId,
           })
@@ -135,13 +135,13 @@
   const origOpenToString = Function.prototype.toString.call(origXHROpen)
   const origSendToString = Function.prototype.toString.call(origXHRSend)
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-    this.__frame64_url = url || ''
+    this.__mediagen_url = url || ''
     return origXHROpen.call(this, method, url, ...rest)
   }
   XMLHttpRequest.prototype.send = function (...args) {
-    if (isBatchGenerate(this.__frame64_url)) {
+    if (isBatchGenerate(this.__mediagen_url)) {
       this.addEventListener('load', function () {
-        if (window.__frame64?.status !== 'generating') return
+        if (window.__mediagen?.status !== 'generating') return
         try {
           const data = JSON.parse(this.responseText)
           if (this.status >= 200 && this.status < 300) {
@@ -161,6 +161,6 @@
   Object.defineProperty(XMLHttpRequest.prototype.open, 'toString', { enumerable: false })
   Object.defineProperty(XMLHttpRequest.prototype.send, 'toString', { enumerable: false })
 
-  window.__frame64_fetch_hooked = true
+  window.__mediagen_fetch_hooked = true
   return JSON.stringify({ hooked: true, reused: false, baseline: currentImgs.length })
 })()

@@ -10,7 +10,7 @@
  *   node scripts/gates/check-coverage-gate.mjs --app   # app UI + Rust
  *
  * 跳过：
- *   FRAME64_SKIP_COVERAGE_GATE=1 node scripts/gates/check-coverage-gate.mjs
+ *   MEDIAGEN_SKIP_COVERAGE_GATE=1 node scripts/gates/check-coverage-gate.mjs
  */
 
 import { spawnSync } from 'node:child_process'
@@ -333,7 +333,7 @@ function runRustCoverage() {
 }
 
 function main() {
-  if (process.env.FRAME64_SKIP_COVERAGE_GATE === '1') {
+  if (process.env.MEDIAGEN_SKIP_COVERAGE_GATE === '1') {
     console.log('[coverage-gate] 已通过环境变量跳过覆盖率门禁。')
     return
   }

@@ -37,7 +37,7 @@ fn merge_skips_empty_values() {
 #[test]
 fn prepare_profile_cleans_existing_profile_idempotently() {
     let tmp = std::env::temp_dir().join(format!(
-        "frame64-prepare-profile-test-{}",
+        "mediagen-prepare-profile-test-{}",
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&tmp).unwrap();

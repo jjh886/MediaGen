@@ -34,6 +34,13 @@ function markVisible(el: Element | null, rect = { width: 120, height: 32, x: 0, 
 }
 
 async function runScriptJson(name: string) {
+  if (
+    name === 'probe_image_mode.js' ||
+    name === 'select_ratio.js' ||
+    name === 'wait_ratio_menu_option.js'
+  ) {
+    window.eval(readScript('dom_helpers.js'))
+  }
   const raw = window.eval(readScript(name))
   const value = raw instanceof Promise ? await raw : raw
   return JSON.parse(String(value))
@@ -73,7 +80,7 @@ describe('chatgpt plugin scripts', () => {
     const result = await runScriptJson('select_ratio.js')
     expect(result.prepared).toBe(true)
     expect(result.trigger_text).toContain('auto choose image aspect ratio')
-    expect(document.querySelector('[data-frame64-cgpt-ratio-trigger="true"]')).toBe(
+    expect(document.querySelector('[data-mediagen-cgpt-ratio-trigger="true"]')).toBe(
       document.querySelector('#ratio-trigger')
     )
   })
@@ -101,7 +108,7 @@ describe('chatgpt plugin scripts', () => {
     expect(result.already_in_image_mode).toBe(false)
     expect(result.entry_via).toBe('direct')
     expect(result.skip_create_image_entry).toBe(true)
-    expect(document.querySelector('[data-frame64-cgpt-image-entry="true"]')).toBe(
+    expect(document.querySelector('[data-mediagen-cgpt-image-entry="true"]')).toBe(
       document.querySelector('#image-entry')
     )
   })
@@ -142,8 +149,8 @@ describe('chatgpt plugin scripts', () => {
     expect(result.found).toBe(true)
     expect(result.target_text).toBe('故事')
     expect(result.target_ratio).toBe('9:16')
-    expect(result.selector).toBe('[data-frame64-cgpt-ratio-option="true"]')
-    expect(document.querySelector('[data-frame64-cgpt-ratio-option="true"]')).toBe(
+    expect(result.selector).toBe('[data-mediagen-cgpt-ratio-option="true"]')
+    expect(document.querySelector('[data-mediagen-cgpt-ratio-option="true"]')).toBe(
       document.querySelector('[role="menuitemradio"]')
     )
   })
@@ -266,7 +273,7 @@ describe('chatgpt plugin scripts', () => {
     const result = await pending
     expect(result.ready).toBe(true)
     expect(result.confirmedBy).toBe('upload_process_stream')
-    expect(document.querySelector('[data-frame64-cgpt-send-button="true"]')).toBe(
+    expect(document.querySelector('[data-mediagen-cgpt-send-button="true"]')).toBe(
       document.querySelector('#send')
     )
   })

@@ -94,10 +94,10 @@
           "save_as": "page_ready"
         },
         {
-          "_comment": "6. 注入参数（模型名、比例、数量、参考图 data URLs）到 window.__frame64_params",
+          "_comment": "6. 注入参数（模型名、比例、数量、参考图 data URLs）到 window.__mediagen_params",
           "action": "browser.run_script",
           "session_id": "{{browser.session_id}}",
-          "script": "window.__frame64_params = { model_display_name: '{{js:model_display_name}}', ratio: '{{js:image_aspect_ratio}}', count: {{max_images}}, ref_image_dataurls: JSON.parse('{{js:ref_image_dataurls}}' || '[]') }; JSON.stringify({set: true, refs: window.__frame64_params.ref_image_dataurls.length})",
+          "script": "window.__mediagen_params = { model_display_name: '{{js:model_display_name}}', ratio: '{{js:image_aspect_ratio}}', count: {{max_images}}, ref_image_dataurls: JSON.parse('{{js:ref_image_dataurls}}' || '[]') }; JSON.stringify({set: true, refs: window.__mediagen_params.ref_image_dataurls.length})",
           "save_as": "params_set"
         },
         {

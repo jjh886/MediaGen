@@ -4,6 +4,7 @@
 ;(async () => {
   const SK = Symbol.for('_cgpt')
   const state = window[SK] || (window[SK] = {})
+  const dom = state.dom
   const params = state.params || {}
 
   const normalizeRatio = (value) => {
@@ -37,83 +38,18 @@
     '4:3',
     '16:9',
   ]
-  const markerAttr = 'data-frame64-cgpt-ratio-trigger'
-
-  const interactiveSelector = [
-    'button',
-    '[role="button"]',
-    '[role="tab"]',
-    '[role="radio"]',
-    '[role="menuitem"]',
-    '[role="menuitemradio"]',
-    '[role="option"]',
-    'label',
-  ].join(', ')
-
-  const visible = (el) => {
-    if (!el) return false
-    const rect = el.getBoundingClientRect()
-    if (rect.width <= 0 || rect.height <= 0) return false
-    const style = window.getComputedStyle(el)
-    if (!style) return true
-    if (style.display === 'none') return false
-    if (style.visibility === 'hidden') return false
-    if (style.pointerEvents === 'none') return false
-    return Number(style.opacity || '1') !== 0
-  }
-
-  const textOf = (el) =>
-    [
-      el?.textContent || '',
-      el?.getAttribute?.('aria-label') || '',
-      el?.getAttribute?.('title') || '',
-      el?.getAttribute?.('data-testid') || '',
-      el?.getAttribute?.('value') || '',
-    ]
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase()
+  const markerAttr = 'data-mediagen-cgpt-ratio-trigger'
 
   const matchesRatio = (el, ratio) => {
-    const haystack = textOf(el)
+    const haystack = dom?.textOf(el) || ''
     if (!haystack) return false
     return (ratioAliases[ratio] || []).some((token) =>
       haystack.includes(String(token).toLowerCase())
     )
   }
 
-  const hasComposerControl = (root) =>
-    !!root?.querySelector('#composer-plus-btn') ||
-    !!root?.querySelector('input#upload-files[type=file]')
-
-  const hasImageishControl = (root) =>
-    Array.from(root?.querySelectorAll(interactiveSelector) || [])
-      .filter(visible)
-      .some((el) => {
-        const text = textOf(el)
-        return (
-          text.includes('图片') ||
-          text.includes('image') ||
-          triggerTextTokens.some((token) => text.includes(String(token).toLowerCase()))
-        )
-      })
-
-  const fallbackComposerRoot = (textarea) =>
-    textarea.closest('form') || textarea.parentElement || document.body || document.documentElement
-
   const findComposerRoot = () => {
-    const textarea = document.querySelector('#prompt-textarea')
-    if (!textarea) return document.body || document.documentElement
-
-    let best = textarea.parentElement
-    let current = textarea.parentElement
-    while (current) {
-      if (hasComposerControl(current) && hasImageishControl(current)) best = current
-      current = current.parentElement
-    }
-
-    return best || fallbackComposerRoot(textarea)
+    return dom?.findComposerRoot({ requireImageish: true, imageTokens: triggerTextTokens })
   }
 
   const isHistoryCandidate = (el) => {
@@ -122,7 +58,7 @@
   }
 
   const ratioEvidenceScore = (el) => {
-    const text = textOf(el)
+    const text = dom?.textOf(el) || ''
     if (!text) return 0
     if (nonRatioTokens.some((token) => text.includes(token.toLowerCase()))) return 0
 
@@ -143,11 +79,7 @@
   }
 
   const collectRatioCandidates = (root) =>
-    Array.from(root.querySelectorAll(interactiveSelector))
-      .filter(visible)
-      .filter((el) => !el.closest('[role="menu"]'))
-      .filter((el) => !el.closest('nav, aside'))
-      .filter((el) => !isHistoryCandidate(el))
+    dom.collectInteractive(root).filter((el) => !isHistoryCandidate(el))
 
   const findRatioTrigger = () => {
     const candidates = collectRatioCandidates(findComposerRoot())
@@ -163,7 +95,17 @@
   }
 
   try {
-    document.querySelectorAll(`[${markerAttr}]`).forEach((el) => el.removeAttribute(markerAttr))
+    if (!dom) {
+      return JSON.stringify({
+        selected: false,
+        ratio: targetRatio,
+        fallback: 'prompt_only',
+        reason: 'dom_helper_missing',
+        trigger_selector: '',
+      })
+    }
+
+    dom.clearMarker(markerAttr)
 
     const trigger = findRatioTrigger()
     if (!trigger) {
@@ -182,7 +124,7 @@
       prepared: true,
       ratio: targetRatio,
       strategy: 'trigger_marked',
-      trigger_text: textOf(trigger),
+      trigger_text: dom.textOf(trigger),
       trigger_selector: `[${markerAttr}="true"]`,
     })
   } catch (e) {

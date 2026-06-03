@@ -30,6 +30,11 @@ const labelStyle: React.CSSProperties = {
   fontSize: 13,
 }
 
+function toNonNegativeInt(value: string) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0
+}
+
 export default function AccountConfigModal({
   open,
   onClose,
@@ -54,9 +59,9 @@ export default function AccountConfigModal({
     if (!account) return
     await onSave(account.id, {
       tier,
-      concurrency_limit: Number(concurrency) || 1,
-      daily_limit: Number(dailyLimit) || 0,
-      total_limit: Number(totalLimit) || 0,
+      concurrency_limit: toNonNegativeInt(concurrency),
+      daily_limit: toNonNegativeInt(dailyLimit),
+      total_limit: toNonNegativeInt(totalLimit),
     })
     onClose()
   }
@@ -66,6 +71,7 @@ export default function AccountConfigModal({
       open={open}
       onClose={onClose}
       title="账号配置"
+      closeOnOverlayClick={false}
       footer={
         <>
           <KtButton variant="default" onClick={onClose}>
@@ -86,7 +92,7 @@ export default function AccountConfigModal({
           <label style={labelStyle}>并发数</label>
           <KtInput
             type="number"
-            min={1}
+            min={0}
             max={10}
             value={concurrency}
             onChange={(e) => setConcurrency(e.target.value)}

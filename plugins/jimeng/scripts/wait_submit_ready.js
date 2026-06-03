@@ -2,20 +2,18 @@
 ;(async () => {
   const SK = Symbol.for('_jimeng')
   const state = window[SK] || {}
-  const markerAttr = 'data-frame64-jimeng-submit'
+  const markerAttr = 'data-mediagen-jimeng-submit'
   const expectedRefs = Number(state.params?.refCount || 0)
   const expectedRatio = String(state.params?.ratio || '').trim()
   const expectedModel = String(state.params?.modelDisplayName || state.params?.modelId || '').trim()
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, Number(ms) || 0))
 
   const isVisible = (el) => {
-    if (!el) return false
-    const rect = el.getBoundingClientRect?.()
-    if (!rect || rect.width <= 0 || rect.height <= 0) return false
+    const rect = el?.getBoundingClientRect?.()
+    if (!rect || Math.min(rect.width, rect.height) <= 0) return false
     const style = window.getComputedStyle?.(el)
-    return (
-      !style || (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0')
-    )
+    if (!style) return true
+    return [style.display, style.visibility, style.opacity].join('|') !== 'none|hidden|0'
   }
 
   const isInsideResultStream = (el) =>

@@ -6,7 +6,7 @@
   const submitAt = Number(state.submit_started_at || 0)
   const elapsed = now - (state.startTime || now)
   const submitElapsed = submitAt > 0 ? now - submitAt : 0
-  const conversationMarkerAttr = 'data-frame64-jimeng-task-conversation'
+  const conversationMarkerAttr = 'data-mediagen-jimeng-task-conversation'
 
   const textOf = (el) => (el?.textContent || '').replace(/\s+/g, ' ').trim()
   const classOf = (el) => String(el?.className || '')

@@ -203,6 +203,20 @@
 
   const toUrl = (input) => (typeof input === 'string' ? input : input?.url || '')
 
+  const disguiseFetch = (fetchFn, nativeSource) => {
+    Object.defineProperty(fetchFn, 'toString', {
+      value() {
+        return nativeSource
+      },
+      writable: false,
+      enumerable: false,
+      configurable: true,
+    })
+    try {
+      Object.defineProperty(fetchFn, 'name', { value: 'fetch', configurable: true })
+    } catch (_) {}
+  }
+
   const normalizeImage = (item) => {
     const large = item?.image?.large_images?.[0] || {}
     const common = item?.common_attr || {}
@@ -382,25 +396,17 @@
     }
     return resp
   }
-  Object.defineProperty(window.fetch, 'toString', {
-    value: () => origFetchToString,
-    writable: false,
-    enumerable: false,
-    configurable: true,
-  })
-  try {
-    Object.defineProperty(window.fetch, 'name', { value: 'fetch', configurable: true })
-  } catch (_) {}
+  disguiseFetch(window.fetch, origFetchToString)
 
   const origOpen = XMLHttpRequest.prototype.open
   const origSend = XMLHttpRequest.prototype.send
   XMLHttpRequest.prototype.open = function (method, url) {
-    this.__frame64JimengUrl = String(url || '')
+    this.__mediagenJimengUrl = String(url || '')
     return origOpen.apply(this, arguments)
   }
   XMLHttpRequest.prototype.send = function (body) {
     const taskToken = state.task_token
-    const url = this.__frame64JimengUrl || ''
+    const url = this.__mediagenJimengUrl || ''
     const bodyText = typeof body === 'string' ? body : ''
     const patchedBodyText = patchGenerateBodyText(url, bodyText)
     const sendBody = patchedBodyText !== bodyText ? patchedBodyText : body

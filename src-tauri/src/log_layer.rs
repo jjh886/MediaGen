@@ -28,8 +28,8 @@ impl<S: Subscriber> Layer<S> for SqliteLogLayer {
         let meta = event.metadata();
         let target = meta.target();
 
-        // 只捕获 Frame64 自身模块的日志，避免第三方库日志把数据库刷爆。
-        if !target.starts_with("frame64") {
+        // 只捕获 MediaGen 自身模块的日志，避免第三方库日志把数据库刷爆。
+        if !target.starts_with("mediagen") {
             return;
         }
 

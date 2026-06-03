@@ -1,10 +1,11 @@
 ;(() => {
   const SK = Symbol.for('_cgpt')
   const state = window[SK] || {}
+  const visible = state.dom?.isVisible || (() => false)
   const params = state.params || {}
   const target = String(params.ratioLabel || '').trim()
   const ratio = String(params.ratio || '').trim()
-  const markerAttr = 'data-frame64-cgpt-ratio-option'
+  const markerAttr = 'data-mediagen-cgpt-ratio-option'
   const menuLabelTokens = ['choose image aspect ratio', 'image aspect ratio', '宽高比', '比例']
   const ratioTokens = [target, ratio].filter(Boolean)
   const allRatioTokens = [
@@ -19,18 +20,6 @@
     '竖版',
     '横屏',
   ]
-
-  const visible = (el) => {
-    if (!el) return false
-    const rect = el.getBoundingClientRect()
-    if (rect.width <= 0 || rect.height <= 0) return false
-    const style = window.getComputedStyle(el)
-    if (!style) return true
-    if (style.display === 'none') return false
-    if (style.visibility === 'hidden') return false
-    if (style.pointerEvents === 'none') return false
-    return Number(style.opacity || '1') !== 0
-  }
 
   const normalize = (text) =>
     String(text || '')

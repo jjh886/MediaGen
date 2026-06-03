@@ -85,7 +85,7 @@ fn parse_partition_key_defaults_when_missing() {
 #[test]
 fn write_cookies_persists_cdp_fields_correctly() {
     let tmp = std::env::temp_dir().join(format!(
-        "frame64-cookie-fields-test-{}",
+        "mediagen-cookie-fields-test-{}",
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&tmp).unwrap();
@@ -146,7 +146,7 @@ fn write_cookies_persists_cdp_fields_correctly() {
 #[test]
 fn write_cookies_replaces_existing_row_via_unique_index() {
     let tmp = std::env::temp_dir().join(format!(
-        "frame64-cookie-replace-test-{}",
+        "mediagen-cookie-replace-test-{}",
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&tmp).unwrap();

@@ -1,4 +1,4 @@
-name: frame64-gates
+name: mediagen-gates
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions: read-all
 
 jobs:
   app:
-    name: Frame64 App Gates
+    name: MediaGen App Gates
     runs-on: macos-14
     timeout-minutes: 30
 

@@ -3,7 +3,7 @@
   const SK = Symbol.for('_jimeng')
   const state = window[SK] || {}
   const targetRatio = String(state.params?.ratio || '9:16').trim() || '9:16'
-  const markerAttr = 'data-frame64-jimeng-ratio-trigger'
+  const markerAttr = 'data-mediagen-jimeng-ratio-trigger'
 
   const isVisible = (el) => {
     if (!el) return false

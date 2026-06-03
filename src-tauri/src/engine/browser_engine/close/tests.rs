@@ -21,14 +21,14 @@ async fn close_without_any_identifier_errors() {
 async fn close_by_profile_is_noop_when_no_state() {
     let engine = BrowserEngine::new();
     let result = engine
-        .close(&json!({ "profile_dir": "/tmp/nonexistent-frame64-test" }))
+        .close(&json!({ "profile_dir": "/tmp/nonexistent-mediagen-test" }))
         .await
         .expect("close 应成功");
     assert_eq!(result.data["closed"], json!(true));
     assert_eq!(result.data["cookies_json"], json!(""));
     assert_eq!(
         result.data["profile_dir"],
-        json!("/tmp/nonexistent-frame64-test")
+        json!("/tmp/nonexistent-mediagen-test")
     );
 }
 
@@ -88,7 +88,7 @@ async fn close_with_session_and_profile_is_safe_when_no_state() {
     let result = engine
         .close(&json!({
             "session_id": "unknown-session",
-            "profile_dir": "/tmp/nonexistent-frame64-test",
+            "profile_dir": "/tmp/nonexistent-mediagen-test",
         }))
         .await
         .expect("空状态 close 必须幂等返回 Ok");

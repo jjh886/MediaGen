@@ -8,7 +8,7 @@ ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 	preflight preflight-format preflight-app preflight-docs format-check check-compat
 
 help: ## 显示帮助信息
-	@echo 'Frame64 根目录命令入口'
+	@echo 'MediaGen 根目录命令入口'
 	@echo ''
 	@echo '常用示例:'
 	@echo '  make dev                启动桌面端开发'
@@ -24,7 +24,7 @@ install: ## 安装依赖
 
 # ─── App ──────────────────────────────────────────────────────────
 
-dev: ## 启动 Frame64 Studio 开发环境
+dev: ## 启动 MediaGen Studio 开发环境
 	cd $(ROOT_DIR) && npm run tauri:dev
 
 build: ## 构建桌面端安装包
@@ -58,7 +58,7 @@ preflight-format: ## 运行仓库级 Prettier 格式校验
 	@npm run format:check
 
 preflight-app: ## 运行 App 完整门禁
-	@echo "=== Frame64 App ==="
+	@echo "=== MediaGen App ==="
 	@cd $(ROOT_DIR) && npm ci && npm run lint && npm run type-check && npm run test && npm run coverage:gate && npm run build
 	@cd $(ROOT_DIR) && npm run cargo-check
 

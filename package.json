@@ -1,5 +1,5 @@
 {
-  "name": "frame64",
+  "name": "mediagen",
   "private": true,
   "version": "0.1.0",
   "description": "OpenAI-compatible image and video generation desktop app.",

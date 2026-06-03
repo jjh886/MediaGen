@@ -8,6 +8,7 @@ interface KtModalProps {
   children: ReactNode
   footer?: ReactNode
   width?: number
+  closeOnOverlayClick?: boolean
 }
 
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
@@ -129,7 +130,15 @@ function ModalPanel({
   )
 }
 
-export function KtModal({ open, onClose, title, children, footer, width = 480 }: KtModalProps) {
+export function KtModal({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+  width = 480,
+  closeOnOverlayClick = true,
+}: KtModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
   useModalEscape(open, onClose)
   useBodyScrollLock(open)
@@ -137,7 +146,7 @@ export function KtModal({ open, onClose, title, children, footer, width = 480 }:
   if (!open) return null
 
   const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === overlayRef.current) onClose()
+    if (closeOnOverlayClick && e.target === overlayRef.current) onClose()
   }
 
   return createPortal(

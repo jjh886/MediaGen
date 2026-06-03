@@ -7,7 +7,7 @@
 // 本实现（串行 + XHR 信号）：
 //   1. 所有 data URL 并发 fetch 成 File；
 //   2. 一张一张 paste，每张 paste 后等 setup_interceptor.js 拦截到的
-//      window.__frame64_uploaded_refs 长度 +1 作为"该张上传完成"的信号；
+//      window.__mediagen_uploaded_refs 长度 +1 作为"该张上传完成"的信号；
 //   3. XHR 信号超时则降级为 DOM 百分比消失兜底；
 //   4. 全部派发完毕后返回。
 //
@@ -15,9 +15,9 @@
 // 更快，且能按张定位失败。
 //
 // 前提：调用本脚本前，setup_interceptor.js 已注入，拦截器在 uploadImage 成功
-// 响应时会 push 到 window.__frame64_uploaded_refs。
+// 响应时会 push 到 window.__mediagen_uploaded_refs。
 //
-// 参考图来源：window.__frame64_params.ref_image_dataurls （data URL 数组）
+// 参考图来源：window.__mediagen_params.ref_image_dataurls （data URL 数组）
 // 返回：JSON 字符串 { pasted, total, uploaded, details: [...] }
 ;(async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -49,11 +49,11 @@
     textbox.dispatchEvent(event)
   }
 
-  // 主信号：拦截器 push 的 __frame64_uploaded_refs 长度达到 target
+  // 主信号：拦截器 push 的 __mediagen_uploaded_refs 长度达到 target
   const waitUploadedCount = async (target, timeoutMs) => {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
-      const arr = window.__frame64_uploaded_refs || []
+      const arr = window.__mediagen_uploaded_refs || []
       if (arr.length >= target) return true
       await sleep(200)
     }
@@ -82,7 +82,7 @@
   }
 
   try {
-    const params = window.__frame64_params || {}
+    const params = window.__mediagen_params || {}
     const urls = Array.isArray(params.ref_image_dataurls) ? params.ref_image_dataurls : []
     if (urls.length === 0) {
       return JSON.stringify({ pasted: 0, total: 0, skipped: true, reason: '无参考图' })
@@ -116,10 +116,10 @@
 
     // 2) 重置拦截器累加器作为串行完成基线
     //    cleanup.js 不依赖其内容（全量 DOM 扫描删图），重置安全
-    if (!Array.isArray(window.__frame64_uploaded_refs)) {
-      window.__frame64_uploaded_refs = []
+    if (!Array.isArray(window.__mediagen_uploaded_refs)) {
+      window.__mediagen_uploaded_refs = []
     }
-    window.__frame64_uploaded_refs.length = 0
+    window.__mediagen_uploaded_refs.length = 0
 
     // 3) 串行 paste：一张完成再派发下一张，保证 ingredients 顺序
     let pasted = 0
@@ -166,7 +166,7 @@
       if (i < ready.length - 1) await sleep(300)
     }
 
-    const uploaded = (window.__frame64_uploaded_refs?.length || 0) >= ready.length
+    const uploaded = (window.__mediagen_uploaded_refs?.length || 0) >= ready.length
 
     return JSON.stringify({ pasted, total: urls.length, uploaded, details })
   } catch (e) {

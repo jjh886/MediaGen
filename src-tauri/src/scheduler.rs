@@ -211,8 +211,8 @@ impl Scheduler {
         if account.login_state != LoginState::Available {
             return false;
         }
-        // ② active_tasks < concurrency_limit
-        if active >= account.concurrency_limit {
+        // ② active_tasks < concurrency_limit；0 表示不限制账号并发。
+        if account.concurrency_limit > 0 && active >= account.concurrency_limit {
             return false;
         }
         // ③ used_today < daily_limit（0 表示无限制）
@@ -250,38 +250,10 @@ mod tests {
     use chrono::{Duration, Utc};
 
     fn make_test_account(id: &str, platform: &str) -> PlatformAccount {
-        let now = Utc::now();
-        PlatformAccount {
-            id: id.to_string(),
-            platform: platform.to_string(),
-            name: String::new(),
-            notes: String::new(),
-            login_state: LoginState::Available,
-            login_state_reason: String::new(),
-            login_state_updated_at: now,
-            cookies: String::new(),
-            api_token: String::new(),
-            refresh_token: String::new(),
-            token_expires_at: None,
-            profile_dir: String::new(),
-            tier: String::new(),
-            concurrency_limit: 2,
-            daily_limit: 0,
-            total_limit: 0,
-            used_today: 0,
-            used_total: 0,
-            usage_date: String::new(),
-            cooldown_until: None,
-            user_id: String::new(),
-            username: String::new(),
-            email: String::new(),
-            avatar_url: String::new(),
-            password_encrypted: String::new(),
-            created_at: now,
-            last_check_at: Some(now),
-            last_refreshed_at: None,
-            last_used_at: None,
-        }
+        let mut account = crate::types::platform_account_fixture(id, platform);
+        account.tier.clear();
+        account.concurrency_limit = 2;
+        account
     }
 
     #[test]
@@ -372,6 +344,21 @@ mod tests {
         sched.decrement_active("a1");
         sched.decrement_active("a1");
         assert_eq!(sched.active_count("a1"), 0);
+    }
+
+    #[test]
+    fn test_zero_concurrency_limit_is_unlimited() {
+        let mut sched = Scheduler::new();
+        let mut acc = make_test_account("a1", "chatgpt");
+        acc.concurrency_limit = 0;
+        sched.increment_active("a1");
+        sched.increment_active("a1");
+
+        assert!(Scheduler::can_schedule(&acc, sched.active_count("a1"), 300));
+
+        let accounts = vec![acc];
+        let result = sched.allocate("chatgpt", &accounts, 300);
+        assert_eq!(result, Some("a1".to_string()));
     }
 
     #[test]

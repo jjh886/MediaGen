@@ -1,10 +1,10 @@
 // Flow: 选择比例/数量/模型
-// 输入: window.__frame64_params = { model_display_name, ratio, count }
-// 所有点击都用坐标计算 + CDP 可信鼠标事件（通过 window.__frame64_cdp_click 回调）
+// 输入: window.__mediagen_params = { model_display_name, ratio, count }
+// 所有点击都用坐标计算 + CDP 可信鼠标事件（通过 window.__mediagen_cdp_click 回调）
 // 如果 CDP 点击不可用，降级为 dispatchEvent 模拟
 ;(async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-  const params = window.__frame64_params || {}
+  const params = window.__mediagen_params || {}
   const targetModel = params.model_display_name || 'Nano Banana Pro'
   const targetRatio = params.ratio || '9:16'
   const targetCount = params.count || 1

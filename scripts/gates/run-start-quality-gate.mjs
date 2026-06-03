@@ -18,14 +18,14 @@ const CURRENT_FILE = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(CURRENT_FILE), '..', '..')
 const SUPPORTED_MODULES = ['app']
 const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.go', '.rs'])
-const CHANGED_FILES_ENV_KEY = 'FRAME64_CHANGED_FILES_JSON'
+const CHANGED_FILES_ENV_KEY = 'MEDIAGEN_CHANGED_FILES_JSON'
 const MODULE_PREFIXES = {
   app: ['src/', 'src-tauri/', 'plugins/', 'scripts/'],
 }
 
 function parseArgs(argv) {
   let modules = []
-  let includeCoverage = process.env.FRAME64_INCLUDE_COVERAGE_GATE === '1'
+  let includeCoverage = process.env.MEDIAGEN_INCLUDE_COVERAGE_GATE === '1'
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
@@ -383,7 +383,7 @@ function runCoverageChecks(moduleName) {
 }
 
 async function main() {
-  if (process.env.FRAME64_SKIP_START_QUALITY_GATE === '1') {
+  if (process.env.MEDIAGEN_SKIP_START_QUALITY_GATE === '1') {
     console.log('[start-quality] 已通过上层入口执行过质量门禁，当前启动跳过重复检查。')
     return
   }

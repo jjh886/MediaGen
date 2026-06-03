@@ -2,7 +2,7 @@
 # Claude Code Stop hook：质量门禁自动检查
 #
 # 在 Claude 每次完成回复后，自动检测哪些模块有改动，并执行该模块对应的门禁检查。
-# Frame64 是独立桌面应用，检查范围集中在 src、src-tauri、plugins 和 scripts。
+# MediaGen 是独立桌面应用，检查范围集中在 src、src-tauri、plugins 和 scripts。
 #
 # 如果门禁失败（非零退出），Claude 会自动看到错误输出并尝试修复。
 # 跳过方式：export SKIP_CLAUDE_QUALITY_GATE=1
@@ -19,7 +19,7 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
 fi
 
 # 允许通过环境变量跳过
-if [ "${SKIP_CLAUDE_QUALITY_GATE:-}" = "1" ] || [ "${FRAME64_SKIP_CLAUDE_QUALITY_GATE:-}" = "1" ]; then
+if [ "${SKIP_CLAUDE_QUALITY_GATE:-}" = "1" ] || [ "${MEDIAGEN_SKIP_CLAUDE_QUALITY_GATE:-}" = "1" ]; then
   exit 0
 fi
 
@@ -66,9 +66,9 @@ FAILED_MODULES=""
 if has_app_changes; then
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "[claude-hook] Frame64 App 有改动，执行门禁检查..."
+  echo "[claude-hook] MediaGen App 有改动，执行门禁检查..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  if ! FRAME64_CHANGED_FILES_JSON="$SESSION_FILES_JSON" node scripts/gates/run-start-quality-gate.mjs --modules app; then
+  if ! MEDIAGEN_CHANGED_FILES_JSON="$SESSION_FILES_JSON" node scripts/gates/run-start-quality-gate.mjs --modules app; then
     FAILED_MODULES="$FAILED_MODULES app"
   fi
 fi

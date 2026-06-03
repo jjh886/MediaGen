@@ -2,7 +2,7 @@
   const SK = Symbol.for('_jimeng')
   const state = (window[SK] = window[SK] || {})
   const nextTaskToken = () => `jimeng_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  const conversationMarkerAttr = 'data-frame64-jimeng-task-conversation'
+  const conversationMarkerAttr = 'data-mediagen-jimeng-task-conversation'
 
   const textOf = (el) => (el?.textContent || '').replace(/\s+/g, ' ').trim()
   const classOf = (el) => String(el?.className || '')

@@ -42,7 +42,7 @@ describe('jimeng plugin scripts', () => {
     setJimengState({})
     const marked = await runScriptJson('mark_submit.js')
     expect(marked.conversation.marked).toBe(true)
-    expect(target?.hasAttribute('data-frame64-jimeng-task-conversation')).toBe(true)
+    expect(target?.hasAttribute('data-mediagen-jimeng-task-conversation')).toBe(true)
 
     const result = await runScriptJson('delete_current_conversation.js')
     expect(result.deleted).toBe(true)

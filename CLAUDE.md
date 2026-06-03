@@ -1,6 +1,6 @@
 ## 1. 产品上下文
 
-Frame64 Studio 是一个独立桌面应用，用本地 OpenAI 兼容 API 和浏览器/API 插件驱动图片生成平台。
+MediaGen Studio 是一个独立桌面应用，用本地 OpenAI 兼容 API 和浏览器/API 插件驱动图片与视频生成平台。
 图片接口直接返回 OpenAI 风格的 base64 JSON，不依赖外部业务系统上传或回写链路。
 
 **核心架构**：React 桌面界面 + Tauri Rust 运行时 + 本地 HTTP API + 薄插件。新平台优先通过

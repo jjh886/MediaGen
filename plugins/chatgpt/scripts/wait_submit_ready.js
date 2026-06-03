@@ -4,7 +4,7 @@
   const state = window[SK] || {}
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   const expectedRefs = Number(state?.params?.refCount || 0)
-  const markerAttr = 'data-frame64-cgpt-send-button'
+  const markerAttr = 'data-mediagen-cgpt-send-button'
 
   const norm = (text) =>
     String(text || '')

@@ -256,12 +256,12 @@ describe('jimeng plugin scripts', () => {
     const prepared = await runScriptJson('select_model.js')
     expect(prepared.prepared).toBe(true)
     expect(prepared.target).toBe('图片 4.1')
-    expect(model?.getAttribute('data-frame64-jimeng-model-trigger')).toBe('true')
+    expect(model?.getAttribute('data-mediagen-jimeng-model-trigger')).toBe('true')
 
     const option = await runScriptJson('wait_model_option.js')
     expect(option.found).toBe(true)
-    expect(option.selector).toBe('[data-frame64-jimeng-model-option="true"]')
-    expect(target?.getAttribute('data-frame64-jimeng-model-option')).toBe('true')
+    expect(option.selector).toBe('[data-mediagen-jimeng-model-option="true"]')
+    expect(target?.getAttribute('data-mediagen-jimeng-model-option')).toBe('true')
   })
 
   it('select_ratio marks trigger and wait_ratio_option marks target ratio option', async () => {
@@ -282,13 +282,13 @@ describe('jimeng plugin scripts', () => {
 
     const prepared = await runScriptJson('select_ratio.js')
     expect(prepared.prepared).toBe(true)
-    expect(prepared.trigger_selector).toBe('[data-frame64-jimeng-ratio-trigger="true"]')
-    expect(ratioButton?.getAttribute('data-frame64-jimeng-ratio-trigger')).toBe('true')
+    expect(prepared.trigger_selector).toBe('[data-mediagen-jimeng-ratio-trigger="true"]')
+    expect(ratioButton?.getAttribute('data-mediagen-jimeng-ratio-trigger')).toBe('true')
 
     const option = await runScriptJson('wait_ratio_option.js')
     expect(option.found).toBe(true)
-    expect(option.selector).toBe('[data-frame64-jimeng-ratio-option="true"]')
-    expect(target?.getAttribute('data-frame64-jimeng-ratio-option')).toBe('true')
+    expect(option.selector).toBe('[data-mediagen-jimeng-ratio-option="true"]')
+    expect(target?.getAttribute('data-mediagen-jimeng-ratio-option')).toBe('true')
   })
 
   it('wait_submit_ready marks a usable jimeng submit button', async () => {
@@ -327,8 +327,8 @@ describe('jimeng plugin scripts', () => {
 
     const result = await runScriptJson('wait_submit_ready.js')
     expect(result.ready).toBe(true)
-    expect(result.selector).toBe('[data-frame64-jimeng-submit="true"]')
-    expect(document.querySelector('[data-frame64-jimeng-submit="true"]')).toBe(
+    expect(result.selector).toBe('[data-mediagen-jimeng-submit="true"]')
+    expect(document.querySelector('[data-mediagen-jimeng-submit="true"]')).toBe(
       document.querySelector('#submit')
     )
   })
@@ -368,7 +368,7 @@ describe('jimeng plugin scripts', () => {
     expect(result.ready).toBe(true)
     expect(editor?.textContent).toContain('prompt')
     expect(editor?.textContent).toContain('画面比例：9:16')
-    expect(document.querySelector('[data-frame64-jimeng-submit="true"]')).toBe(
+    expect(document.querySelector('[data-mediagen-jimeng-submit="true"]')).toBe(
       document.querySelector('#submit')
     )
   })
@@ -377,7 +377,7 @@ describe('jimeng plugin scripts', () => {
     document.body.innerHTML = `
       <button
         class="lv-btn lv-btn-primary lv-btn-size-default lv-btn-shape-circle lv-btn-icon-only submit-button-xdhu0e"
-        data-frame64-jimeng-submit="true"
+        data-mediagen-jimeng-submit="true"
         type="button"
         id="submit"
       ></button>

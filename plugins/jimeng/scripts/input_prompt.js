@@ -8,13 +8,11 @@
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
   const isVisible = (el) => {
-    if (!el) return false
-    const rect = el.getBoundingClientRect?.()
-    if (!rect || rect.width <= 0 || rect.height <= 0) return false
+    const rect = el?.getBoundingClientRect?.()
+    if (!rect || Math.min(rect.width, rect.height) <= 0) return false
     const style = window.getComputedStyle?.(el)
-    return (
-      !style || (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0')
-    )
+    if (!style) return true
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
   }
 
   const isInsideResultStream = (el) => {
@@ -50,24 +48,26 @@
   const scoreEditor = (el) => {
     if (isUsableEditor(el) < 0) return -1
     const rect = el.getBoundingClientRect?.() || {}
-    let score = 0
     const contextText = editorContextText(el)
-    if (/ProseMirror/.test(contextText)) score += 50
-    if (/prompt-editor|main-content|layout-/.test(contextText)) score += 40
-    if (rect.bottom > window.innerHeight * 0.35) score += 15
-    if (rect.width > 240) score += 10
-    return score
+    return [
+      /ProseMirror/.test(contextText) ? 50 : 0,
+      /prompt-editor|main-content|layout-/.test(contextText) ? 40 : 0,
+      rect.bottom > window.innerHeight * 0.35 ? 15 : 0,
+      rect.width > 240 ? 10 : 0,
+    ].reduce((sum, value) => sum + value, 0)
   }
 
-  const findEditor = () =>
-    [
-      ...document.querySelectorAll(
-        '.ProseMirror[contenteditable="true"], div[role="textbox"][contenteditable="true"]'
-      ),
-    ]
-      .map((el) => ({ el, score: scoreEditor(el) }))
-      .filter((item) => item.score >= 0)
-      .sort((a, b) => b.score - a.score)[0]?.el || null
+  const findEditor = () => {
+    const selector =
+      '.ProseMirror[contenteditable="true"], div[role="textbox"][contenteditable="true"]'
+    return Array.from(document.querySelectorAll(selector)).reduce(
+      (best, el) => {
+        const score = scoreEditor(el)
+        return score > best.score ? { el, score } : best
+      },
+      { el: null, score: -1 }
+    ).el
+  }
 
   const htmlFromText = (text) =>
     text

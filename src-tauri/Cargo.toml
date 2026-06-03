@@ -1,13 +1,13 @@
 [package]
-name = "frame64_desktop"
+name = "mediagen_desktop"
 version = "0.1.0"
-description = "Frame64 Studio - OpenAI-compatible image and video generation app"
-authors = ["Frame64 Team"]
+description = "MediaGen Studio - OpenAI-compatible image and video generation app"
+authors = ["MediaGen Team"]
 edition = "2021"
-default-run = "frame64_desktop"
+default-run = "mediagen_desktop"
 
 [lib]
-name = "frame64_desktop_lib"
+name = "mediagen_desktop_lib"
 crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
@@ -33,6 +33,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "6"
 actix-web = "4"
 actix-cors = "0.7"
+actix-multipart = "0.7"
 actix-rt = "2"
 bytes = "1"
 futures = "0.3"

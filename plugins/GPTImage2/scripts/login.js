@@ -36,7 +36,7 @@ function startCallbackServer() {
   const params = {
     port: 1455,
     path: '/auth/callback',
-    markers: ['frame64-callback-server', 'frame64-gptimage2-callback'],
+    markers: ['mediagen-callback-server', 'mediagen-gptimage2-callback'],
     redirect_host: 'localhost',
   }
   const first = host.tryCall('callback_server.start', params)

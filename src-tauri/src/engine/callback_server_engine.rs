@@ -26,7 +26,7 @@ use http::{read_http_request, write_json_response, write_response, ResponseSpec}
 #[path = "callback_server_engine_tests.rs"]
 mod tests;
 
-const DEFAULT_MARKER: &str = "frame64-callback-server";
+const DEFAULT_MARKER: &str = "mediagen-callback-server";
 
 pub struct CallbackServerEngine {
     servers: Arc<Mutex<HashMap<String, ServerEntry>>>,

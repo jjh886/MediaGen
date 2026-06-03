@@ -95,7 +95,7 @@ mod tests {
             &empty_registry,
             &loader,
             "flow",
-            "/tmp/frame64-test-profile",
+            "/tmp/mediagen-test-profile",
         )
         .await;
     }
@@ -119,7 +119,7 @@ mod tests {
             &empty_registry,
             &loader,
             "nonexistent",
-            "/tmp/frame64-test-profile",
+            "/tmp/mediagen-test-profile",
         )
         .await;
     }

@@ -47,7 +47,7 @@ const DEFAULTS: AppSettings = {
   cache_dir: '',
   auto_register_enabled: true,
   auto_register_password_mode: 'random',
-  auto_register_password: 'Frame64@2026',
+  auto_register_password: 'MediaGen@2026',
   auto_register_birthday_mode: 'random',
   auto_register_birthday: '1995-06-15',
   platform_tier_overrides: '{}',
@@ -56,30 +56,35 @@ const DEFAULTS: AppSettings = {
 const isTauri = '__TAURI_INTERNALS__' in window
 const LS_PREFIX = 'settings:'
 
+function deserializeValue<K extends keyof AppSettings>(
+  key: K,
+  raw: string | null | undefined
+): AppSettings[K] {
+  if (raw === null || raw === undefined) return DEFAULTS[key]
+  if (typeof DEFAULTS[key] === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      // 字符串配置里可能存的是 JSON 原文，例如平台配额覆盖；这类值不能被误转成对象。
+      return (typeof parsed === 'string' ? parsed : raw) as AppSettings[K]
+    } catch {
+      return raw as AppSettings[K]
+    }
+  }
+  try {
+    return JSON.parse(raw) as AppSettings[K]
+  } catch {
+    return DEFAULTS[key]
+  }
+}
+
 export async function getSetting<K extends keyof AppSettings>(key: K): Promise<AppSettings[K]> {
   if (!isTauri) {
     const raw = localStorage.getItem(LS_PREFIX + key)
-    if (raw !== null) {
-      try {
-        return JSON.parse(raw) as AppSettings[K]
-      } catch {
-        /* fallthrough */
-      }
-    }
-    return DEFAULTS[key]
+    return deserializeValue(key, raw)
   }
   try {
     const raw = await tauriInvoke<string | null>('get_settings', { key: String(key) })
-    if (raw !== null && raw !== undefined) {
-      // 数字/布尔用 JSON.parse，字符串直接返回
-      try {
-        const parsed = JSON.parse(raw)
-        // 如果 parse 出的仍是字符串（旧数据被 double-stringify），直接用 parsed
-        return parsed as AppSettings[K]
-      } catch {
-        return raw as AppSettings[K]
-      }
-    }
+    return deserializeValue(key, raw)
   } catch {
     /* command may not exist yet */
   }

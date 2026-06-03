@@ -49,6 +49,45 @@ pub enum LoginState {
     Disabled,
 }
 
+#[cfg(test)]
+pub fn platform_account_fixture(id: &str, platform: &str) -> PlatformAccount {
+    let now = Utc::now();
+    let timestamp = now.to_rfc3339();
+    // 测试只需要一个合法账号基线；用 JSON 样板避免在多个测试模块复制字段清单。
+    serde_json::from_value(serde_json::json!({
+        "id": id,
+        "platform": platform,
+        "name": "",
+        "notes": "",
+        "login_state": "available",
+        "login_state_reason": "",
+        "login_state_updated_at": timestamp,
+        "cookies": "",
+        "api_token": "",
+        "refresh_token": "",
+        "token_expires_at": null,
+        "profile_dir": "",
+        "tier": "free",
+        "concurrency_limit": 1,
+        "daily_limit": 0,
+        "total_limit": 0,
+        "used_today": 0,
+        "used_total": 0,
+        "usage_date": "",
+        "cooldown_until": null,
+        "user_id": "",
+        "username": "",
+        "email": "",
+        "avatar_url": "",
+        "password_encrypted": "",
+        "created_at": timestamp,
+        "last_check_at": timestamp,
+        "last_refreshed_at": null,
+        "last_used_at": null,
+    }))
+    .expect("测试账号样板必须能反序列化")
+}
+
 // ── 任务 ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

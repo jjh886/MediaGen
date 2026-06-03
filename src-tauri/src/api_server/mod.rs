@@ -1,8 +1,12 @@
 mod browser_lifecycle;
 mod image;
+mod image_account;
+mod image_events;
 mod image_handler;
+mod image_multipart;
 mod image_output;
 mod image_refs;
+mod image_sse;
 mod imagex_proxy;
 
 use actix_web::http::header;
@@ -181,7 +185,7 @@ fn normalize_ports(ports: Vec<u16>) -> Vec<u16> {
 }
 
 async fn get_models(state: web::Data<AppState>) -> HttpResponse {
-    let models: Vec<serde_json::Value> = state
+    let mut models: Vec<serde_json::Value> = state
         .plugin_loader
         .all_models()
         .into_iter()
@@ -196,6 +200,19 @@ async fn get_models(state: web::Data<AppState>) -> HttpResponse {
             })
         })
         .collect();
+    models.extend(state.plugin_loader.openai_image_aliases().into_iter().map(
+        |(alias, manifest, target)| {
+            serde_json::json!({
+                "id": alias,
+                "object": "model",
+                "created": 0,
+                "owned_by": manifest.platform_id,
+                "display_name": alias,
+                "task_kind": target.task_kind,
+                "alias_of": target.model_id,
+            })
+        },
+    ));
 
     HttpResponse::Ok().json(serde_json::json!({
         "object": "list",
@@ -209,11 +226,21 @@ pub(crate) enum ImageEndpoint {
     Edit,
 }
 
+impl ImageEndpoint {
+    pub(crate) fn completed_event_type(self) -> &'static str {
+        match self {
+            Self::Generation => "image_generation.completed",
+            Self::Edit => "image_edit.completed",
+        }
+    }
+}
+
 /// OpenAI Image API 风格请求体。
-/// 当前桌面端只接收 JSON；图片输入使用 `images[].image_url`，支持 HTTP URL 和 data URL。
+/// 生成接口接收 JSON；编辑接口同时接收 JSON 和 OpenAI SDK 默认的 multipart 文件上传。
 #[derive(Clone, Debug, Deserialize)]
 #[allow(dead_code)]
 pub(crate) struct OpenAiImageRequest {
+    #[serde(default)]
     pub model: String,
     pub prompt: Option<String>,
     #[serde(default)]
@@ -231,6 +258,16 @@ pub(crate) struct OpenAiImageRequest {
     #[serde(default)]
     pub stream: Option<bool>,
     #[serde(default)]
+    pub partial_images: Option<u32>,
+    #[serde(default)]
+    pub output_compression: Option<u32>,
+    #[serde(default)]
+    pub moderation: Option<String>,
+    #[serde(default)]
+    pub input_fidelity: Option<String>,
+    #[serde(default)]
+    pub user: Option<String>,
+    #[serde(default)]
     pub images: Vec<OpenAiImageRef>,
     #[serde(default)]
     pub mask: Option<OpenAiImageRef>,
@@ -247,6 +284,13 @@ pub(crate) struct OpenAiImageRef {
 }
 
 impl OpenAiImageRequest {
+    pub(crate) fn apply_endpoint_defaults(&mut self, endpoint: ImageEndpoint) {
+        if endpoint == ImageEndpoint::Edit && self.model.trim().is_empty() {
+            // OpenAI 的编辑接口 model 是可选项；本地默认落到兼容别名，方便标准 SDK 调用。
+            self.model = "gpt-image-1".to_string();
+        }
+    }
+
     pub(crate) fn prompt_text(&self) -> String {
         self.prompt.clone().unwrap_or_default()
     }
@@ -304,13 +348,6 @@ impl OpenAiImageRequest {
         if self.prompt_text().trim().is_empty() {
             return Err((400, "invalid_request_error", "prompt 不能为空".to_string()));
         }
-        if self.stream == Some(true) {
-            return Err((
-                400,
-                "unsupported_parameter",
-                "Frame64 当前图片接口返回完整 JSON，请不要传 stream=true".to_string(),
-            ));
-        }
         if self
             .response_format
             .as_deref()
@@ -319,7 +356,7 @@ impl OpenAiImageRequest {
             return Err((
                 400,
                 "unsupported_parameter",
-                "Frame64 只返回 base64，请使用 response_format=b64_json 或省略该字段".to_string(),
+                "MediaGen 只返回 base64，请使用 response_format=b64_json 或省略该字段".to_string(),
             ));
         }
         if !matches!(self.output_format().as_str(), "png" | "jpeg" | "webp") {
@@ -334,6 +371,59 @@ impl OpenAiImageRequest {
                 400,
                 "invalid_request_error",
                 "quality 只能是 auto、low、medium 或 high".to_string(),
+            ));
+        }
+        if self
+            .background
+            .as_deref()
+            .is_some_and(|v| !matches!(v, "auto" | "transparent" | "opaque"))
+        {
+            return Err((
+                400,
+                "invalid_request_error",
+                "background 只能是 auto、transparent 或 opaque".to_string(),
+            ));
+        }
+        if self
+            .partial_images
+            .is_some_and(|partial_images| partial_images > 3)
+        {
+            return Err((
+                400,
+                "invalid_request_error",
+                "partial_images 必须在 0 到 3 之间".to_string(),
+            ));
+        }
+        if self
+            .output_compression
+            .is_some_and(|compression| compression > 100)
+        {
+            return Err((
+                400,
+                "invalid_request_error",
+                "output_compression 必须在 0 到 100 之间".to_string(),
+            ));
+        }
+        if self
+            .moderation
+            .as_deref()
+            .is_some_and(|v| !matches!(v, "auto" | "low"))
+        {
+            return Err((
+                400,
+                "invalid_request_error",
+                "moderation 只能是 auto 或 low".to_string(),
+            ));
+        }
+        if self
+            .input_fidelity
+            .as_deref()
+            .is_some_and(|v| !matches!(v, "high" | "low"))
+        {
+            return Err((
+                400,
+                "invalid_request_error",
+                "input_fidelity 只能是 high 或 low".to_string(),
             ));
         }
         if !matches!(
@@ -402,4 +492,6 @@ pub(crate) struct ImageGenContext {
     pub output_format: String,
     pub quality: String,
     pub size: String,
+    pub output_compression: Option<u32>,
+    pub background: Option<String>,
 }

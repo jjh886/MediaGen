@@ -18,7 +18,7 @@ export default function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="sidebar__logo">
-        <span className="sidebar__logo-text">Frame64 Studio</span>
+        <span className="sidebar__logo-text">MediaGen Studio</span>
       </div>
       <nav className="sidebar__nav">
         {NAV_ITEMS.map((item) => {

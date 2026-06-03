@@ -2,7 +2,7 @@
 // 优先级：fetch/XHR 拦截器 > DOM 扫描
 // 超时 600 秒（与豆包一致）
 ;(() => {
-  const state = window.__frame64 || { status: 'generating', startTime: Date.now() }
+  const state = window.__mediagen || { status: 'generating', startTime: Date.now() }
 
   // 拦截器已捕获结果（fifeUrl 直链）
   if (state.status === 'done' && state.url) {
@@ -33,7 +33,7 @@
         height: newImg.naturalHeight || 0,
         source: 'dom_scan',
       }
-      window.__frame64 = { ...state, ...result }
+      window.__mediagen = { ...state, ...result }
       return JSON.stringify(result)
     }
   }
@@ -46,7 +46,7 @@
   for (const phrase of fatalPhrases) {
     if (bodyText.includes(phrase)) {
       const result = { status: 'error', message: `内容审核拦截: "${phrase}"`, retryable: false }
-      window.__frame64 = result
+      window.__mediagen = result
       return JSON.stringify(result)
     }
   }
@@ -57,7 +57,7 @@
     for (const phrase of retryablePhrases) {
       if (bodyText.toLowerCase().includes(phrase.toLowerCase())) {
         const result = { status: 'error', message: `平台受限: "${phrase}"`, retryable: true }
-        window.__frame64 = result
+        window.__mediagen = result
         return JSON.stringify(result)
       }
     }
@@ -66,17 +66,17 @@
   // 超时（600 秒）
   if (elapsed > 600000) {
     const result = { status: 'error', message: '生成超时（600s）' }
-    window.__frame64 = result
+    window.__mediagen = result
     return JSON.stringify(result)
   }
 
   // 诊断信息
-  const fetchLog = window.__frame64_fetch_log || []
+  const fetchLog = window.__mediagen_fetch_log || []
   const batchReqs = fetchLog.filter((f) => f.url?.includes('batchGenerate'))
   return JSON.stringify({
     status: 'generating',
     elapsed: Math.round(elapsed / 1000),
-    fetchHooked: !!window.__frame64_fetch_hooked,
+    fetchHooked: !!window.__mediagen_fetch_hooked,
     totalFetches: fetchLog.length,
     batchGenerateFetches: batchReqs.length,
     currentImgs: generatedImgs.length,

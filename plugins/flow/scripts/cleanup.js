@@ -95,7 +95,7 @@
     }
 
     // 清理状态
-    window.__frame64_uploaded_refs = []
+    window.__mediagen_uploaded_refs = []
 
     return JSON.stringify({
       cleaned: deletedCount,

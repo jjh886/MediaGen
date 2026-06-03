@@ -11,7 +11,7 @@ pub(crate) use account::{default_chrome_candidates, resolve_chrome_path};
 
 #[tauri::command]
 pub fn get_app_info() -> String {
-    "frame64-desktop v0.1.0".to_string()
+    "mediagen-desktop v0.1.0".to_string()
 }
 
 #[tauri::command]
@@ -172,7 +172,15 @@ pub async fn set_setting(
     value: String,
 ) -> Result<(), String> {
     let storage = state.storage.lock_recover();
-    storage.set_setting(&key, &value).map_err(|e| e.to_string())
+    storage
+        .set_setting(&key, &value)
+        .map_err(|e| e.to_string())?;
+    if key == "platform_tier_overrides" {
+        let updated = crate::tier_override::apply_overrides_to_existing_accounts(&storage, &value)
+            .map_err(|e| e.to_string())?;
+        tracing::info!(updated, "平台默认配额已同步到已有账号");
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -421,7 +429,7 @@ mod tests {
 
     #[test]
     fn dir_size_returns_zero_for_missing_path() {
-        let missing = std::path::Path::new("/nonexistent/frame64/cache/xxxx");
+        let missing = std::path::Path::new("/nonexistent/mediagen/cache/xxxx");
         assert_eq!(dir_size(missing), 0);
     }
 

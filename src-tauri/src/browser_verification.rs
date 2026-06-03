@@ -57,7 +57,7 @@ pub enum VerificationOutcome {
 /// 6. 10 分钟内用户处理完 → 恢复账号；超时 → 账号暂停
 ///
 /// TODO(@jijunhong): 验证页面的具体元素（验证码弹窗选择器、完成按钮等）待补充，
-/// 当前依赖 window.__frame64.status 变化和用户手动关闭浏览器来判断验证完成。
+/// 当前依赖 window.__mediagen.status 变化和用户手动关闭浏览器来判断验证完成。
 pub fn open_for_verification(config: VerificationConfig) -> VerificationOutcome {
     let profile = config.profile_dir.clone();
     std::fs::create_dir_all(&profile).ok();
@@ -108,24 +108,28 @@ fn launch_offscreen_browser(
     profile: PathBuf,
 ) -> Result<(Browser, std::sync::Arc<headless_chrome::Tab>), String> {
     let chrome_pb = config.chrome_path.as_ref().map(PathBuf::from);
+    let default_args_to_ignore: Vec<&OsStr> = [
+        "--enable-automation",
+        "--disable-extensions",
+        "--disable-default-apps",
+        "--disable-component-extensions-with-background-pages",
+        "--disable-client-side-phishing-detection",
+        "--disable-sync",
+        "--disable-background-networking",
+        "--metrics-recording-only",
+        "--use-mock-keychain",
+        "--password-store=basic",
+        "--disable-popup-blocking",
+    ]
+    .iter()
+    .map(OsStr::new)
+    .collect();
     let launch_opts = LaunchOptions::default_builder()
         .path(chrome_pb)
         .user_data_dir(Some(profile))
         .window_size(Some((1400, 900)))
         .idle_browser_timeout(std::time::Duration::from_secs(660))
-        .ignore_default_args(vec![
-            OsStr::new("--enable-automation"),
-            OsStr::new("--disable-extensions"),
-            OsStr::new("--disable-default-apps"),
-            OsStr::new("--disable-component-extensions-with-background-pages"),
-            OsStr::new("--disable-client-side-phishing-detection"),
-            OsStr::new("--disable-sync"),
-            OsStr::new("--disable-background-networking"),
-            OsStr::new("--metrics-recording-only"),
-            OsStr::new("--use-mock-keychain"),
-            OsStr::new("--password-store=basic"),
-            OsStr::new("--disable-popup-blocking"),
-        ])
+        .ignore_default_args(default_args_to_ignore)
         .args({
             let args: Vec<&OsStr> = vec![
                 OsStr::new("--remote-allow-origins=*"),
@@ -177,9 +181,9 @@ fn restore_cookies(tab: &headless_chrome::Tab, cookies_json: &str, url: &str) {
     }
 }
 
-fn get_frame64_status(tab: &headless_chrome::Tab) -> Option<String> {
+fn get_mediagen_status(tab: &headless_chrome::Tab) -> Option<String> {
     tab.evaluate(
-        "(window.__frame64 && window.__frame64.status) || 'unknown'",
+        "(window.__mediagen && window.__mediagen.status) || 'unknown'",
         false,
     )
     .ok()
@@ -197,7 +201,7 @@ fn wait_for_verification_trigger(
         if tab.evaluate("1+1", false).is_err() {
             return VerificationOutcome::NoVerificationNeeded(LoginResult::default());
         }
-        match get_frame64_status(tab).as_deref() {
+        match get_mediagen_status(tab).as_deref() {
             Some("done") => {
                 tracing::info!("重发后未触发验证，生成成功，账号正常");
                 return collect_result(tab, config);
@@ -230,7 +234,7 @@ fn show_and_wait_for_user(
         if tab.evaluate("1+1", false).is_err() {
             return collect_result(tab, config);
         }
-        if get_frame64_status(tab).as_deref() == Some("done") {
+        if get_mediagen_status(tab).as_deref() == Some("done") {
             tracing::info!("用户完成验证，生成成功");
             return collect_result(tab, config);
         }

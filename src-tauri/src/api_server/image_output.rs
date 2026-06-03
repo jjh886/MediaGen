@@ -1,4 +1,6 @@
 use base64::prelude::{Engine as _, BASE64_STANDARD};
+use image::ImageFormat;
+use std::io::Cursor;
 
 use super::ImageGenContext;
 use crate::error::AppError;
@@ -97,13 +99,106 @@ async fn consume_polled_image(
         },
     };
 
+    let (bytes, actual_width, actual_height) = match normalize_image_bytes_for_response(
+        bytes,
+        &ctx.output_format,
+        &ctx.size,
+        ctx.output_compression,
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(index = i, error = %e, "图片后处理失败，跳过该图");
+            return None;
+        }
+    };
+
     save_workspace_copy(i, &bytes, ctx, ts);
 
     Some(ImageResult {
         b64_json: BASE64_STANDARD.encode(&bytes),
-        width: w,
-        height: h,
+        width: actual_width.unwrap_or(w),
+        height: actual_height.unwrap_or(h),
     })
+}
+
+fn normalize_image_bytes_for_response(
+    bytes: bytes::Bytes,
+    output_format: &str,
+    requested_size: &str,
+    output_compression: Option<u32>,
+) -> Result<(bytes::Bytes, Option<u64>, Option<u64>), String> {
+    let mut image =
+        image::load_from_memory(&bytes).map_err(|e| format!("读取图片尺寸或格式失败: {e}"))?;
+    let mut width = image.width();
+    let mut height = image.height();
+    let target_size = parse_exact_size(requested_size);
+
+    // OpenAI 的 size/output_format 是响应契约。ChatGPT 网页端可能返回更大的原图，
+    // 这里统一归一化，避免严格客户端拿到“标 1024、实为 1254”的图片。
+    let should_resize =
+        target_size.is_some_and(|(target_w, target_h)| width != target_w || height != target_h);
+    if let Some((target_w, target_h)) = target_size.filter(|_| should_resize) {
+        image = image.resize_exact(target_w, target_h, image::imageops::FilterType::Lanczos3);
+        width = target_w;
+        height = target_h;
+    }
+
+    let should_reencode = should_resize || !bytes_match_output_format(&bytes, output_format);
+    if !should_reencode {
+        return Ok((bytes, Some(width.into()), Some(height.into())));
+    }
+
+    let encoded = encode_image(&image, output_format, output_compression)?;
+    Ok((
+        bytes::Bytes::from(encoded),
+        Some(width.into()),
+        Some(height.into()),
+    ))
+}
+
+fn parse_exact_size(size: &str) -> Option<(u32, u32)> {
+    let (width, height) = size.split_once('x')?;
+    Some((width.parse().ok()?, height.parse().ok()?))
+}
+
+fn bytes_match_output_format(bytes: &[u8], output_format: &str) -> bool {
+    matches!(
+        (image::guess_format(bytes).ok(), output_format),
+        (Some(ImageFormat::Png), "png")
+            | (Some(ImageFormat::Jpeg), "jpeg")
+            | (Some(ImageFormat::WebP), "webp")
+    )
+}
+
+fn encode_image(
+    image: &image::DynamicImage,
+    output_format: &str,
+    output_compression: Option<u32>,
+) -> Result<Vec<u8>, String> {
+    let mut cursor = Cursor::new(Vec::new());
+    match output_format {
+        "jpeg" => {
+            let rgb = image.to_rgb8();
+            let quality = output_compression.unwrap_or(100).clamp(1, 100) as u8;
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, quality);
+            encoder
+                .encode(
+                    rgb.as_raw(),
+                    rgb.width(),
+                    rgb.height(),
+                    image::ExtendedColorType::Rgb8,
+                )
+                .map_err(|e| format!("编码 JPEG 失败: {e}"))?;
+        }
+        "webp" => image
+            .write_to(&mut cursor, ImageFormat::WebP)
+            .map_err(|e| format!("编码 WebP 失败: {e}"))?,
+        _ => image
+            .write_to(&mut cursor, ImageFormat::Png)
+            .map_err(|e| format!("编码 PNG 失败: {e}"))?,
+    }
+    Ok(cursor.into_inner())
 }
 
 fn save_workspace_copy(i: usize, bytes: &[u8], ctx: &ImageGenContext, ts: &str) {
@@ -199,7 +294,10 @@ pub(crate) async fn process_poll_images(
 }
 
 fn single_download_from_value(value: &serde_json::Value) -> Option<(String, u64, u64)> {
-    let url = value["download_url"].as_str()?.trim();
+    let url = value["download_url"]
+        .as_str()
+        .or_else(|| value["url"].as_str())?
+        .trim();
     if url.is_empty() {
         return None;
     }
@@ -228,7 +326,7 @@ pub(crate) async fn download_ref_image(url: &str) -> Result<String, AppError> {
             .await
             .map_err(|e| AppError::PlatformError(format!("参考图读取失败: {e}")))?
     };
-    let path = std::env::temp_dir().join(format!("frame64_ref_{}.png", uuid::Uuid::new_v4()));
+    let path = std::env::temp_dir().join(format!("mediagen_ref_{}.png", uuid::Uuid::new_v4()));
     tokio::fs::write(&path, &bytes).await?;
     Ok(path.to_string_lossy().to_string())
 }
@@ -257,6 +355,53 @@ pub(crate) async fn download_ref_images(urls: &[String]) -> Vec<String> {
 mod tests {
     use super::*;
 
+    fn sample_png(width: u32, height: u32) -> bytes::Bytes {
+        let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            width,
+            height,
+            image::Rgb([20, 40, 80]),
+        ));
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut cursor, ImageFormat::Png).unwrap();
+        bytes::Bytes::from(cursor.into_inner())
+    }
+
+    #[test]
+    fn normalize_image_bytes_resizes_to_requested_size() {
+        let (bytes, width, height) =
+            normalize_image_bytes_for_response(sample_png(4, 2), "png", "2x2", None).unwrap();
+
+        let decoded = image::load_from_memory(&bytes).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (2, 2));
+        assert_eq!((width, height), (Some(2), Some(2)));
+        assert_eq!(image::guess_format(&bytes).unwrap(), ImageFormat::Png);
+    }
+
+    #[test]
+    fn normalize_image_bytes_converts_output_format() {
+        let (bytes, width, height) =
+            normalize_image_bytes_for_response(sample_png(3, 2), "jpeg", "auto", Some(80)).unwrap();
+
+        let decoded = image::load_from_memory(&bytes).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (3, 2));
+        assert_eq!((width, height), (Some(3), Some(2)));
+        assert_eq!(image::guess_format(&bytes).unwrap(), ImageFormat::Jpeg);
+    }
+
+    #[test]
+    fn single_download_accepts_dom_fallback_url() {
+        let item = serde_json::json!({
+            "url": "https://example.test/image.png",
+            "width": 1024,
+            "height": 1024,
+        });
+
+        assert_eq!(
+            single_download_from_value(&item),
+            Some(("https://example.test/image.png".to_string(), 1024, 1024))
+        );
+    }
+
     #[test]
     fn collect_local_downloads_filters_invalid_paths() {
         let dir = tempfile::tempdir().unwrap();
@@ -270,7 +415,7 @@ mod tests {
             },
             crate::types::StepResult {
                 success: true,
-                data: serde_json::json!({ "path": "/tmp/frame64-not-exist.png", "size": 1 }),
+                data: serde_json::json!({ "path": "/tmp/mediagen-not-exist.png", "size": 1 }),
                 error: None,
             },
         ];

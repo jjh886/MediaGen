@@ -42,6 +42,13 @@ describe('getSetting', () => {
     expect(result).toBe('')
   })
 
+  it('非 Tauri 环境返回字符串原值，不把 JSON 字符串解析成对象', async () => {
+    const overrides = '{"chatgpt_free":{"concurrency_limit":0}}'
+    localStorage.setItem('settings:platform_tier_overrides', overrides)
+    const result = await getSetting('platform_tier_overrides')
+    expect(result).toBe(overrides)
+  })
+
   it('非 Tauri 环境返回布尔类型值', async () => {
     localStorage.setItem('settings:auto_register_enabled', 'false')
     const result = await getSetting('auto_register_enabled')
@@ -146,6 +153,17 @@ describe('getSetting (Tauri 环境)', () => {
     const mod = await import('../settings-service')
     const result = await mod.getSetting('cache_dir')
     expect(result).toBe('/custom/path')
+  })
+
+  it('invoke 返回 JSON 对象字符串时，字符串配置仍保持原文', async () => {
+    const overrides = '{"chatgpt_free":{"concurrency_limit":0}}'
+    const localMock = vi.fn().mockResolvedValue(overrides)
+    vi.doMock('@/shared/services/tauri-bridge', () => ({
+      tauriInvoke: localMock,
+    }))
+    const mod = await import('../settings-service')
+    const result = await mod.getSetting('platform_tier_overrides')
+    expect(result).toBe(overrides)
   })
 
   it('invoke 返回 null 时返回默认值', async () => {

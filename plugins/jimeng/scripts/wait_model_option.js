@@ -3,20 +3,19 @@
   const SK = Symbol.for('_jimeng')
   const state = window[SK] || {}
   const rawTarget = String(state.params?.modelDisplayName || state.params?.modelId || '').trim()
-  const markerAttr = 'data-frame64-jimeng-model-option'
+  const markerAttr = 'data-mediagen-jimeng-model-option'
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
   const isVisible = (el) => {
-    if (!el) return false
-    const rect = el.getBoundingClientRect?.()
+    const rect = el?.getBoundingClientRect?.()
     if (!rect || rect.width <= 0 || rect.height <= 0) return false
     const style = window.getComputedStyle?.(el)
+    if (!style) return true
     return (
-      !style ||
-      (style.display !== 'none' &&
-        style.visibility !== 'hidden' &&
-        style.opacity !== '0' &&
-        style.pointerEvents !== 'none')
+      style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
+      style.opacity !== '0' &&
+      style.pointerEvents !== 'none'
     )
   }
 

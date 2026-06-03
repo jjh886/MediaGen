@@ -4,17 +4,17 @@
   const SK = Symbol.for('_jimeng')
   const state = window[SK] || {}
   const snapshot = state.conversation_snapshot || {}
-  const markerAttr = snapshot.attr || 'data-frame64-jimeng-task-conversation'
+  const markerAttr = snapshot.attr || 'data-mediagen-jimeng-task-conversation'
   const token = snapshot.token || state.task_token || ''
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))
 
   const isVisible = (el) => {
-    if (!el) return false
-    const rect = el.getBoundingClientRect?.()
-    if (!rect || rect.width <= 0 || rect.height <= 0) return false
+    const rect = el?.getBoundingClientRect?.()
+    if (!rect || Math.min(rect.width, rect.height) <= 0) return false
     const style = window.getComputedStyle?.(el)
     return (
-      !style || (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0')
+      !style ||
+      !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')
     )
   }
 

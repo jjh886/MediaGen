@@ -72,7 +72,7 @@
           "_comment": "3.5 先探测当前是否已经在图片模式；已在图片模式时不要重复点加号菜单",
           "action": "browser.run_script",
           "session_id": "{{browser.session_id}}",
-          "script_file": "probe_image_mode.js",
+          "script_files": ["dom_helpers.js", "probe_image_mode.js"],
           "await_promise": true,
           "save_as": "image_mode_probe"
         },
@@ -124,7 +124,7 @@
           "_comment": "8. 定位比例触发器并写入稳定标记",
           "action": "browser.run_script",
           "session_id": "{{browser.session_id}}",
-          "script_file": "select_ratio.js",
+          "script_files": ["dom_helpers.js", "select_ratio.js"],
           "await_promise": true,
           "save_as": "ratio_prepared"
         },
@@ -141,7 +141,7 @@
           "_comment": "8.2 等待比例菜单展开并出现目标选项",
           "action": "browser.run_script",
           "session_id": "{{browser.session_id}}",
-          "script_file": "wait_ratio_menu_option.js",
+          "script_files": ["dom_helpers.js", "wait_ratio_menu_option.js"],
           "await_promise": true,
           "save_as": "w_ratio_menu"
         },

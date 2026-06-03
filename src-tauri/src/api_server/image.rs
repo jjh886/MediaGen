@@ -1,24 +1,83 @@
 use actix_web::{web, HttpResponse};
 
 use super::browser_lifecycle::{force_close_browser, force_close_browser_session};
+use super::image_account::{
+    allocate_account_when_available, AccountQueueReporter, ActiveAccountLease, PrepareError,
+};
 use super::image_output::process_poll_images;
 use super::image_refs::fetch_ref_images_as_data_urls;
-use super::{error_response, ImageGenContext, OpenAiImageRequest};
+use super::{error_response, ImageEndpoint, ImageGenContext, OpenAiImageRequest};
 use crate::account_manager::handle_task_failure;
 use crate::orchestrator::Orchestrator;
 use crate::sync_ext::MutexExt;
-use crate::types::{AllocationResult, TaskKind, TaskRecord, TaskStatus};
+use crate::types::{TaskKind, TaskRecord, TaskStatus};
 use crate::AppState;
 
-/// 准备阶段的错误：HTTP 状态码、错误 code、错误详情。
-pub(crate) type PrepareError = (u16, &'static str, String);
+pub(crate) struct ImageApiResponse {
+    pub created: i64,
+    pub images: Vec<String>,
+    pub output_format: String,
+    pub quality: String,
+    pub size: String,
+    pub background: Option<String>,
+}
+
+impl ImageApiResponse {
+    pub(crate) fn to_json_value(&self) -> serde_json::Value {
+        let data: Vec<serde_json::Value> = self
+            .images
+            .iter()
+            .map(|b64_json| serde_json::json!({ "b64_json": b64_json }))
+            .collect();
+        let mut body = serde_json::json!({
+            "created": self.created,
+            "data": data,
+            "output_format": self.output_format,
+            "quality": self.quality,
+            "size": self.size,
+        });
+        if let Some(background) = response_background(self.background.as_deref()) {
+            body["background"] = serde_json::Value::String(background.to_string());
+        }
+        body
+    }
+
+    pub(crate) fn to_sse_body(&self, endpoint: ImageEndpoint) -> String {
+        let event_type = endpoint.completed_event_type();
+        let mut out = String::new();
+        for b64_json in &self.images {
+            let mut payload = serde_json::json!({
+                "type": event_type,
+                "b64_json": b64_json,
+                "created_at": self.created,
+                "size": self.size,
+                "quality": self.quality,
+                "output_format": self.output_format,
+            });
+            if let Some(background) = response_background(self.background.as_deref()) {
+                payload["background"] = serde_json::Value::String(background.to_string());
+            }
+            out.push_str(&format_sse_event(event_type, &payload));
+        }
+        out
+    }
+}
+
+fn response_background(value: Option<&str>) -> Option<&str> {
+    value.filter(|background| matches!(*background, "transparent" | "opaque"))
+}
+
+fn format_sse_event(event: &str, payload: &serde_json::Value) -> String {
+    format!("event: {event}\ndata: {payload}\n\n")
+}
 
 /// 把 OpenAI 风格请求转换为插件 flow 需要的运行上下文。
 pub(crate) async fn prepare_image_context(
     state: &web::Data<AppState>,
     body: &OpenAiImageRequest,
     request_id: String,
-) -> Result<ImageGenContext, PrepareError> {
+    account_queue_reporter: Option<AccountQueueReporter>,
+) -> Result<(ImageGenContext, ActiveAccountLease), PrepareError> {
     let (manifest, model_info) =
         state
             .plugin_loader
@@ -44,7 +103,9 @@ pub(crate) async fn prepare_image_context(
             )
         })?;
 
-    let (account_id, profile_dir, account_cookies) = allocate_account(state, &platform)?;
+    let (account_id, profile_dir, account_cookies, account_lease) =
+        allocate_account_when_available(state, &platform, &request_id, account_queue_reporter)
+            .await?;
     let chrome_path = {
         let storage = state.storage.lock_recover();
         crate::resolve_chrome_path(&storage)
@@ -71,6 +132,8 @@ pub(crate) async fn prepare_image_context(
     let output_format = body.output_format();
     let quality = body.quality();
     let size = body.requested_size();
+    let output_compression = body.output_compression;
+    let background = body.background.clone();
 
     let initial_context = serde_json::json!({
         "account_id": account_id,
@@ -93,34 +156,53 @@ pub(crate) async fn prepare_image_context(
         "output_format": output_format,
         "quality": quality,
         "size": size,
+        "output_compression": output_compression,
+        "background": background,
     });
 
-    Ok(ImageGenContext {
-        platform,
-        model_display_name: model_info.display_name.clone(),
-        flow,
-        account_id: account_id.clone(),
-        profile_dir: profile_dir.clone(),
-        account_cookies: account_cookies.clone(),
-        request_id,
-        browser_session_id,
-        model_id: body.model.clone(),
-        prompt,
-        image_aspect_ratio,
-        ref_image_local,
-        ref_image_locals,
-        workspace_dir,
-        initial_context,
-        output_format,
-        quality,
-        size,
-    })
+    Ok((
+        ImageGenContext {
+            platform,
+            model_display_name: model_info.display_name.clone(),
+            flow,
+            account_id: account_id.clone(),
+            profile_dir: profile_dir.clone(),
+            account_cookies: account_cookies.clone(),
+            request_id,
+            browser_session_id,
+            model_id: body.model.clone(),
+            prompt,
+            image_aspect_ratio,
+            ref_image_local,
+            ref_image_locals,
+            workspace_dir,
+            initial_context,
+            output_format,
+            quality,
+            size,
+            output_compression,
+            background,
+        },
+        account_lease,
+    ))
 }
 
 pub(crate) async fn generate_image_json(
     state: web::Data<AppState>,
     ctx: ImageGenContext,
+    account_lease: ActiveAccountLease,
 ) -> HttpResponse {
+    match generate_image_response(state, ctx, account_lease).await {
+        Ok(response) => HttpResponse::Ok().json(response.to_json_value()),
+        Err((status, code, detail)) => error_response(status, code, &detail),
+    }
+}
+
+pub(crate) async fn generate_image_response(
+    state: web::Data<AppState>,
+    ctx: ImageGenContext,
+    account_lease: ActiveAccountLease,
+) -> Result<ImageApiResponse, PrepareError> {
     insert_processing_task(&state, &ctx);
 
     let result = Orchestrator::execute_flow(
@@ -131,7 +213,7 @@ pub(crate) async fn generate_image_json(
     .await;
 
     cleanup_reference_files(&ctx);
-    release_account_and_update_usage(&state, &ctx, &result);
+    release_account_and_update_usage(&state, &ctx, account_lease, &result);
 
     force_close_browser(
         &state.engine_registry,
@@ -147,7 +229,11 @@ pub(crate) async fn generate_image_json(
             let image_results = process_poll_images(poll_data, &ctx, &results).await;
             if image_results.is_empty() {
                 mark_task_failed(&state, &ctx, "生成完成但没有拿到图片结果");
-                return error_response(500, "generation_failed", "生成完成但没有拿到图片结果");
+                return Err((
+                    500,
+                    "generation_failed",
+                    "生成完成但没有拿到图片结果".to_string(),
+                ));
             }
 
             let first = image_results.first();
@@ -159,18 +245,19 @@ pub(crate) async fn generate_image_json(
             });
             mark_task_completed(&state, &ctx, &task_json);
 
-            let data: Vec<serde_json::Value> = image_results
+            let images: Vec<String> = image_results
                 .into_iter()
-                .map(|item| serde_json::json!({ "b64_json": item.b64_json }))
+                .map(|item| item.b64_json)
                 .collect();
 
-            HttpResponse::Ok().json(serde_json::json!({
-                "created": chrono::Utc::now().timestamp(),
-                "data": data,
-                "output_format": ctx.output_format,
-                "quality": ctx.quality,
-                "size": ctx.size,
-            }))
+            Ok(ImageApiResponse {
+                created: chrono::Utc::now().timestamp(),
+                images,
+                output_format: ctx.output_format,
+                quality: ctx.quality,
+                size: ctx.size,
+                background: ctx.background,
+            })
         }
         Err(e) => {
             tracing::error!(error = %e, platform = %ctx.platform, "图片生成失败");
@@ -185,42 +272,8 @@ pub(crate) async fn generate_image_json(
             {
                 crate::account_verification::spawn(state.clone().into_inner(), ctx.clone());
             }
-            error_response(500, "generation_failed", &e.to_string())
+            Err((500, "generation_failed", e.to_string()))
         }
-    }
-}
-
-fn allocate_account(
-    state: &web::Data<AppState>,
-    platform: &str,
-) -> Result<(String, String, String), PrepareError> {
-    let storage = state.storage.lock_recover();
-    if let Err(e) = storage.recover_expired_cooldowns() {
-        tracing::warn!(error = %e, "恢复冷却账号失败");
-    }
-    let accounts = storage
-        .list_accounts_by_platform(platform)
-        .map_err(|e| (500u16, "storage_error", e.to_string()))?;
-    let mut scheduler = state.scheduler.lock_recover();
-    match scheduler.allocate_with_reason(platform, &accounts, 86400) {
-        AllocationResult::Allocated(id) => {
-            let acc = accounts.iter().find(|a| a.id == id).unwrap();
-            scheduler.increment_active(&id);
-            Ok((id, acc.profile_dir.clone(), acc.cookies.clone()))
-        }
-        AllocationResult::NoAccounts => Err((
-            503u16,
-            "no_accounts",
-            format!("{} 平台没有可用账号", platform),
-        )),
-        AllocationResult::AllBusy => {
-            Err((503u16, "all_busy", format!("{} 平台所有账号忙碌", platform)))
-        }
-        AllocationResult::AllQuotaExhausted => Err((
-            503u16,
-            "quota_exhausted",
-            format!("{} 平台所有账号配额耗尽", platform),
-        )),
     }
 }
 
@@ -234,7 +287,7 @@ fn ensure_workspace_dir(
         return workspace_dir;
     }
     let fallback = std::env::temp_dir()
-        .join("frame64/workspace")
+        .join("mediagen/workspace")
         .join(today)
         .join(platform);
     std::fs::create_dir_all(&fallback).ok();
@@ -279,12 +332,11 @@ fn cleanup_reference_files(ctx: &ImageGenContext) {
 fn release_account_and_update_usage(
     state: &web::Data<AppState>,
     ctx: &ImageGenContext,
+    mut account_lease: ActiveAccountLease,
     result: &Result<Vec<crate::types::StepResult>, crate::error::AppError>,
 ) {
-    state
-        .scheduler
-        .lock_recover()
-        .decrement_active(&ctx.account_id);
+    // 先释放账号并发，让后续排队任务尽快接上；Drop 也会兜底，避免异常路径泄漏占用。
+    account_lease.release();
 
     let storage = state.storage.lock_recover();
     if let Ok(Some(mut acc)) = storage.get_account(&ctx.account_id) {
@@ -317,6 +369,7 @@ fn find_poll_data(results: &[crate::types::StepResult]) -> Option<&serde_json::V
             r.data.get("imageCount").is_some()
                 || r.data.get("images").is_some()
                 || r.data.get("download_url").is_some()
+                || r.data.get("url").is_some()
         })
         .map(|r| &r.data)
 }
@@ -334,4 +387,40 @@ fn mark_task_completed(
 fn mark_task_failed(state: &web::Data<AppState>, ctx: &ImageGenContext, message: &str) {
     let storage = state.storage.lock_recover();
     let _ = storage.update_task_status(&ctx.request_id, TaskStatus::Failed, None, Some(message));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_response() -> ImageApiResponse {
+        ImageApiResponse {
+            created: 1_620_000_000,
+            images: vec!["abc".to_string()],
+            output_format: "png".to_string(),
+            quality: "high".to_string(),
+            size: "1024x1024".to_string(),
+            background: Some("transparent".to_string()),
+        }
+    }
+
+    #[test]
+    fn json_response_uses_openai_image_shape() {
+        let body = sample_response().to_json_value();
+
+        assert_eq!(body["created"], 1_620_000_000);
+        assert_eq!(body["data"][0]["b64_json"], "abc");
+        assert_eq!(body["background"], "transparent");
+        assert!(body["data"][0].get("url").is_none());
+    }
+
+    #[test]
+    fn sse_response_uses_openai_event_shape() {
+        let body = sample_response().to_sse_body(ImageEndpoint::Generation);
+
+        assert!(body.starts_with("event: image_generation.completed\n"));
+        assert!(body.contains("\"type\":\"image_generation.completed\""));
+        assert!(body.contains("\"created_at\":1620000000"));
+        assert!(body.ends_with("\n\n"));
+    }
 }

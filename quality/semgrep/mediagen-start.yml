@@ -1,5 +1,5 @@
 rules:
-  - id: frame64-no-eval
+  - id: mediagen-no-eval
     message: 避免在应用代码里直接执行 eval，插件脚本也应使用明确的输入输出契约。
     severity: ERROR
     languages:

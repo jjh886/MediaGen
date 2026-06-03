@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 
 const CURRENT_FILE = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(CURRENT_FILE), '..')
-const DEFAULT_CONFIG = 'quality/semgrep/frame64-start.yml'
+const DEFAULT_CONFIG = 'quality/semgrep/mediagen-start.yml'
 
 function parseArgs(argv) {
   let config = DEFAULT_CONFIG

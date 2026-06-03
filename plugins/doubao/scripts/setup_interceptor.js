@@ -3,7 +3,7 @@
 // 每个 creation 有 status:1(生成中) → status:2(完成，含完整 URL)
 // image_ori_raw.url 是无水印原图，可直接外部下载
 //
-// 所有状态挂在 window[Symbol.for('_s')] 下，而非可枚举的 __frame64_* 前缀，
+// 所有状态挂在 window[Symbol.for('_s')] 下，而非可枚举的 __mediagen_* 前缀，
 // 降低反爬 `Object.keys(window).filter(k => k.startsWith('__'))` 类特征扫描命中率。
 ;(() => {
   const SK = Symbol.for('_s')

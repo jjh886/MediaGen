@@ -4,6 +4,14 @@ use std::path::{Path, PathBuf};
 use crate::error::AppError;
 use crate::types::{ModelDef, PluginManifest};
 
+const OPENAI_IMAGE_MODEL_ALIASES: &[&str] = &[
+    "gpt-image-2",
+    "gpt-image-1.5",
+    "gpt-image-1",
+    "gpt-image-1-mini",
+    "chatgpt-image-latest",
+];
+
 pub struct PluginLoader {
     plugins: HashMap<String, PluginManifest>,
     plugin_dirs: HashMap<String, PathBuf>,
@@ -91,13 +99,67 @@ impl PluginLoader {
         if model_id.is_empty() {
             return None;
         }
+        if let Some(resolved) = self.resolve_openai_alias(model_id) {
+            return Some(resolved);
+        }
         let prefix = model_id.split('_').next()?;
         if let Some(manifest) = self.plugins.get(prefix) {
             if let Some(model) = manifest.models.iter().find(|m| m.model_id == model_id) {
                 return Some((manifest, model));
             }
         }
+        // OpenAI 的 model 字段不要求带平台前缀；比如 ChatGPT 插件模型
+        // `GPT_5_mini` 的前缀不是平台 ID。前缀命中失败时全局精确查找，
+        // 保证 `/v1/models` 返回的任意 id 都能直接用于生成接口。
+        self.sorted_plugins().into_iter().find_map(|manifest| {
+            manifest
+                .models
+                .iter()
+                .find(|model| model.model_id == model_id)
+                .map(|model| (manifest, model))
+        })
+    }
+
+    /// 兼容外部应用常见的 OpenAI 官方图片模型名。
+    /// 用户仍可用 `/v1/models` 返回的真实插件模型名；这些别名只负责避免标准客户端硬编码模型时报 404。
+    fn resolve_openai_alias(&self, model_id: &str) -> Option<(&PluginManifest, &ModelDef)> {
+        if !OPENAI_IMAGE_MODEL_ALIASES.contains(&model_id) {
+            return None;
+        }
+        self.resolve_first_existing(&[
+            ("chatgpt", "GPT_5_mini"),
+            ("GPTImage2", "GPTImage2_gpt_5_5"),
+        ])
+    }
+
+    fn resolve_first_existing(
+        &self,
+        candidates: &[(&str, &str)],
+    ) -> Option<(&PluginManifest, &ModelDef)> {
+        for (platform_id, candidate_model_id) in candidates {
+            let Some(manifest) = self.plugins.get(*platform_id) else {
+                continue;
+            };
+            if let Some(model) = manifest
+                .models
+                .iter()
+                .find(|m| m.model_id == *candidate_model_id)
+            {
+                return Some((manifest, model));
+            }
+        }
         None
+    }
+
+    /// 暴露给 `/v1/models` 的标准 OpenAI 图片模型别名。
+    pub fn openai_image_aliases(&self) -> Vec<(&'static str, &PluginManifest, &ModelDef)> {
+        OPENAI_IMAGE_MODEL_ALIASES
+            .iter()
+            .filter_map(|alias| {
+                self.resolve_openai_alias(alias)
+                    .map(|(manifest, model)| (*alias, manifest, model))
+            })
+            .collect()
     }
 
     pub fn all_models(&self) -> Vec<(&PluginManifest, &ModelDef)> {
@@ -216,6 +278,55 @@ mod tests {
         assert_eq!(model.model_id, "doubao_Image_5_0_Lite");
 
         assert!(loader.resolve_model("unknown_model").is_none());
+    }
+
+    #[test]
+    fn resolve_model_falls_back_to_exact_id_without_platform_prefix() {
+        let dir = tempdir().unwrap();
+        let sub = dir.path().join("chatgpt");
+        std::fs::create_dir_all(&sub).unwrap();
+        let manifest = minimal_manifest("chatgpt", vec![model_json("GPT_5_mini")]);
+        std::fs::write(sub.join("manifest.json"), manifest).unwrap();
+
+        let loader = PluginLoader::load_from(dir.path()).unwrap();
+
+        let (plugin, model) = loader.resolve_model("GPT_5_mini").unwrap();
+        assert_eq!(plugin.platform_id, "chatgpt");
+        assert_eq!(model.model_id, "GPT_5_mini");
+    }
+
+    #[test]
+    fn resolve_model_accepts_openai_image_aliases() {
+        let dir = tempdir().unwrap();
+        let sub = dir.path().join("chatgpt");
+        std::fs::create_dir_all(&sub).unwrap();
+        let manifest = minimal_manifest("chatgpt", vec![model_json("GPT_5_mini")]);
+        std::fs::write(sub.join("manifest.json"), manifest).unwrap();
+
+        let loader = PluginLoader::load_from(dir.path()).unwrap();
+
+        let (plugin, model) = loader.resolve_model("gpt-image-1").unwrap();
+        assert_eq!(plugin.platform_id, "chatgpt");
+        assert_eq!(model.model_id, "GPT_5_mini");
+    }
+
+    #[test]
+    fn openai_image_aliases_are_listable() {
+        let dir = tempdir().unwrap();
+        let sub = dir.path().join("chatgpt");
+        std::fs::create_dir_all(&sub).unwrap();
+        let manifest = minimal_manifest("chatgpt", vec![model_json("GPT_5_mini")]);
+        std::fs::write(sub.join("manifest.json"), manifest).unwrap();
+
+        let loader = PluginLoader::load_from(dir.path()).unwrap();
+        let aliases: Vec<&str> = loader
+            .openai_image_aliases()
+            .into_iter()
+            .map(|(alias, _, _)| alias)
+            .collect();
+
+        assert!(aliases.contains(&"gpt-image-1"));
+        assert!(aliases.contains(&"chatgpt-image-latest"));
     }
 
     #[test]

@@ -8,7 +8,7 @@
 
 set -uo pipefail
 
-INPUT_FILE="$(mktemp -t frame64-codex-quality-gate-input.XXXXXX)"
+INPUT_FILE="$(mktemp -t mediagen-codex-quality-gate-input.XXXXXX)"
 cleanup_input() {
   rm -f "$INPUT_FILE" 2>/dev/null || true
 }
@@ -26,7 +26,7 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
   . "$NVM_DIR/nvm.sh"
 fi
 
-if [ "${SKIP_CODEX_QUALITY_GATE:-}" = "1" ] || [ "${FRAME64_SKIP_CODEX_QUALITY_GATE:-}" = "1" ]; then
+if [ "${SKIP_CODEX_QUALITY_GATE:-}" = "1" ] || [ "${MEDIAGEN_SKIP_CODEX_QUALITY_GATE:-}" = "1" ]; then
   exit 0
 fi
 
@@ -51,7 +51,7 @@ if (sessionId && turnId) {
 )"
 
 if [ -n "$DEDUPE_KEY" ]; then
-  DEDUPE_DIR="$HOME/.codex/hook-state/frame64-quality-gate/dedupe"
+  DEDUPE_DIR="$HOME/.codex/hook-state/mediagen-quality-gate/dedupe"
   mkdir -p "$DEDUPE_DIR" 2>/dev/null || true
   find "$DEDUPE_DIR" -type f -mtime +7 -delete 2>/dev/null || true
   DEDUPE_FILE="$DEDUPE_DIR/$DEDUPE_KEY"
@@ -75,16 +75,16 @@ has_changes() {
   printf '%s\n' "$CHANGED_FILES" | grep -q "^${mod}/" 2>/dev/null
 }
 
-LOG_FILE="$(mktemp -t frame64-codex-quality-gate.XXXXXX)"
+LOG_FILE="$(mktemp -t mediagen-codex-quality-gate.XXXXXX)"
 FAILED_MODULES=""
 CHECKED_MODULES=""
 
 print_failure_summary() {
-  FRAME64_FAILED_MODULES="$FAILED_MODULES" node - "$LOG_FILE" <<'NODE'
+  MEDIAGEN_FAILED_MODULES="$FAILED_MODULES" node - "$LOG_FILE" <<'NODE'
 const fs = require('node:fs')
 
 const logPath = process.argv[2]
-const failedModules = (process.env.FRAME64_FAILED_MODULES || '').trim()
+const failedModules = (process.env.MEDIAGEN_FAILED_MODULES || '').trim()
 const text = fs.readFileSync(logPath, 'utf8')
 const lines = text.replace(/\u001B\[[0-9;]*m/g, '').split(/\r?\n/)
 const selected = []
@@ -185,7 +185,7 @@ run_module_gate() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   } >>"$LOG_FILE"
 
-  if ! FRAME64_CHANGED_FILES_JSON="$CHANGED_FILES_JSON" node scripts/gates/run-start-quality-gate.mjs --modules "$mod" --include-coverage >>"$LOG_FILE" 2>&1; then
+  if ! MEDIAGEN_CHANGED_FILES_JSON="$CHANGED_FILES_JSON" node scripts/gates/run-start-quality-gate.mjs --modules "$mod" --include-coverage >>"$LOG_FILE" 2>&1; then
     FAILED_MODULES="$FAILED_MODULES $mod"
   fi
 }

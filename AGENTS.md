@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Frame64 是一个独立的 Tauri 桌面应用，仓库根目录就是应用根目录。`src/` 保存 React
+MediaGen 是一个独立的 Tauri 桌面应用，仓库根目录就是应用根目录。`src/` 保存 React
 前端代码，按 `app/`、`features/`、`shared/` 三层组织；`src-tauri/src/` 保存 Rust
 运行时、本地 API、调度器、插件执行引擎和存储逻辑；`plugins/` 保存各平台插件
 `manifest.json` 与浏览器脚本；`docs/api/` 保存 OpenAI 兼容接口资料；`scripts/` 保存格式、
@@ -12,7 +12,7 @@ Frame64 是一个独立的 Tauri 桌面应用，仓库根目录就是应用根�
 ## Build, Test, and Development Commands
 
 - `make help`：查看根目录可用命令。
-- `make dev` / `npm run tauri:dev`：启动 Frame64 Studio 桌面开发环境。
+- `make dev` / `npm run tauri:dev`：启动 MediaGen Studio 桌面开发环境。
 - `make build` / `npm run tauri:build`：构建桌面端安装包。
 - `make check`：运行 TypeScript 类型检查、lint、Vitest 和 Rust 编译检查。
 - `make preflight`：提交前完整门禁，包含格式、前端检查、覆盖率、构建和 Rust 检查。

@@ -2,7 +2,7 @@
 ;(async () => {
   const SK = Symbol.for('_jimeng')
   const state = (window[SK] = window[SK] || {})
-  const marker = '[data-frame64-jimeng-submit="true"]'
+  const marker = '[data-mediagen-jimeng-submit="true"]'
   const initialWaitMs = Number(state.submit_confirm_initial_wait_ms || 900)
   const retryWaitMs = Number(state.submit_confirm_retry_wait_ms || 1200)
   const retryAttempts = Math.max(0, Number(state.submit_confirm_attempts ?? 2))

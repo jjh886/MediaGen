@@ -1,14 +1,14 @@
-# Frame64 Studio
+# MediaGen Studio
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" alt="Frame64 Studio" width="120" />
+  <img src="src-tauri/icons/icon.png" alt="MediaGen Studio" width="120" />
 </p>
 
-Frame64 Studio 是一个独立的桌面端图片生成应用。它用 Tauri + React 做桌面界面，用 Rust
+MediaGen Studio 是一个独立的桌面端视觉媒体生成应用。它用 Tauri + React 做桌面界面，用 Rust
 负责本地 HTTP API、账号调度、插件编排和浏览器自动化。外部程序可以按 OpenAI Image API 的习惯调用
-Frame64，本地生成完成后直接拿到 `base64` 图片数据，不需要再上传到其它业务系统。
+MediaGen，本地生成完成后直接拿到 `base64` 图片数据，不需要再上传到其它业务系统。
 
-简单理解：Frame64 把多个图片生成平台封装成一个本地桌面应用，并对外提供统一的 OpenAI 风格接口。
+简单理解：MediaGen 把多个图片与视频生成平台封装成一个本地桌面应用，并对外提供统一的 OpenAI 风格接口。
 
 ## 当前能力
 
@@ -137,7 +137,7 @@ curl http://127.0.0.1:18080/v1/models
 curl http://127.0.0.1:18080/v1/images/generations \
   -H 'Content-Type: application/json' \
   -d '{
-    "model": "flow_Nano_Banana_Pro",
+    "model": "gpt-image-1",
     "prompt": "A clean product photo of a glass water bottle on a white desk",
     "size": "1024x1024",
     "quality": "high",
@@ -163,13 +163,28 @@ curl http://127.0.0.1:18080/v1/images/generations \
 
 ### 根据参考图编辑
 
-`images[].image_url` 支持公网图片 URL，也支持 `data:image/png;base64,...` 这种 data URL。
+编辑接口兼容 OpenAI SDK 默认的 `multipart/form-data` 文件上传，也继续支持 JSON
+里的 `images[].image_url`。`images[].image_url` 可以是公网图片 URL，也可以是
+`data:image/png;base64,...` 这种 data URL。
+
+OpenAI SDK / curl 文件上传示例：
+
+```bash
+curl http://127.0.0.1:18080/v1/images/edits \
+  -H 'Authorization: Bearer mediagen-local' \
+  -F 'model=gpt-image-1' \
+  -F 'prompt=Turn this image into a clean studio product shot' \
+  -F 'image=@source.png' \
+  -F 'size=1024x1024'
+```
+
+JSON 调用示例：
 
 ```bash
 curl http://127.0.0.1:18080/v1/images/edits \
   -H 'Content-Type: application/json' \
   -d '{
-    "model": "flow_Nano_Banana_Pro",
+    "model": "gpt-image-1",
     "prompt": "Turn this image into a clean studio product shot",
     "images": [
       {
@@ -184,18 +199,18 @@ curl http://127.0.0.1:18080/v1/images/edits \
 
 ### 在 OpenAI SDK 中使用
 
-把 SDK 的 `baseURL` 指向 Frame64 本地服务即可。
+把 SDK 的 `baseURL` 指向 MediaGen 本地服务即可。
 
 ```ts
 import OpenAI from 'openai'
 
 const client = new OpenAI({
-  apiKey: 'frame64-local',
+  apiKey: 'mediagen-local',
   baseURL: 'http://127.0.0.1:18080/v1',
 })
 
 const result = await client.images.generate({
-  model: 'flow_Nano_Banana_Pro',
+  model: 'gpt-image-1',
   prompt: 'A minimal desk setup with a silver laptop and soft daylight',
   size: '1024x1024',
 })
@@ -203,11 +218,33 @@ const result = await client.images.generate({
 const imageBase64 = result.data?.[0]?.b64_json
 ```
 
+流式调用时会返回 OpenAI Image API 的 SSE 事件；当前插件只能在最终完成时发送
+`image_generation.completed` 或 `image_edit.completed`，不会伪造中间预览图。
+
+```ts
+const stream = await client.images.generate({
+  model: 'gpt-image-1',
+  prompt: 'A clean icon of a camera and play button',
+  stream: true,
+  partial_images: 0,
+})
+
+for await (const event of stream) {
+  if (event.type === 'image_generation.completed') {
+    const imageBase64 = event.b64_json
+  }
+}
+```
+
 ## 接口注意事项
 
-- Frame64 只返回 `b64_json`，不返回远程图片 URL。
-- 当前图片接口不支持 `stream: true`，请求会在生成完成后一次性返回 JSON。
-- 当前不提供 OpenAI Files API，所以编辑图片请使用 `images[].image_url`。
+- `/v1/models` 会返回插件真实模型，也会返回 `gpt-image-2`、`gpt-image-1.5`、
+  `gpt-image-1`、`gpt-image-1-mini`、`chatgpt-image-latest` 这类 OpenAI 兼容别名。
+- MediaGen 只返回 `b64_json`，不返回远程图片 URL。
+- `stream: true` 会返回官方 Image API 风格的 SSE；受当前插件能力限制，只发送最终
+  `completed` 事件。
+- 当前不提供 OpenAI Files API，所以 `file_id` 不可用；编辑图片请直接上传 `image`
+  文件，或使用 `images[].image_url`。
 - `n` 会被限制在 `1..4`，避免单次请求占用过多浏览器和平台资源。
 - `size` 支持 `auto`、`1024x1024`、`1536x1024`、`1024x1536`。
 - `/v1/images/variations` 当前会返回不支持，后续可按插件能力扩展。
