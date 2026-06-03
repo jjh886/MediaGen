@@ -8,7 +8,7 @@ const INSTRUCTIONS =
 function main(ctx) {
   const auth = host.call('file.read_json', { path: ctx.profile_dir + '/auth.json' })
   const accessToken = get(auth, ['tokens', 'access_token'])
-  if (!accessToken) throw new Error('auth.json 缺少 tokens.access_token，请重新登录 GPTImage2。')
+  if (!accessToken) throw new Error('auth.json 缺少 tokens.access_token，请重新登录 codex。')
   const request = buildRequest(ctx)
   const accountId = firstNonEmpty([
     get(auth, ['tokens', 'account_id']),
@@ -33,7 +33,7 @@ function main(ctx) {
   return {
     success: true,
     status: 'done',
-    source: 'GPTImage2',
+    source: 'codex',
     imageCount: images.length,
     images,
   }

@@ -109,7 +109,7 @@ impl PluginLoader {
             }
         }
         // OpenAI 的 model 字段不要求带平台前缀；比如 ChatGPT 插件模型
-        // `GPT_5_mini` 的前缀不是平台 ID。前缀命中失败时全局精确查找，
+        // `ChatGPT` 的前缀不是平台 ID。前缀命中失败时全局精确查找，
         // 保证 `/v1/models` 返回的任意 id 都能直接用于生成接口。
         self.sorted_plugins().into_iter().find_map(|manifest| {
             manifest
@@ -126,10 +126,7 @@ impl PluginLoader {
         if !OPENAI_IMAGE_MODEL_ALIASES.contains(&model_id) {
             return None;
         }
-        self.resolve_first_existing(&[
-            ("chatgpt", "GPT_5_mini"),
-            ("GPTImage2", "GPTImage2_gpt_5_5"),
-        ])
+        self.resolve_first_existing(&[("chatgpt", "ChatGPT"), ("codex", "codex")])
     }
 
     fn resolve_first_existing(
@@ -285,14 +282,14 @@ mod tests {
         let dir = tempdir().unwrap();
         let sub = dir.path().join("chatgpt");
         std::fs::create_dir_all(&sub).unwrap();
-        let manifest = minimal_manifest("chatgpt", vec![model_json("GPT_5_mini")]);
+        let manifest = minimal_manifest("chatgpt", vec![model_json("ChatGPT")]);
         std::fs::write(sub.join("manifest.json"), manifest).unwrap();
 
         let loader = PluginLoader::load_from(dir.path()).unwrap();
 
-        let (plugin, model) = loader.resolve_model("GPT_5_mini").unwrap();
+        let (plugin, model) = loader.resolve_model("ChatGPT").unwrap();
         assert_eq!(plugin.platform_id, "chatgpt");
-        assert_eq!(model.model_id, "GPT_5_mini");
+        assert_eq!(model.model_id, "ChatGPT");
     }
 
     #[test]
@@ -300,14 +297,14 @@ mod tests {
         let dir = tempdir().unwrap();
         let sub = dir.path().join("chatgpt");
         std::fs::create_dir_all(&sub).unwrap();
-        let manifest = minimal_manifest("chatgpt", vec![model_json("GPT_5_mini")]);
+        let manifest = minimal_manifest("chatgpt", vec![model_json("ChatGPT")]);
         std::fs::write(sub.join("manifest.json"), manifest).unwrap();
 
         let loader = PluginLoader::load_from(dir.path()).unwrap();
 
         let (plugin, model) = loader.resolve_model("gpt-image-1").unwrap();
         assert_eq!(plugin.platform_id, "chatgpt");
-        assert_eq!(model.model_id, "GPT_5_mini");
+        assert_eq!(model.model_id, "ChatGPT");
     }
 
     #[test]
@@ -315,7 +312,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let sub = dir.path().join("chatgpt");
         std::fs::create_dir_all(&sub).unwrap();
-        let manifest = minimal_manifest("chatgpt", vec![model_json("GPT_5_mini")]);
+        let manifest = minimal_manifest("chatgpt", vec![model_json("ChatGPT")]);
         std::fs::write(sub.join("manifest.json"), manifest).unwrap();
 
         let loader = PluginLoader::load_from(dir.path()).unwrap();

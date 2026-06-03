@@ -33,7 +33,7 @@ describe('PlatformQuotaCard', () => {
       { label: 'Flow 免费', values: ['50', '0', '1'] },
       { label: '豆包 免费', values: ['60', '0', '1'] },
       { label: 'ChatGPT 免费', values: ['40', '0', '1'] },
-      { label: 'GPTImage2 免费', values: ['40', '0', '1'] },
+      { label: 'codex 免费', values: ['40', '0', '1'] },
       { label: '即梦 免费', values: ['100', '0', '3'] },
     ]
 

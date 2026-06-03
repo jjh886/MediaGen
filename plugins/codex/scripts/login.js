@@ -36,7 +36,7 @@ function startCallbackServer() {
   const params = {
     port: 1455,
     path: '/auth/callback',
-    markers: ['mediagen-callback-server', 'mediagen-gptimage2-callback'],
+    markers: ['mediagen-callback-server', 'mediagen-codex-callback'],
     redirect_host: 'localhost',
   }
   const first = host.tryCall('callback_server.start', params)
@@ -144,7 +144,7 @@ function buildAccount(token) {
   ])
   const email = firstNonEmpty([idPayload.email, accessPayload.email])
   const userId = firstNonEmpty([idPayload.sub, accessPayload.sub, accountId])
-  const username = firstNonEmpty([email, accountId, 'GPTImage2'])
+  const username = firstNonEmpty([email, accountId, 'codex'])
   return {
     api_token: token.access_token,
     refresh_token: token.refresh_token,
@@ -214,7 +214,7 @@ function safeCall(action, params) {
 
 function htmlPage(message) {
   return (
-    '<!doctype html><meta charset="utf-8"><title>GPTImage2 登录</title><p>' +
+    '<!doctype html><meta charset="utf-8"><title>codex 登录</title><p>' +
     message +
     '</p><script>setTimeout(()=>window.close(),800)</script>'
   )

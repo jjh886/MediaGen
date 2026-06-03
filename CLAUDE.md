@@ -65,7 +65,7 @@ src-tauri/src/
 └── error.rs          # thiserror AppError
 
 plugins/
-├── GPTImage2/
+├── codex/
 ├── chatgpt/
 ├── doubao/
 ├── flow/

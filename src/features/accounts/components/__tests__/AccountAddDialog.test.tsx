@@ -21,7 +21,7 @@ describe('AccountAddDialog', () => {
       'HTTP 403 {"error":{"code":"unsupported_country_region_territory"}}'
     )
 
-    render(<AccountAddDialog open platform="GPTImage2" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: '开始登录' }))
 

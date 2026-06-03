@@ -4,7 +4,7 @@ import { cardStyle, titleStyle } from './settings-shared'
 import flowManifest from '../../../../plugins/flow/manifest.json'
 import doubaoManifest from '../../../../plugins/doubao/manifest.json'
 import chatgptManifest from '../../../../plugins/chatgpt/manifest.json'
-import gptImage2Manifest from '../../../../plugins/GPTImage2/manifest.json'
+import codexManifest from '../../../../plugins/codex/manifest.json'
 import jimengManifest from '../../../../plugins/jimeng/manifest.json'
 
 type TierOverride = {
@@ -34,7 +34,7 @@ const PLATFORM_QUOTA_ROWS = (
     flowManifest,
     doubaoManifest,
     chatgptManifest,
-    gptImage2Manifest,
+    codexManifest,
     jimengManifest,
   ] as PluginQuotaManifest[]
 ).map((manifest) => ({

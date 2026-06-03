@@ -1,14 +1,14 @@
 {
-  "platform_id": "GPTImage2",
-  "display_name": "GPTImage2",
+  "platform_id": "codex",
+  "display_name": "codex",
   "sort_order": 40,
   "adapter_mode": "api",
   "login_url": "https://auth.openai.com/oauth/authorize",
   "workspace_url": "https://chatgpt.com/",
   "models": [
     {
-      "model_id": "GPTImage2_gpt_5_5",
-      "display_name": "GPT Image 2",
+      "model_id": "codex",
+      "display_name": "codex",
       "task_kind": "image"
     }
   ],

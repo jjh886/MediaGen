@@ -8,8 +8,8 @@
   "workspace_url": "https://chatgpt.com/",
   "models": [
     {
-      "model_id": "GPT_5_mini",
-      "display_name": "GPT_5_mini",
+      "model_id": "ChatGPT",
+      "display_name": "ChatGPT",
       "task_kind": "image"
     }
   ],
