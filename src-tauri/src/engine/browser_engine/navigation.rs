@@ -5,6 +5,10 @@ use super::evaluate_poll_condition;
 use crate::error::AppError;
 use crate::types::StepResult;
 
+// 系统代理或节点偶发断流时，Chromium 首次导航可能直接返回 net::ERR_*。
+// 只做少量重试吸收瞬时抖动，持续不可用时仍会快速暴露真实错误。
+const MAX_NAVIGATION_ATTEMPTS: usize = 3;
+
 /// 生成简单的伪随机 jitter（基于时间戳，无需额外依赖）
 fn jitter_ms(base_ms: u64, pct: u64) -> u64 {
     let nanos = std::time::SystemTime::now()
@@ -19,6 +23,21 @@ fn jitter_ms(base_ms: u64, pct: u64) -> u64 {
     // base_ms ± pct%
     let result = base_ms + offset - range;
     result.max(500)
+}
+
+fn is_transient_navigation_error(error: &str) -> bool {
+    // 只重试网络链路类错误；URL、权限或页面逻辑错误不能被重试掩盖。
+    [
+        "ERR_CONNECTION_CLOSED",
+        "ERR_CONNECTION_RESET",
+        "ERR_NETWORK_CHANGED",
+        "ERR_INTERNET_DISCONNECTED",
+        "ERR_TIMED_OUT",
+        "ERR_PROXY_CONNECTION_FAILED",
+        "ERR_TUNNEL_CONNECTION_FAILED",
+    ]
+    .iter()
+    .any(|marker| error.contains(marker))
 }
 
 impl super::BrowserEngine {
@@ -47,8 +66,20 @@ impl super::BrowserEngine {
         let url_clone = url.clone();
 
         let title = tokio::task::spawn_blocking(move || {
-            tab.navigate_to(&url_clone)
-                .map_err(|e| AppError::BrowserError(format!("导航失败: {e}")))?;
+            for attempt in 1..=MAX_NAVIGATION_ATTEMPTS {
+                match tab.navigate_to(&url_clone) {
+                    Ok(_) => break,
+                    Err(e) => {
+                        let error = e.to_string();
+                        if attempt == MAX_NAVIGATION_ATTEMPTS
+                            || !is_transient_navigation_error(&error)
+                        {
+                            return Err(AppError::BrowserError(format!("导航失败: {error}")));
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(500 * attempt as u64));
+                    }
+                }
+            }
 
             // navigate_to 只保证当前 CDP target 完成导航，不保证这个 target
             // 一定是 Chrome UI 里肉眼可见的激活页。调试模式 headless=false 时，
@@ -295,5 +326,27 @@ impl super::BrowserEngine {
             // 轮询间隔添加 ±30% 抖动
             tokio::time::sleep(std::time::Duration::from_millis(jitter_ms(interval_ms, 30))).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_transient_navigation_error;
+
+    #[test]
+    fn recognizes_transient_navigation_errors_from_proxy_disconnects() {
+        assert!(is_transient_navigation_error(
+            "Navigate failed: net::ERR_CONNECTION_CLOSED"
+        ));
+        assert!(is_transient_navigation_error(
+            "Navigate failed: net::ERR_TUNNEL_CONNECTION_FAILED"
+        ));
+    }
+
+    #[test]
+    fn does_not_retry_non_network_navigation_errors() {
+        assert!(!is_transient_navigation_error(
+            "Cannot navigate to invalid URL"
+        ));
     }
 }

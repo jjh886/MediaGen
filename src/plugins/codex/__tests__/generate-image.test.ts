@@ -7,13 +7,16 @@ import { describe, expect, it } from 'vitest'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const scriptPath = path.resolve(here, '../../../../plugins/codex/scripts/generate_image.js')
 const authScriptPath = path.resolve(here, '../../../../plugins/codex/scripts/auth.js')
+const retryScriptPath = path.resolve(here, '../../../../plugins/codex/scripts/retry.js')
 const checkAccountScriptPath = path.resolve(
   here,
   '../../../../plugins/codex/scripts/check_account.js'
 )
 const script = fs.readFileSync(scriptPath, 'utf8')
 const authScript = fs.readFileSync(authScriptPath, 'utf8')
+const retryScript = fs.readFileSync(retryScriptPath, 'utf8')
 const checkAccountScript = fs.readFileSync(checkAccountScriptPath, 'utf8')
+const imageRuntimeScript = retryScript + '\n' + script
 
 type ImageTool = Record<string, unknown>
 
@@ -27,7 +30,7 @@ function buildPayloadFromCtx(ctx: Record<string, unknown>) {
     },
   }
   const raw = vm.runInNewContext(
-    script + '\nJSON.stringify(buildPayload(ctx, ctx.prompt, buildRequest(ctx)))',
+    imageRuntimeScript + '\nJSON.stringify(buildPayload(ctx, ctx.prompt, buildRequest(ctx)))',
     sandbox
   )
   return JSON.parse(String(raw)) as { tools: ImageTool[] }
@@ -35,7 +38,10 @@ function buildPayloadFromCtx(ctx: Record<string, unknown>) {
 
 function extractImageFromEvents(events: unknown[]) {
   const sandbox = { events }
-  const raw = vm.runInNewContext(script + '\nJSON.stringify(extractImage(events))', sandbox)
+  const raw = vm.runInNewContext(
+    imageRuntimeScript + '\nJSON.stringify(extractImage(events))',
+    sandbox
+  )
   return JSON.parse(String(raw)) as {
     partial_images: Array<Record<string, unknown>>
   }
@@ -114,6 +120,38 @@ describe('codex image bridge script', () => {
         output_format: 'png',
       },
     ])
+  })
+
+  it('retries transient Codex network errors before giving up', () => {
+    const sleeps: number[] = []
+    let calls = 0
+    const sandbox = {
+      host: {
+        call: () => {
+          calls += 1
+          if (calls === 1) throw new Error('error decoding response body: unexpected EOF')
+          return {
+            events: [
+              {
+                type: 'response.output_item.done',
+                item: { type: 'image_generation_call', result: 'aW1hZ2U=' },
+              },
+            ],
+          }
+        },
+        sleep: (ms: number) => sleeps.push(ms),
+      },
+    }
+
+    const raw = vm.runInNewContext(
+      imageRuntimeScript + "\nJSON.stringify(requestImageWithRetry('access', 'acct', {}))",
+      sandbox
+    )
+    const result = JSON.parse(String(raw)) as { image: string }
+
+    expect(result.image).toBe('aW1hZ2U=')
+    expect(calls).toBe(2)
+    expect(sleeps).toEqual([5000])
   })
 
   it('refreshes Codex auth before using an almost expired access token', () => {

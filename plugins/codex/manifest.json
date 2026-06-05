@@ -51,7 +51,7 @@
       "steps": [
         {
           "action": "plugin.run_js",
-          "script_files": ["auth.js", "generate_image.js"],
+          "script_files": ["auth.js", "retry.js", "generate_image.js"],
           "timeout_ms": 1800000,
           "save_as": "poll"
         }
