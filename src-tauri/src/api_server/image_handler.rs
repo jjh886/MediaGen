@@ -56,7 +56,7 @@ async fn handle_image_request(
     };
 
     let request_id = uuid::Uuid::new_v4().to_string();
-    match prepare_image_context(&state, &body, request_id, None).await {
+    match prepare_image_context(&state, &body, request_id, endpoint, None).await {
         Ok((ctx, account_lease)) => {
             let _queue_permit = queue_permit;
             generate_image_json(state, ctx, account_lease).await

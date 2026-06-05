@@ -1,4 +1,5 @@
 use super::*;
+use crate::login_checker_flow::{classify_flow_value, AccountCheckOutcome};
 use crate::sync_ext::MutexExt;
 
 // ── resolve_field 测试 ──
@@ -188,7 +189,82 @@ fn future_session_valid() {
     assert!(expires_at > chrono::Utc::now(), "未来的时间应判定为有效");
 }
 
+#[test]
+fn unauthorized_status_is_login_expired() {
+    let reason = login_expired_reason_for_status(StatusCode::UNAUTHORIZED);
+    assert!(reason.unwrap().contains("登录凭据无效"));
+}
+
+#[test]
+fn redirect_status_is_login_expired() {
+    let reason = login_expired_reason_for_status(StatusCode::FOUND);
+    assert!(reason.unwrap().contains("重定向到登录页"));
+}
+
+#[test]
+fn forbidden_status_has_no_conclusive_expired_reason() {
+    assert!(login_expired_reason_for_status(StatusCode::FORBIDDEN).is_none());
+}
+
+#[test]
+fn forbidden_status_is_not_inconclusive_by_default() {
+    let config = test_login_check(vec![]);
+    assert!(!is_inconclusive_status(StatusCode::FORBIDDEN, &config));
+}
+
+#[test]
+fn forbidden_status_can_be_configured_as_inconclusive() {
+    let config = test_login_check(vec![403]);
+    assert!(is_inconclusive_status(StatusCode::FORBIDDEN, &config));
+}
+
+#[test]
+fn classify_flow_available_extracts_account_patch() {
+    let value = serde_json::json!({
+        "logged_in": true,
+        "status": "available",
+        "account": {
+            "api_token": "access-new",
+            "refresh_token": "refresh-new",
+            "email": "codex@example.com"
+        }
+    });
+
+    match classify_flow_value(&value).expect("应该能解释健康检查结果") {
+        AccountCheckOutcome::Valid(Some(patch)) => {
+            assert_eq!(patch.api_token.as_deref(), Some("access-new"));
+            assert_eq!(patch.refresh_token.as_deref(), Some("refresh-new"));
+            assert_eq!(patch.email.as_deref(), Some("codex@example.com"));
+        }
+        _ => panic!("available 结果应该被判定为有效账号"),
+    }
+}
+
+#[test]
+fn classify_flow_inconclusive_does_not_expire_account() {
+    let value = serde_json::json!({
+        "logged_in": null,
+        "status": "inconclusive",
+        "reason": "HTTP 403"
+    });
+
+    match classify_flow_value(&value).expect("应该能解释不确定结果") {
+        AccountCheckOutcome::Inconclusive(reason) => assert_eq!(reason, "HTTP 403"),
+        _ => panic!("inconclusive 结果不应该被判定为过期"),
+    }
+}
+
 // ── check_all_accounts 集成测试 ──
+
+fn test_login_check(inconclusive_statuses: Vec<u16>) -> LoginCheck {
+    LoginCheck {
+        url: "https://example.test/session".to_string(),
+        cookie_domain: "example.test".to_string(),
+        success_field: "user.email".to_string(),
+        expires_field: None,
+        inconclusive_statuses,
+    }
+}
 
 fn make_test_account(
     id: &str,
@@ -251,7 +327,7 @@ async fn check_all_skips_non_available_accounts() {
     }
 
     let plugin_loader = Arc::new(PluginLoader::empty());
-    let (checked, expired) = check_all_accounts(&storage, &plugin_loader).await;
+    let (checked, expired) = check_all_accounts(&storage, &plugin_loader, None).await;
     assert_eq!(checked, 0);
     assert_eq!(expired, 0);
 }
@@ -274,7 +350,7 @@ async fn check_all_skips_platform_without_login_check() {
     }
 
     let plugin_loader = Arc::new(PluginLoader::empty());
-    let (checked, expired) = check_all_accounts(&storage, &plugin_loader).await;
+    let (checked, expired) = check_all_accounts(&storage, &plugin_loader, None).await;
     assert_eq!(checked, 0);
     assert_eq!(expired, 0);
 }
@@ -286,7 +362,7 @@ async fn check_all_returns_zero_on_empty_db() {
     let storage = Arc::new(Mutex::new(Storage::new(&db_path).unwrap()));
     let plugin_loader = Arc::new(PluginLoader::empty());
 
-    let (checked, expired) = check_all_accounts(&storage, &plugin_loader).await;
+    let (checked, expired) = check_all_accounts(&storage, &plugin_loader, None).await;
     assert_eq!(checked, 0);
     assert_eq!(expired, 0);
 }
@@ -337,7 +413,7 @@ async fn check_all_mixed_states_only_checks_available() {
     }
 
     let plugin_loader = Arc::new(PluginLoader::empty());
-    let (checked, expired) = check_all_accounts(&storage, &plugin_loader).await;
+    let (checked, expired) = check_all_accounts(&storage, &plugin_loader, None).await;
     assert_eq!(checked, 0);
     assert_eq!(expired, 0);
 }

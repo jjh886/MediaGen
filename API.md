@@ -111,20 +111,21 @@ curl http://127.0.0.1:18080/v1/images/generations \
 
 ### 常用参数
 
-| 参数                 | 类型    | 说明                                                     |
-| -------------------- | ------- | -------------------------------------------------------- |
-| `model`              | string  | 必填。使用 `/v1/models` 返回的模型 ID 或 OpenAI 兼容别名 |
-| `prompt`             | string  | 必填。图片提示词                                         |
-| `n`                  | number  | 图片数量，当前限制为 `1..4`                              |
-| `size`               | string  | `auto`、`1024x1024`、`1536x1024`、`1024x1536`            |
-| `quality`            | string  | `auto`、`low`、`medium`、`high`                          |
-| `response_format`    | string  | 只支持 `b64_json`，也可以省略                            |
-| `output_format`      | string  | `png`、`jpeg`、`webp`，默认 `png`                        |
-| `output_compression` | number  | `0..100`，主要用于 `jpeg` / `webp`                       |
-| `background`         | string  | `auto`、`transparent`、`opaque`                          |
-| `stream`             | boolean | `true` 时使用 SSE                                        |
-| `partial_images`     | number  | OpenAI 兼容参数，范围 `0..3`；当前只保证最终图事件       |
-| `user`               | string  | OpenAI 兼容参数，本地服务仅接收不强依赖                  |
+| 参数                 | 类型    | 说明                                                        |
+| -------------------- | ------- | ----------------------------------------------------------- |
+| `model`              | string  | 必填。使用 `/v1/models` 返回的模型 ID 或 OpenAI 兼容别名    |
+| `prompt`             | string  | 必填。图片提示词                                            |
+| `n`                  | number  | 图片数量，当前限制为 `1..4`                                 |
+| `size`               | string  | `auto`、`1024x1024`、`1536x1024`、`1024x1536`               |
+| `quality`            | string  | `auto`、`low`、`medium`、`high`                             |
+| `response_format`    | string  | 只支持 `b64_json`，也可以省略                               |
+| `output_format`      | string  | `png`、`jpeg`、`webp`，默认 `png`                           |
+| `output_compression` | number  | `0..100`，主要用于 `jpeg` / `webp`                          |
+| `background`         | string  | `auto`、`transparent`、`opaque`                             |
+| `stream`             | boolean | `true` 时使用 SSE                                           |
+| `partial_images`     | number  | `0..3`，会桥接给插件；Codex 返回中间图时会转发 partial 事件 |
+| `moderation`         | string  | `auto`、`low`，会桥接给支持该参数的平台插件                 |
+| `user`               | string  | OpenAI 兼容参数，本地服务仅接收不强依赖                     |
 
 ### JSON 响应示例
 
@@ -239,7 +240,20 @@ event: image_edit.completed
 data: {"type":"image_edit.completed","b64_json":"...","created_at":1779695864,"size":"1024x1024","quality":"auto","output_format":"png"}
 ```
 
-当前本地桌面端不提供 OpenAI Files API，所以 `file_id` 不可用。`mask` 参数目前也不支持，会返回 OpenAI 风格错误。
+当前本地桌面端不提供 OpenAI Files API，所以 `file_id` 不可用。`mask` 当前由 Codex 编辑流程支持；其它平台不支持时会返回 OpenAI 风格错误。
+
+### 编辑接口参数
+
+编辑接口复用生成接口里的 `model`、`prompt`、`n`、`size`、`quality`、`response_format`、`output_format`、`output_compression`、`background`、`stream`、`partial_images`、`moderation` 和 `user`。另外还有：
+
+| 参数             | 类型        | 说明                                                        |
+| ---------------- | ----------- | ----------------------------------------------------------- |
+| `images`         | array       | JSON 传图时使用，至少传一个 `images[].image_url`            |
+| `image`          | file        | multipart 传图时使用；也兼容 `image[]`、`image[0]` 等字段名 |
+| `input_fidelity` | string      | `high`、`low`，会桥接给支持参考图保真度的平台插件           |
+| `mask`           | file/object | Codex 编辑支持；其它平台不支持时返回 OpenAI 风格错误        |
+
+MediaGen 的平台插件只做桥接：API 层负责校验和归一化参数，插件从上下文里读取 `size`、`quality`、`output_format`、`background`、`partial_images`、`moderation`、`input_fidelity`、`mask` 等字段并尽量转发给真实平台。真实平台不支持的能力会以 OpenAI 风格错误返回。
 
 ## POST /v1/images/variations
 

@@ -53,7 +53,7 @@ function buildLoginUrl(redirectUri, codeChallenge, state) {
       response_type: 'code',
       client_id: CLIENT_ID,
       redirect_uri: redirectUri,
-      scope: 'openid profile email offline_access',
+      scope: 'openid profile email offline_access api.connectors.read api.connectors.invoke',
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
       id_token_add_organizations: true,

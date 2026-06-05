@@ -5,6 +5,7 @@ mod image_events;
 mod image_handler;
 mod image_multipart;
 mod image_output;
+mod image_partials;
 mod image_refs;
 mod image_sse;
 mod imagex_proxy;
@@ -451,13 +452,6 @@ impl OpenAiImageRequest {
                 "unsupported_parameter",
                 "本地桌面端暂不提供 Files API，请使用 image_url 传入图片 URL 或 data URL"
                     .to_string(),
-            ));
-        }
-        if self.mask.is_some() {
-            return Err((
-                400,
-                "unsupported_parameter",
-                "当前插件流程暂不支持 mask 参数，请用 prompt 描述需要修改的区域".to_string(),
             ));
         }
         if endpoint == ImageEndpoint::Edit && self.reference_urls().is_empty() {

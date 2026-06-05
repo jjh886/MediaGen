@@ -211,6 +211,9 @@ pub struct LoginCheck {
     /// 可选：响应 JSON 中的过期时间字段（ISO 8601 格式），值在当前时间之前则视为过期
     #[serde(default)]
     pub expires_field: Option<String>,
+    /// 平台可声明“不确定”的 HTTP 状态码；命中后只记录日志，不会把账号标成登录过期
+    #[serde(default)]
+    pub inconclusive_statuses: Vec<u16>,
 }
 
 /// 指向插件 scripts/ 目录下的脚本文件

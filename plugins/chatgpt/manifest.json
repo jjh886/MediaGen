@@ -32,7 +32,8 @@
     "url": "https://chatgpt.com/api/auth/session",
     "cookie_domain": "chatgpt.com",
     "success_field": "user.email",
-    "expires_field": "expires"
+    "expires_field": "expires",
+    "inconclusive_statuses": [403, 429, 500, 502, 503, 504]
   },
   "watermark": {
     "has_watermark": false,

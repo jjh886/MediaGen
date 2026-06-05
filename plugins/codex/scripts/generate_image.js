@@ -6,23 +6,21 @@ const INSTRUCTIONS =
   "Use the image_generation tool to create the requested image. Do not rewrite, expand, polish, or add creative details to the user's prompt. Preserve the user intent, exact text, subject, style, composition, and constraints. Return the image generation result."
 
 function main(ctx) {
-  const auth = host.call('file.read_json', { path: ctx.profile_dir + '/auth.json' })
-  const accessToken = get(auth, ['tokens', 'access_token'])
-  if (!accessToken) throw new Error('auth.json 缺少 tokens.access_token，请重新登录 codex。')
+  let auth = codexEnsureFreshAuth(ctx)
   const request = buildRequest(ctx)
-  const accountId = firstNonEmpty([
-    get(auth, ['tokens', 'account_id']),
-    accountIdFromToken(accessToken),
-  ])
   const images = []
+  const partialImages = []
 
   for (let index = 0; index < request.count; index++) {
     const prompt = promptForIndex(request.prompt, index, request.count)
-    const payload = buildPayload(ctx, prompt, request.size)
-    const result = requestImageWithRetry(accessToken, accountId, payload)
+    const payload = buildPayload(ctx, prompt, request)
+    const response = requestImageWithAuthRetry(ctx, auth, payload)
+    auth = response.auth
+    const result = response.result
     const dimensions = dimensionsFromPng(result.image)
+    appendPartialImages(partialImages, result.partial_images, index, request.output_format)
     images.push({
-      url: 'data:image/png;base64,' + result.image,
+      url: 'data:' + mimeForOutputFormat(request.output_format) + ';base64,' + result.image,
       width: dimensions.width,
       height: dimensions.height,
       revised_prompt: result.revised_prompt || null,
@@ -35,6 +33,7 @@ function main(ctx) {
     status: 'done',
     source: 'codex',
     imageCount: images.length,
+    partial_images: partialImages,
     images,
   }
 }
@@ -46,6 +45,15 @@ function buildRequest(ctx) {
     prompt,
     count: clampNumber(ctx.max_images || 1, 1, 4),
     size: resolveSize(ctx),
+    quality: normalizeString(ctx.quality, 'auto'),
+    background: normalizeString(ctx.background, 'auto'),
+    output_format: normalizeString(ctx.output_format, 'png'),
+    output_compression: optionalNumber(ctx.output_compression, 0, 100),
+    partial_images: optionalNumber(ctx.partial_images, 0, 3),
+    moderation: optionalString(ctx.moderation),
+    input_fidelity: optionalString(ctx.input_fidelity),
+    action: resolveAction(ctx),
+    mask_image_url: resolveMaskImageUrl(ctx),
   }
 }
 
@@ -53,24 +61,9 @@ function promptForIndex(prompt, index, count) {
   return count > 1 ? prompt + '\n\nCreate variation ' + (index + 1) + ' of ' + count + '.' : prompt
 }
 
-function buildPayload(ctx, prompt, size) {
+function buildPayload(ctx, prompt, request) {
   const content = []
-  const refs = Array.isArray(ctx.ref_image_locals) ? ctx.ref_image_locals : []
-  for (const path of refs) {
-    if (!path) continue
-    const file = host.call('file.read_base64', {
-      path,
-      max_bytes: 50 * 1024 * 1024,
-    })
-    content.push({
-      type: 'input_text',
-      text: 'The next image is a reference image. Use it only for identity, style, composition, or visual guidance.',
-    })
-    content.push({
-      type: 'input_image',
-      image_url: 'data:' + file.mime + ';base64,' + file.base64,
-    })
-  }
+  appendReferenceImages(content, ctx)
   content.push({ type: 'input_text', text: prompt || '' })
 
   return {
@@ -78,19 +71,79 @@ function buildPayload(ctx, prompt, size) {
     instructions: INSTRUCTIONS,
     input: [{ role: 'user', content }],
     reasoning: { effort: 'low' },
-    tools: [
-      {
-        type: 'image_generation',
-        size,
-        quality: 'high',
-        background: 'auto',
-        output_format: 'png',
-        action: 'generate',
-      },
-    ],
+    tools: [buildImageTool(request)],
     tool_choice: { type: 'image_generation' },
     store: false,
     stream: true,
+  }
+}
+
+function appendReferenceImages(content, ctx) {
+  for (const imageUrl of referenceImageUrls(ctx)) {
+    content.push({
+      type: 'input_text',
+      text: 'The next image is a reference image. Use it only for identity, style, composition, or visual guidance.',
+    })
+    content.push({ type: 'input_image', image_url: imageUrl })
+  }
+}
+
+function referenceImageUrls(ctx) {
+  const localUrls = localReferenceDataUrls(ctx)
+  if (localUrls.length) return localUrls
+  const dataUrls = arrayOfStrings(ctx.ref_image_dataurls)
+  if (dataUrls.length) return dataUrls
+  return arrayOfStrings(ctx.ref_image_urls)
+}
+
+function localReferenceDataUrls(ctx) {
+  const urls = []
+  for (const path of arrayOfStrings(ctx.ref_image_locals)) {
+    const file = host.call('file.read_base64', {
+      path,
+      max_bytes: 50 * 1024 * 1024,
+    })
+    urls.push('data:' + file.mime + ';base64,' + file.base64)
+  }
+  return urls
+}
+
+function buildImageTool(request) {
+  const tool = {
+    type: 'image_generation',
+    size: request.size,
+    quality: request.quality,
+    background: request.background,
+    output_format: request.output_format,
+    action: request.action,
+  }
+  setOptional(tool, 'output_compression', request.output_compression)
+  setOptional(tool, 'partial_images', request.partial_images)
+  setOptional(tool, 'moderation', request.moderation)
+  setOptional(tool, 'input_fidelity', request.input_fidelity)
+  if (request.mask_image_url) {
+    tool.input_image_mask = { image_url: request.mask_image_url }
+  }
+  return tool
+}
+
+function requestImageWithAuthRetry(ctx, auth, payload) {
+  try {
+    return {
+      auth,
+      result: requestImageWithRetry(codexAccessToken(auth), codexAccountId(auth), payload),
+    }
+  } catch (error) {
+    if (!codexErrorNeedsTokenRefresh(error)) throw error
+    const refreshed = codexRefreshAuth(ctx, auth, '生成接口鉴权失败')
+    return {
+      auth: refreshed,
+      result: requestImageWithRetry(
+        codexAccessToken(refreshed),
+        codexAccountId(refreshed),
+        payload
+      ),
+    }
   }
 }
 
@@ -130,7 +183,15 @@ function requestImage(accessToken, accountId, payload) {
 }
 
 function extractImage(events) {
-  const out = { image: '', revised_prompt: '', usage: null, error: '', error_code: '', types: [] }
+  const out = {
+    image: '',
+    revised_prompt: '',
+    usage: null,
+    error: '',
+    error_code: '',
+    types: [],
+    partial_images: [],
+  }
   const types = []
   for (const event of events) {
     collectEventType(types, event)
@@ -151,6 +212,7 @@ function applyEvent(out, event) {
   if (!event) return
   if (event.type === 'error') applyError(out, event)
   if (event.type === 'response.failed') applyError(out, get(event, ['response', 'error']) || {})
+  if (event.type === 'response.image_generation_call.partial_image') applyPartialImage(out, event)
   if (event.type === 'response.output_item.done') applyImageCall(out, event.item || {})
   if (event.type === 'response.completed') applyCompletedResponse(out, event.response || {})
 }
@@ -166,6 +228,16 @@ function applyImageCall(out, item) {
   if (!item || item.type !== 'image_generation_call') return
   if (item.result) out.image = item.result
   if (item.revised_prompt) out.revised_prompt = item.revised_prompt
+}
+
+function applyPartialImage(out, event) {
+  const b64 = String(event.partial_image_b64 || '').trim()
+  if (!b64) return
+  out.partial_images.push({
+    partial_image_index: optionalNumber(event.partial_image_index, 0, 1000) || 0,
+    b64_json: b64,
+    output_format: optionalString(event.output_format),
+  })
 }
 
 function applyError(out, error) {
@@ -275,33 +347,80 @@ function sleepBeforeRetry(attempt) {
   host.sleep(RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)])
 }
 
-function accountIdFromToken(token) {
-  const payload = decodeJwtPayload(token)
-  return firstNonEmpty([
-    get(payload, ['https://api.openai.com/auth', 'account_id']),
-    get(payload, ['https://api.openai.com/auth', 'chatgpt_account_id']),
-  ])
-}
-
-function decodeJwtPayload(token) {
-  const parts = String(token || '').split('.')
-  if (parts.length < 2) return {}
-  return JSON.parse(host.call('crypto.base64url_decode_utf8', { text: parts[1] }).value)
-}
-
 function resolveSize(ctx) {
   const requestedSize = String(ctx.size || ctx.image_size || '').trim()
+  if (requestedSize === 'auto') return 'auto'
   if (/^\d+x\d+$/.test(requestedSize)) return requestedSize
   const ratio = String(ctx.image_aspect_ratio || requestedSize || '9:16')
   return sizeForRatio(ratio)
 }
 
 function sizeForRatio(ratio) {
-  if (ratio === '16:9') return '2560x1440'
-  if (ratio === '1:1') return '2048x2048'
-  if (ratio === '3:4') return '1536x2048'
-  if (ratio === '4:3') return '2048x1536'
-  return '1440x2560'
+  if (ratio === '16:9' || ratio === '4:3') return '1536x1024'
+  if (ratio === '9:16' || ratio === '3:4') return '1024x1536'
+  return '1024x1024'
+}
+
+function resolveAction(ctx) {
+  const action = String(ctx.image_action || '').trim()
+  if (action === 'edit' || action === 'generate') return action
+  return hasReferences(ctx) ? 'edit' : 'generate'
+}
+
+function hasReferences(ctx) {
+  return (
+    arrayOfStrings(ctx.ref_image_locals).length > 0 ||
+    arrayOfStrings(ctx.ref_image_dataurls).length > 0 ||
+    arrayOfStrings(ctx.ref_image_urls).length > 0
+  )
+}
+
+function resolveMaskImageUrl(ctx) {
+  return optionalString(ctx.mask_image_dataurl) || optionalString(ctx.mask_image_url)
+}
+
+function normalizeString(value, fallback) {
+  const text = String(value || '').trim()
+  return text || fallback
+}
+
+function optionalString(value) {
+  const text = String(value || '').trim()
+  return text || null
+}
+
+function optionalNumber(value, min, max) {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  if (!Number.isFinite(n)) return null
+  return Math.max(min, Math.min(max, Math.floor(n)))
+}
+
+function setOptional(target, key, value) {
+  if (value === null || value === undefined || value === '') return
+  target[key] = value
+}
+
+function arrayOfStrings(value) {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => String(item || '').trim()).filter(Boolean)
+}
+
+function mimeForOutputFormat(format) {
+  if (format === 'jpeg') return 'image/jpeg'
+  if (format === 'webp') return 'image/webp'
+  return 'image/png'
+}
+
+function appendPartialImages(target, partials, imageIndex, fallbackFormat) {
+  for (const partial of Array.isArray(partials) ? partials : []) {
+    target.push({
+      image_index: imageIndex,
+      partial_image_index: optionalNumber(partial.partial_image_index, 0, 1000) || 0,
+      b64_json: partial.b64_json,
+      output_format: partial.output_format || fallbackFormat,
+    })
+  }
 }
 
 function dimensionsFromPng(imageBase64) {

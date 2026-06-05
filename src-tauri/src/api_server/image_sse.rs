@@ -63,6 +63,7 @@ pub(crate) async fn start_generate_image_sse(
             &state_clone,
             &body,
             request_id_for_task.clone(),
+            endpoint,
             Some(account_reporter),
         )
         .await

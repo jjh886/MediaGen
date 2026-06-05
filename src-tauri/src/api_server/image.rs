@@ -5,6 +5,7 @@ use super::image_account::{
     allocate_account_when_available, AccountQueueReporter, ActiveAccountLease, PrepareError,
 };
 use super::image_output::process_poll_images;
+use super::image_partials::{collect_partial_images, format_partial_sse_event, PartialImageEvent};
 use super::image_refs::fetch_ref_images_as_data_urls;
 use super::{error_response, ImageEndpoint, ImageGenContext, OpenAiImageRequest};
 use crate::account_manager::handle_task_failure;
@@ -16,6 +17,7 @@ use crate::AppState;
 pub(crate) struct ImageApiResponse {
     pub created: i64,
     pub images: Vec<String>,
+    pub partial_images: Vec<PartialImageEvent>,
     pub output_format: String,
     pub quality: String,
     pub size: String,
@@ -45,6 +47,9 @@ impl ImageApiResponse {
     pub(crate) fn to_sse_body(&self, endpoint: ImageEndpoint) -> String {
         let event_type = endpoint.completed_event_type();
         let mut out = String::new();
+        for partial in &self.partial_images {
+            out.push_str(&format_partial_sse_event(endpoint, partial));
+        }
         for b64_json in &self.images {
             let mut payload = serde_json::json!({
                 "type": event_type,
@@ -76,6 +81,7 @@ pub(crate) async fn prepare_image_context(
     state: &web::Data<AppState>,
     body: &OpenAiImageRequest,
     request_id: String,
+    endpoint: ImageEndpoint,
     account_queue_reporter: Option<AccountQueueReporter>,
 ) -> Result<(ImageGenContext, ActiveAccountLease), PrepareError> {
     let (manifest, model_info) =
@@ -90,6 +96,18 @@ pub(crate) async fn prepare_image_context(
                 )
             })?;
     let platform = manifest.platform_id.clone();
+    let mask_image_url = body
+        .mask
+        .as_ref()
+        .and_then(|item| item.image_url.clone())
+        .filter(|url| !url.trim().is_empty());
+    if mask_image_url.is_some() && platform != "codex" {
+        return Err((
+            400,
+            "unsupported_parameter",
+            format!("{} 当前插件流程暂不支持 mask 参数", platform),
+        ));
+    }
 
     let flow = manifest
         .flows
@@ -121,6 +139,7 @@ pub(crate) async fn prepare_image_context(
     let ref_image_locals = super::image_output::download_ref_images(&ref_image_urls).await;
     let ref_image_local = ref_image_locals.first().cloned().unwrap_or_default();
     let ref_image_dataurls = fetch_ref_images_as_data_urls(&ref_image_urls).await;
+    let mask_image_dataurl = fetch_mask_image_data_url(mask_image_url.as_deref()).await;
 
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let workspace_dir = ensure_workspace_dir(&state.app_data_dir, &today, &platform);
@@ -134,6 +153,14 @@ pub(crate) async fn prepare_image_context(
     let size = body.requested_size();
     let output_compression = body.output_compression;
     let background = body.background.clone();
+    let image_endpoint = match endpoint {
+        ImageEndpoint::Generation => "generation",
+        ImageEndpoint::Edit => "edit",
+    };
+    let image_action = match endpoint {
+        ImageEndpoint::Generation => "generate",
+        ImageEndpoint::Edit => "edit",
+    };
 
     let initial_context = serde_json::json!({
         "account_id": account_id,
@@ -152,12 +179,21 @@ pub(crate) async fn prepare_image_context(
         "ref_image_locals": ref_image_locals,
         "ref_image_urls": ref_image_urls,
         "ref_image_dataurls": ref_image_dataurls,
+        "mask_image_url": mask_image_url,
+        "mask_image_dataurl": mask_image_dataurl,
         "workspace_dir": workspace_dir.to_string_lossy(),
         "output_format": output_format,
         "quality": quality,
         "size": size,
+        // 下面这些字段是 API 参数的插件桥接层；插件按需转发给真实平台。
+        "image_endpoint": image_endpoint,
+        "image_action": image_action,
+        "partial_images": body.partial_images,
         "output_compression": output_compression,
         "background": background,
+        "moderation": body.moderation,
+        "input_fidelity": body.input_fidelity,
+        "user": body.user,
     });
 
     Ok((
@@ -237,10 +273,12 @@ pub(crate) async fn generate_image_response(
             }
 
             let first = image_results.first();
+            let partial_images = collect_partial_images(poll_data, &ctx.output_format);
             let task_json = serde_json::json!({
                 "width": first.map(|r| r.width).unwrap_or(0),
                 "height": first.map(|r| r.height).unwrap_or(0),
                 "imageCount": image_results.len(),
+                "partialImageCount": partial_images.len(),
                 "source": poll_data.and_then(|d| d["source"].as_str()).unwrap_or("unknown"),
             });
             mark_task_completed(&state, &ctx, &task_json);
@@ -253,6 +291,7 @@ pub(crate) async fn generate_image_response(
             Ok(ImageApiResponse {
                 created: chrono::Utc::now().timestamp(),
                 images,
+                partial_images,
                 output_format: ctx.output_format,
                 quality: ctx.quality,
                 size: ctx.size,
@@ -275,6 +314,17 @@ pub(crate) async fn generate_image_response(
             Err((500, "generation_failed", e.to_string()))
         }
     }
+}
+
+async fn fetch_mask_image_data_url(mask_image_url: Option<&str>) -> String {
+    let Some(url) = mask_image_url else {
+        return String::new();
+    };
+    fetch_ref_images_as_data_urls(&[url.to_string()])
+        .await
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| url.to_string())
 }
 
 fn ensure_workspace_dir(
@@ -397,6 +447,11 @@ mod tests {
         ImageApiResponse {
             created: 1_620_000_000,
             images: vec!["abc".to_string()],
+            partial_images: vec![PartialImageEvent {
+                index: 0,
+                b64_json: "partial".to_string(),
+                output_format: "png".to_string(),
+            }],
             output_format: "png".to_string(),
             quality: "high".to_string(),
             size: "1024x1024".to_string(),
@@ -418,7 +473,9 @@ mod tests {
     fn sse_response_uses_openai_event_shape() {
         let body = sample_response().to_sse_body(ImageEndpoint::Generation);
 
-        assert!(body.starts_with("event: image_generation.completed\n"));
+        assert!(body.starts_with("event: image_generation.partial_image\n"));
+        assert!(body.contains("\"type\":\"image_generation.partial_image\""));
+        assert!(body.contains("event: image_generation.completed\n"));
         assert!(body.contains("\"type\":\"image_generation.completed\""));
         assert!(body.contains("\"created_at\":1620000000"));
         assert!(body.ends_with("\n\n"));

@@ -8,6 +8,7 @@ pub mod engine;
 pub mod error;
 pub mod log_layer;
 pub mod login_checker;
+mod login_checker_flow;
 pub mod orchestrator;
 pub mod plugin_loader;
 pub mod plugin_runtime;
@@ -465,7 +466,11 @@ fn dedupe_ports(ports: Vec<u16>) -> Vec<u16> {
 }
 
 fn start_periodic_login_checker(state: Arc<AppState>) {
-    login_checker::spawn_periodic_checker(state.storage.clone(), state.plugin_loader.clone());
+    login_checker::spawn_periodic_checker(
+        state.storage.clone(),
+        state.plugin_loader.clone(),
+        state.engine_registry.clone(),
+    );
 }
 
 #[cfg(test)]

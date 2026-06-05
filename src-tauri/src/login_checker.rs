@@ -8,6 +8,10 @@ use std::sync::{Arc, Mutex};
 
 use tracing::{debug, info, warn};
 
+use reqwest::{Response, StatusCode};
+
+use crate::engine::EngineRegistry;
+use crate::login_checker_flow::{check_account_flow, persist_account_outcome, AccountCheckOutcome};
 use crate::plugin_loader::PluginLoader;
 use crate::storage::Storage;
 use crate::sync_ext::MutexExt;
@@ -56,19 +60,84 @@ fn resolve_field(json: &serde_json::Value, path: &str) -> Option<String> {
 
 // ── 验证逻辑 ──
 
+/// 只有“足够明确”的 HTTP 状态才会直接判定账号过期。
+/// 403/429/5xx 更常见于风控、限流或服务端临时异常，不能直接把正常账号打成过期。
+fn login_expired_reason_for_status(status: StatusCode) -> Option<String> {
+    if status.is_redirection() {
+        return Some(format!("HTTP {status}，重定向到登录页"));
+    }
+    if status == StatusCode::UNAUTHORIZED {
+        return Some(format!("HTTP {status}，登录凭据无效"));
+    }
+    None
+}
+
+fn is_inconclusive_status(status: StatusCode, config: &LoginCheck) -> bool {
+    config.inconclusive_statuses.contains(&status.as_u16())
+}
+
+enum StatusCheck {
+    Continue,
+    Expired(String),
+    Inconclusive,
+}
+
 /// 用 HTTP 请求验证单个账号的登录态（通用，不含平台逻辑）
 ///
 /// 返回 `Some(reason)` 表示过期，`None` 表示仍然有效
 async fn check_account_http(account: &PlatformAccount, config: &LoginCheck) -> Option<String> {
+    let cookie_header = match resolve_cookie_header(account, config) {
+        Ok(header) => header,
+        Err(reason) => return Some(reason),
+    };
+
+    let resp = send_login_check_request(account, config, &cookie_header).await?;
+
+    match classify_login_status(account, config, resp.status()) {
+        StatusCheck::Continue => {}
+        StatusCheck::Expired(reason) => return Some(reason),
+        StatusCheck::Inconclusive => return None,
+    };
+
+    let json = match read_login_check_json(resp).await {
+        Some(Ok(json)) => json,
+        Some(Err(reason)) => return Some(reason),
+        None => return None,
+    };
+
+    if let Some(reason) = validate_success_field(&json, config) {
+        return Some(reason);
+    }
+
+    if let Some(reason) = expired_session_reason(&json, config) {
+        return Some(reason);
+    }
+
+    debug!(
+        account_id = %account.id,
+        platform = %account.platform,
+        "HTTP 登录验证通过"
+    );
+    None
+}
+
+fn resolve_cookie_header(account: &PlatformAccount, config: &LoginCheck) -> Result<String, String> {
     if account.cookies.is_empty() || account.cookies == "[]" {
-        return Some("无 cookies 数据".into());
+        return Err("无 cookies 数据".into());
     }
 
     let cookie_header = build_cookie_header(&account.cookies, &config.cookie_domain);
     if cookie_header.is_empty() {
-        return Some(format!("cookies 中无匹配域名 '{}'", config.cookie_domain));
+        return Err(format!("cookies 中无匹配域名 '{}'", config.cookie_domain));
     }
+    Ok(cookie_header)
+}
 
+async fn send_login_check_request(
+    account: &PlatformAccount,
+    config: &LoginCheck,
+    cookie_header: &str,
+) -> Option<Response> {
     let client = match reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(15))
@@ -81,9 +150,9 @@ async fn check_account_http(account: &PlatformAccount, config: &LoginCheck) -> O
         }
     };
 
-    let resp = match client
+    match client
         .get(&config.url)
-        .header("Cookie", &cookie_header)
+        .header("Cookie", cookie_header)
         .header(
             "User-Agent",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -91,57 +160,68 @@ async fn check_account_http(account: &PlatformAccount, config: &LoginCheck) -> O
         .send()
         .await
     {
-        Ok(r) => r,
+        Ok(resp) => Some(resp),
         Err(e) => {
             warn!(
                 account_id = %account.id,
                 error = %e,
                 "登录检查请求失败（不标记过期）"
             );
-            return None;
+            None
         }
-    };
-
-    let status = resp.status();
-
-    if status.is_redirection() {
-        return Some(format!("HTTP {status}，重定向到登录页"));
     }
-    if !status.is_success() {
-        return Some(format!("HTTP {status}"));
-    }
+}
 
+fn classify_login_status(
+    account: &PlatformAccount,
+    config: &LoginCheck,
+    status: StatusCode,
+) -> StatusCheck {
+    if let Some(reason) = login_expired_reason_for_status(status) {
+        return StatusCheck::Expired(reason);
+    }
+    if status.is_success() {
+        return StatusCheck::Continue;
+    }
+    if is_inconclusive_status(status, config) {
+        // 平台可把风控、限流、临时服务异常声明为“不确定”，避免后台 HTTP 探测误伤账号。
+        warn!(
+            account_id = %account.id,
+            platform = %account.platform,
+            status = %status,
+            "登录检查返回非确定性状态（不标记过期）"
+        );
+        return StatusCheck::Inconclusive;
+    }
+    StatusCheck::Expired(format!("HTTP {status}"))
+}
+
+async fn read_login_check_json(resp: Response) -> Option<Result<serde_json::Value, String>> {
     let body = match resp.text().await {
-        Ok(b) => b,
+        Ok(body) => body,
         Err(_) => return None,
     };
-
-    let json: serde_json::Value = match serde_json::from_str(&body) {
-        Ok(j) => j,
-        Err(_) => return Some("响应非 JSON".into()),
-    };
-
-    if resolve_field(&json, &config.success_field).is_none() {
-        return Some(format!("字段 '{}' 为空或不存在", config.success_field));
+    match serde_json::from_str(&body) {
+        Ok(json) => Some(Ok(json)),
+        Err(_) => Some(Err("响应非 JSON".into())),
     }
+}
 
-    // 可选：检查过期时间字段
-    if let Some(ref expires_path) = config.expires_field {
-        if let Some(expires_str) = resolve_field(&json, expires_path) {
-            if let Ok(expires_at) = chrono::DateTime::parse_from_rfc3339(&expires_str) {
-                if expires_at < chrono::Utc::now() {
-                    return Some(format!("session 已过期 ({})", expires_str));
-                }
-            }
-        }
+fn validate_success_field(json: &serde_json::Value, config: &LoginCheck) -> Option<String> {
+    if resolve_field(json, &config.success_field).is_some() {
+        return None;
     }
+    Some(format!("字段 '{}' 为空或不存在", config.success_field))
+}
 
-    debug!(
-        account_id = %account.id,
-        platform = %account.platform,
-        "HTTP 登录验证通过"
-    );
-    None
+fn expired_session_reason(json: &serde_json::Value, config: &LoginCheck) -> Option<String> {
+    let expires_path = config.expires_field.as_ref()?;
+    let expires_str = resolve_field(json, expires_path)?;
+    let expires_at = chrono::DateTime::parse_from_rfc3339(&expires_str).ok()?;
+    if expires_at >= chrono::Utc::now() {
+        return None;
+    }
+    Some(format!("session 已过期 ({expires_str})"))
 }
 
 // ── 批量检查 ──
@@ -150,6 +230,7 @@ async fn check_account_http(account: &PlatformAccount, config: &LoginCheck) -> O
 pub async fn check_all_accounts(
     storage: &Arc<Mutex<Storage>>,
     plugin_loader: &Arc<PluginLoader>,
+    engine_registry: Option<&EngineRegistry>,
 ) -> (usize, usize) {
     let accounts = {
         let s = storage.lock_recover();
@@ -170,39 +251,16 @@ pub async fn check_all_accounts(
             continue;
         }
 
-        // 从 manifest 读取 login_check 配置
-        let config = plugin_loader
-            .get_plugin(&account.platform)
-            .and_then(|m| m.login_check.as_ref());
-
-        let config = match config {
-            Some(c) => c,
-            None => continue, // 无 login_check 配置，跳过
+        let Some(outcome) =
+            check_account_by_manifest(account, plugin_loader, engine_registry).await
+        else {
+            continue;
         };
 
         checked += 1;
 
-        let result = check_account_http(account, config).await;
-
-        if let Some(reason) = result {
-            info!(
-                account_id = %account.id,
-                platform = %account.platform,
-                name = %account.name,
-                reason = %reason,
-                "账号登录已过期"
-            );
-
-            let s = storage.lock_recover();
-            if let Err(e) = s.update_login_state(&account.id, LoginState::LoginExpired, &reason) {
-                warn!(error = %e, "更新登录状态失败");
-            }
+        if persist_account_outcome(storage, account, outcome) {
             expired += 1;
-        } else {
-            let s = storage.lock_recover();
-            if let Err(e) = s.update_last_check_at(&account.id) {
-                warn!(error = %e, account_id = %account.id, "更新 last_check_at 失败");
-            }
         }
     }
 
@@ -213,9 +271,30 @@ pub async fn check_all_accounts(
     (checked, expired)
 }
 
+async fn check_account_by_manifest(
+    account: &PlatformAccount,
+    plugin_loader: &Arc<PluginLoader>,
+    engine_registry: Option<&EngineRegistry>,
+) -> Option<AccountCheckOutcome> {
+    let manifest = plugin_loader.get_plugin(&account.platform)?;
+    if let Some(config) = manifest.login_check.as_ref() {
+        return Some(match check_account_http(account, config).await {
+            Some(reason) => AccountCheckOutcome::Expired(reason),
+            None => AccountCheckOutcome::Valid(None),
+        });
+    }
+    let engine = engine_registry?;
+    let flow = manifest.flows.get("check_account")?;
+    Some(check_account_flow(account, manifest, plugin_loader, flow, engine).await)
+}
+
 /// 启动后台定时检查任务。
 /// 每轮循环前重新从 settings 读取 `check_interval_minutes`，修改设置后下一轮即生效。
-pub fn spawn_periodic_checker(storage: Arc<Mutex<Storage>>, plugin_loader: Arc<PluginLoader>) {
+pub fn spawn_periodic_checker(
+    storage: Arc<Mutex<Storage>>,
+    plugin_loader: Arc<PluginLoader>,
+    engine_registry: Arc<EngineRegistry>,
+) {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -224,7 +303,8 @@ pub fn spawn_periodic_checker(storage: Arc<Mutex<Storage>>, plugin_loader: Arc<P
 
         rt.block_on(async move {
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-            let (checked, expired) = check_all_accounts(&storage, &plugin_loader).await;
+            let (checked, expired) =
+                check_all_accounts(&storage, &plugin_loader, Some(engine_registry.as_ref())).await;
             if checked > 0 {
                 info!(checked, expired, "启动时登录状态检查完成");
             }
@@ -232,7 +312,7 @@ pub fn spawn_periodic_checker(storage: Arc<Mutex<Storage>>, plugin_loader: Arc<P
             loop {
                 let minutes = read_check_interval_minutes(&storage);
                 tokio::time::sleep(std::time::Duration::from_secs(minutes * 60)).await;
-                check_all_accounts(&storage, &plugin_loader).await;
+                check_all_accounts(&storage, &plugin_loader, Some(engine_registry.as_ref())).await;
             }
         });
     });

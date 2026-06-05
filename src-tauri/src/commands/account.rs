@@ -444,7 +444,11 @@ fn update_relogin_account(
 pub async fn check_accounts_login(
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<serde_json::Value, String> {
-    let (checked, expired) =
-        login_checker::check_all_accounts(&state.storage, &state.plugin_loader).await;
+    let (checked, expired) = login_checker::check_all_accounts(
+        &state.storage,
+        &state.plugin_loader,
+        Some(state.engine_registry.as_ref()),
+    )
+    .await;
     Ok(serde_json::json!({ "checked": checked, "expired": expired }))
 }
