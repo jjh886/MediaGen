@@ -1,0 +1,3 @@
+{
+  "plugins": ["chatgpt", "codex", "jimeng", "doubao", "flow"]
+}

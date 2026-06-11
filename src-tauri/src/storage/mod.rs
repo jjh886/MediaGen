@@ -13,6 +13,68 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::error::AppError;
 use crate::types::*;
 
+const CORE_SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS accounts (
+    id                    TEXT PRIMARY KEY,
+    platform              TEXT NOT NULL,
+    name                  TEXT NOT NULL,
+    notes                 TEXT NOT NULL DEFAULT '',
+    login_state           TEXT NOT NULL DEFAULT 'available',
+    login_state_reason    TEXT NOT NULL DEFAULT '',
+    login_state_updated_at TEXT NOT NULL,
+    cookies               TEXT NOT NULL DEFAULT '',
+    api_token             TEXT NOT NULL DEFAULT '',
+    refresh_token         TEXT NOT NULL DEFAULT '',
+    token_expires_at      TEXT,
+    profile_dir           TEXT NOT NULL DEFAULT '',
+    tier                  TEXT NOT NULL DEFAULT '',
+    concurrency_limit     INTEGER NOT NULL DEFAULT 1,
+    daily_limit           INTEGER NOT NULL DEFAULT 0,
+    total_limit           INTEGER NOT NULL DEFAULT 0,
+    used_today            INTEGER NOT NULL DEFAULT 0,
+    used_total            INTEGER NOT NULL DEFAULT 0,
+    usage_date            TEXT NOT NULL DEFAULT '',
+    cooldown_until        TEXT,
+    user_id               TEXT NOT NULL DEFAULT '',
+    username              TEXT NOT NULL DEFAULT '',
+    email                 TEXT NOT NULL DEFAULT '',
+    avatar_url            TEXT NOT NULL DEFAULT '',
+    password_encrypted    TEXT NOT NULL DEFAULT '',
+    created_at            TEXT NOT NULL,
+    last_check_at         TEXT,
+    last_refreshed_at     TEXT,
+    last_used_at          TEXT
+);
+CREATE TABLE IF NOT EXISTS tasks (
+    id              TEXT PRIMARY KEY,
+    platform        TEXT NOT NULL,
+    task_kind       TEXT NOT NULL,
+    model_id        TEXT NOT NULL,
+    prompt          TEXT NOT NULL DEFAULT '',
+    account_id      TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    result_url      TEXT,
+    storage_key     TEXT,
+    error_message   TEXT,
+    created_at      TEXT NOT NULL,
+    completed_at    TEXT
+);
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS logs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp  TEXT NOT NULL,
+    module     TEXT NOT NULL,
+    level      TEXT NOT NULL,
+    summary    TEXT NOT NULL,
+    detail     TEXT,
+    task_id    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_logs_module ON logs(module);
+CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);";
+
 pub struct Storage {
     conn: Connection,
 }
@@ -20,75 +82,7 @@ pub struct Storage {
 impl Storage {
     pub fn new(db_path: impl AsRef<Path>) -> Result<Self, AppError> {
         let conn = Connection::open(db_path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS accounts (
-                id                    TEXT PRIMARY KEY,
-                platform              TEXT NOT NULL,
-                name                  TEXT NOT NULL,
-                notes                 TEXT NOT NULL DEFAULT '',
-                login_state           TEXT NOT NULL DEFAULT 'available',
-                login_state_reason    TEXT NOT NULL DEFAULT '',
-                login_state_updated_at TEXT NOT NULL,
-                cookies               TEXT NOT NULL DEFAULT '',
-                api_token             TEXT NOT NULL DEFAULT '',
-                refresh_token         TEXT NOT NULL DEFAULT '',
-                token_expires_at      TEXT,
-                profile_dir           TEXT NOT NULL DEFAULT '',
-                tier                  TEXT NOT NULL DEFAULT '',
-                concurrency_limit     INTEGER NOT NULL DEFAULT 1,
-                daily_limit           INTEGER NOT NULL DEFAULT 0,
-                total_limit           INTEGER NOT NULL DEFAULT 0,
-                used_today            INTEGER NOT NULL DEFAULT 0,
-                used_total            INTEGER NOT NULL DEFAULT 0,
-                usage_date            TEXT NOT NULL DEFAULT '',
-                cooldown_until        TEXT,
-                user_id               TEXT NOT NULL DEFAULT '',
-                username              TEXT NOT NULL DEFAULT '',
-                email                 TEXT NOT NULL DEFAULT '',
-                avatar_url            TEXT NOT NULL DEFAULT '',
-                password_encrypted    TEXT NOT NULL DEFAULT '',
-                created_at            TEXT NOT NULL,
-                last_check_at         TEXT,
-                last_refreshed_at     TEXT,
-                last_used_at          TEXT
-            );
-            CREATE TABLE IF NOT EXISTS tasks (
-                id              TEXT PRIMARY KEY,
-                platform        TEXT NOT NULL,
-                task_kind       TEXT NOT NULL,
-                model_id        TEXT NOT NULL,
-                prompt          TEXT NOT NULL DEFAULT '',
-                account_id      TEXT,
-                status          TEXT NOT NULL DEFAULT 'pending',
-                result_url      TEXT,
-                storage_key     TEXT,
-                error_message   TEXT,
-                created_at      TEXT NOT NULL,
-                completed_at    TEXT
-            );
-            CREATE TABLE IF NOT EXISTS settings (
-                key   TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS logs (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp  TEXT NOT NULL,
-                module     TEXT NOT NULL,
-                level      TEXT NOT NULL,
-                summary    TEXT NOT NULL,
-                detail     TEXT,
-                task_id    TEXT
-            );
-            CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
-            CREATE INDEX IF NOT EXISTS idx_logs_module ON logs(module);
-            CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);",
-        )?;
-        // 增量迁移：给已有数据库添加新列（已存在则忽略）
-        let _ = conn
-            .execute_batch("ALTER TABLE accounts ADD COLUMN avatar_url TEXT NOT NULL DEFAULT '';");
-        let _ = conn.execute_batch("ALTER TABLE tasks ADD COLUMN result_data TEXT;");
-
+        initialize_connection(&conn)?;
         Ok(Self { conn })
     }
 
@@ -341,3 +335,27 @@ impl Storage {
 }
 
 // ── 辅助函数 ──
+
+fn initialize_connection(conn: &Connection) -> Result<(), AppError> {
+    configure_connection(conn)?;
+    create_core_schema(conn)?;
+    run_schema_migrations(conn);
+    Ok(())
+}
+
+fn configure_connection(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+    Ok(())
+}
+
+fn create_core_schema(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(CORE_SCHEMA_SQL)?;
+    Ok(())
+}
+
+fn run_schema_migrations(conn: &Connection) {
+    // 增量迁移：给已有数据库添加新列（已存在则忽略）。
+    let _ =
+        conn.execute_batch("ALTER TABLE accounts ADD COLUMN avatar_url TEXT NOT NULL DEFAULT '';");
+    let _ = conn.execute_batch("ALTER TABLE tasks ADD COLUMN result_data TEXT;");
+}

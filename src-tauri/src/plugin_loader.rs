@@ -4,6 +4,10 @@ use std::path::{Path, PathBuf};
 use crate::error::AppError;
 use crate::types::{ModelDef, PluginManifest};
 
+mod index;
+
+use index::{plugin_candidates, read_plugin_index};
+
 pub struct PluginLoader {
     plugins: HashMap<String, PluginManifest>,
     plugin_dirs: HashMap<String, PathBuf>,
@@ -18,16 +22,17 @@ impl PluginLoader {
         }
     }
 
-    /// 扫描 plugins_dir 下的子目录，读取每个子目录中的 manifest.json。
+    /// 读取插件目录。若存在 plugins.index.json，只加载索引声明的插件；
+    /// 否则兼容旧目录结构，扫描 plugins_dir 下包含 manifest.json 的子目录。
     /// manifest 解析失败时跳过该插件并记录警告，不影响其他插件加载。
     pub fn load_from(plugins_dir: &Path) -> Result<Self, AppError> {
         let mut plugins = HashMap::new();
         let mut plugin_dirs = HashMap::new();
+        let indexed_names = read_plugin_index(plugins_dir);
+        let candidates = plugin_candidates(plugins_dir, indexed_names.as_deref())?;
 
-        let entries = std::fs::read_dir(plugins_dir)?;
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
+        for candidate in candidates {
+            let path = candidate.path;
             if !path.is_dir() {
                 continue;
             }
@@ -52,6 +57,18 @@ impl PluginLoader {
                     continue;
                 }
             };
+
+            if let Some(expected) = candidate.expected_platform_id.as_deref() {
+                if manifest.platform_id != expected {
+                    tracing::warn!(
+                        expected,
+                        actual = %manifest.platform_id,
+                        path = %manifest_path.display(),
+                        "插件 manifest platform_id 与索引目录不一致，已跳过"
+                    );
+                    continue;
+                }
+            }
 
             let platform_id = manifest.platform_id.clone();
             plugin_dirs.insert(platform_id.clone(), path);
@@ -226,6 +243,30 @@ mod tests {
         assert!(loader.get_plugin("doubao").is_some());
         assert!(loader.get_plugin("flow").is_some());
         assert!(loader.get_plugin_dir("doubao").is_some());
+    }
+
+    #[test]
+    fn load_from_uses_index_to_ignore_unlisted_plugins_without_deleting_them() {
+        let dir = tempdir().unwrap();
+        for name in ["doubao", "GPTImage2"] {
+            let sub = dir.path().join(name);
+            std::fs::create_dir_all(&sub).unwrap();
+            let manifest = minimal_manifest(name, vec![model_json(&format!("{name}_v1"))]);
+            std::fs::write(sub.join("manifest.json"), manifest).unwrap();
+        }
+        std::fs::write(
+            dir.path().join("plugins.index.json"),
+            r#"{"plugins":["doubao"]}"#,
+        )
+        .unwrap();
+
+        let loader = PluginLoader::load_from(dir.path()).unwrap();
+
+        assert_eq!(loader.plugins().len(), 1);
+        assert!(loader.get_plugin("doubao").is_some());
+        assert!(loader.get_plugin("GPTImage2").is_none());
+        assert!(dir.path().join("GPTImage2").exists());
+        assert!(dir.path().join("doubao").exists());
     }
 
     #[test]
@@ -409,6 +450,24 @@ mod tests {
 
         assert_eq!(jimeng.display_name, "即梦");
         assert_eq!(jimeng.models.len(), 5);
+    }
+
+    #[test]
+    fn shipped_manifests_follow_display_order() {
+        let plugins_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("src-tauri parent")
+            .join("plugins");
+
+        let loader = PluginLoader::load_from(&plugins_root).expect("加载项目内 plugins 目录");
+        // 展示层依赖 sorted_plugins；这里锁住用户看到的插件排列顺序。
+        let ids: Vec<&str> = loader
+            .sorted_plugins()
+            .into_iter()
+            .map(|m| m.platform_id.as_str())
+            .collect();
+
+        assert_eq!(ids, vec!["chatgpt", "codex", "jimeng", "doubao", "flow"]);
     }
 
     #[test]

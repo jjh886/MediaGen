@@ -14,12 +14,6 @@ export interface AppSettings {
   check_interval_minutes: number
   cooldown_default_seconds: number
   cache_dir: string
-  // 自动注册
-  auto_register_enabled: boolean
-  auto_register_password_mode: 'random' | 'default'
-  auto_register_password: string
-  auto_register_birthday_mode: 'random' | 'default'
-  auto_register_birthday: string
   // 平台默认配额覆盖（JSON 格式存储，key=platform_tier，如 "doubao_free"）
   platform_tier_overrides: string
 }
@@ -45,11 +39,6 @@ const DEFAULTS: AppSettings = {
   check_interval_minutes: 30,
   cooldown_default_seconds: 300,
   cache_dir: '',
-  auto_register_enabled: true,
-  auto_register_password_mode: 'random',
-  auto_register_password: 'MediaGen@2026',
-  auto_register_birthday_mode: 'random',
-  auto_register_birthday: '1995-06-15',
   platform_tier_overrides: '{}',
 }
 

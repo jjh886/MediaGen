@@ -1,7 +1,7 @@
 {
   "platform_id": "flow",
   "display_name": "Flow",
-  "sort_order": 10,
+  "sort_order": 50,
   "adapter_mode": "browser",
   "browser_lifecycle": "persistent",
   "login_url": "https://labs.google/fx/zh/tools/flow/",
@@ -62,7 +62,8 @@
     "url": "https://labs.google/fx/api/auth/session",
     "cookie_domain": "google",
     "success_field": "user.email",
-    "expires_field": "expires"
+    "expires_field": "expires",
+    "inconclusive_statuses": [403, 429, 500, 502, 503, 504]
   },
   "watermark": {
     "has_watermark": false,
@@ -117,7 +118,7 @@
           "_comment": "6. 注入参数（模型名、比例、数量、参考图 data URLs）到 window.__mediagen_params",
           "action": "browser.run_script",
           "session_id": "{{browser.session_id}}",
-          "script": "window.__mediagen_params = { model_display_name: '{{js:model_display_name}}', ratio: '{{js:image_aspect_ratio}}', count: {{max_images}}, ref_image_dataurls: JSON.parse('{{js:ref_image_dataurls}}' || '[]') }; JSON.stringify({set: true, refs: window.__mediagen_params.ref_image_dataurls.length})",
+          "script": "(() => { const normalizeRatio = (value) => { const v = String(value || '').trim(); return ['9:16', '16:9', '1:1', '3:4', '4:3'].includes(v) ? v : '9:16'; }; const ratio = normalizeRatio('{{js:image_aspect_ratio}}'); window.__mediagen_params = { model_display_name: '{{js:model_display_name}}', ratio, count: {{max_images}}, ref_image_dataurls: JSON.parse('{{js:ref_image_dataurls}}' || '[]') }; return JSON.stringify({set: true, ratio, refs: window.__mediagen_params.ref_image_dataurls.length}); })()",
           "save_as": "params_set"
         },
         {

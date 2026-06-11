@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { KtModal, KtButton, KtInput } from '@/shared/ui'
 import { batchRegister } from '../services/account-service'
-import { getAllSettings, type AppSettings } from '@/shared/services/settings-service'
 
 interface BatchRegisterDialogProps {
   open: boolean
@@ -43,36 +42,30 @@ export default function BatchRegisterDialog({
   platform,
   onSuccess,
 }: BatchRegisterDialogProps) {
-  const [settings, setSettings] = useState<AppSettings | null>(null)
   const [count, setCount] = useState('5')
   const [password, setPassword] = useState('')
   const [birthday, setBirthday] = useState('')
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState(0)
 
-  const pwdMode = settings?.auto_register_password_mode ?? 'random'
-  const bdMode = settings?.auto_register_birthday_mode ?? 'random'
-
   useEffect(() => {
-    if (!settings) {
-      getAllSettings().then(setSettings)
-    }
-  }, [settings])
-
-  useEffect(() => {
-    if (!settings) return
-    setPassword(pwdMode === 'random' ? generatePassword() : settings.auto_register_password)
-    setBirthday(bdMode === 'random' ? generateBirthday() : settings.auto_register_birthday)
-  }, [settings, pwdMode, bdMode])
+    if (!open) return
+    // 注册参数只在弹窗打开时临时生成，避免依赖设置页里的旧配置。
+    setPassword(generatePassword())
+    setBirthday(generateBirthday())
+  }, [open])
 
   const handleStart = async () => {
     const n = Math.min(50, Math.max(1, Number(count) || 1))
-    const finalPassword = pwdMode === 'random' ? generatePassword() : password
-    const finalBirthday = bdMode === 'random' ? generateBirthday() : birthday
     setRunning(true)
     setProgress(0)
     try {
-      await batchRegister(platform, n, finalPassword, finalBirthday)
+      await batchRegister(
+        platform,
+        n,
+        password || generatePassword(),
+        birthday || generateBirthday()
+      )
       setProgress(100)
       onSuccess()
     } finally {
@@ -116,38 +109,22 @@ export default function BatchRegisterDialog({
         </div>
 
         <div style={fieldStyle}>
-          <label style={labelStyle}>
-            密码{pwdMode === 'random' ? '（每次随机生成）' : '（固定密码）'}
-          </label>
-          {pwdMode === 'default' ? (
-            <KtInput
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={running}
-            />
-          ) : (
-            <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>
-              注册时自动生成随机密码
-            </div>
-          )}
+          <label style={labelStyle}>密码</label>
+          <KtInput
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={running}
+          />
         </div>
 
         <div style={fieldStyle}>
-          <label style={labelStyle}>
-            生日{bdMode === 'random' ? '（每次随机生成）' : '（固定生日）'}
-          </label>
-          {bdMode === 'default' ? (
-            <KtInput
-              type="date"
-              value={birthday}
-              onChange={(e) => setBirthday(e.target.value)}
-              disabled={running}
-            />
-          ) : (
-            <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>
-              注册时自动生成随机生日（1985-2000年）
-            </div>
-          )}
+          <label style={labelStyle}>生日</label>
+          <KtInput
+            type="date"
+            value={birthday}
+            onChange={(e) => setBirthday(e.target.value)}
+            disabled={running}
+          />
         </div>
 
         {running && (

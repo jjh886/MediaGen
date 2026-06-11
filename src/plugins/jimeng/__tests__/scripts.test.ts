@@ -233,6 +233,69 @@ describe('jimeng plugin scripts', () => {
     vi.stubGlobal('fetch', originalFetch)
   })
 
+  it('setup_interceptor falls back auto ratio to 9:16 for jimeng', async () => {
+    const originalFetch = window.fetch.bind(window)
+    let capturedBody = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input, init) => {
+        capturedBody = String(init?.body || '')
+        return new Response(
+          JSON.stringify({
+            ret: '0',
+            data: {
+              aigc_data: {
+                task: { submit_id: 'submit_1' },
+                history_record_id: 'history_1',
+              },
+            },
+          }),
+          { headers: { 'Content-Type': 'application/json' } }
+        )
+      })
+    )
+
+    setJimengState({
+      params: {
+        modelDisplayName: 'jimeng_图片_4.1',
+        ratio: 'auto',
+        prompt: '测试提示词',
+      },
+    })
+    await runScriptJson('setup_interceptor.js')
+
+    await window.fetch('/mweb/v1/aigc_draft/generate', {
+      method: 'POST',
+      body: JSON.stringify({
+        draft_content: JSON.stringify({
+          component_list: [
+            {
+              abilities: {
+                blend: {
+                  core_param: {
+                    prompt: 'old',
+                    image_ratio: 1,
+                    large_image_info: { width: 2048, height: 2048, resolution_type: '2k' },
+                  },
+                },
+              },
+            },
+          ],
+        }),
+      }),
+    })
+
+    const patched = JSON.parse(capturedBody)
+    const patchedDraft = JSON.parse(patched.draft_content)
+    const core = patchedDraft.component_list[0].abilities.blend.core_param
+    expect(getJimengState().params.ratio).toBe('9:16')
+    expect(core.prompt).toContain('画面比例：9:16')
+    expect(core.image_ratio).toBe(5)
+    expect(core.large_image_info).toMatchObject({ width: 1440, height: 2560 })
+
+    vi.stubGlobal('fetch', originalFetch)
+  })
+
   it('select_model marks trigger and wait_model_option marks target model option', async () => {
     document.body.innerHTML = `
       <div role="combobox" id="kind">图片生成</div>

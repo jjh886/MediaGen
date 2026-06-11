@@ -3,11 +3,17 @@
   const state = window[SK] || {}
   const visible = state.dom?.isVisible || (() => false)
   const params = state.params || {}
-  const target = String(params.ratioLabel || '').trim()
   const ratio = String(params.ratio || '').trim()
+  const target = String(params.ratioLabel || '').trim()
   const markerAttr = 'data-mediagen-cgpt-ratio-option'
   const menuLabelTokens = ['choose image aspect ratio', 'image aspect ratio', '宽高比', '比例']
-  const ratioTokens = [target, ratio].filter(Boolean)
+  // 2:1 是全景提示词意图，不是 docs/chatgpt 里能证明存在的菜单项；菜单侧最多借 Auto。
+  const ratioTokens =
+    ratio === '2:1'
+      ? ['Auto', 'auto', '自动']
+      : ratio === 'auto'
+        ? [target, 'auto', '自动'].filter(Boolean)
+        : [target, ratio].filter(Boolean)
   const allRatioTokens = [
     '9:16',
     '16:9',
@@ -19,6 +25,8 @@
     '方形',
     '竖版',
     '横屏',
+    'auto',
+    '自动',
   ]
 
   const normalize = (text) =>
@@ -53,6 +61,21 @@
     )
   }
 
+  const findOption = (menu, matcher) =>
+    Array.from(menu.querySelectorAll('[role="menuitemradio"]')).filter(visible).find(matcher)
+
+  const findStoryFallback = (menu) =>
+    findOption(menu, (el) => {
+      const text = optionText(el)
+      return text.includes('9:16') || text.includes('故事') || lower(text).includes('story')
+    })
+
+  const effectivePromptRatio = (fallback) => {
+    if (ratio === '2:1') return '2:1'
+    if (ratio === 'auto') return fallback === 'story_for_auto' ? '9:16' : 'auto'
+    return ratio || '9:16'
+  }
+
   const start = Date.now()
 
   return new Promise((resolve) => {
@@ -64,19 +87,26 @@
 
       const menu = menus[menus.length - 1]
       if (menu) {
-        const option = Array.from(menu.querySelectorAll('[role="menuitemradio"]'))
-          .filter(visible)
-          .find(matchesTargetRatio)
-        if (option) {
-          option.setAttribute(markerAttr, 'true')
+        const option = findOption(menu, matchesTargetRatio)
+        const storyOption = ratio === 'auto' && !option ? findStoryFallback(menu) : null
+        const selectedOption = option || storyOption
+        const fallback = storyOption
+          ? 'story_for_auto'
+          : ratio === '2:1' && option
+            ? 'auto_for_2_1'
+            : ''
+        if (selectedOption) {
+          selectedOption.setAttribute(markerAttr, 'true')
           clearInterval(timer)
           resolve(
             JSON.stringify({
               found: true,
               selector: `[${markerAttr}="true"]`,
-              target_text: selectClickToken(option),
+              target_text: selectClickToken(selectedOption),
               target_ratio: ratio,
-              option_text: optionText(option),
+              effective_ratio: effectivePromptRatio(fallback),
+              option_text: optionText(selectedOption),
+              fallback,
               w: 1,
             })
           )
@@ -86,7 +116,17 @@
 
       if (Date.now() - start >= 4000) {
         clearInterval(timer)
-        resolve(JSON.stringify({ found: false, selector: '', target_text: '', w: 1 }))
+        resolve(
+          JSON.stringify({
+            found: false,
+            selector: '',
+            target_text: '',
+            target_ratio: ratio,
+            effective_ratio: ratio === 'auto' ? '9:16' : ratio || '9:16',
+            fallback: ratio === 'auto' ? 'prompt_story_for_auto' : 'prompt_only',
+            w: 1,
+          })
+        )
       }
     }, 100)
   })

@@ -25,6 +25,12 @@
     '图片3.1': { reqKey: 'high_aes_general_v30l_art_fangzhou:general_v3.0_18b', name: '图片 3.1' },
     '图片3.0': { reqKey: 'high_aes_general_v30l:general_v3.0_18b', name: '图片 3.0' },
   }
+  const normalizeRatio = (value) => {
+    const v = String(value || '').trim()
+    // 即梦没有 Auto 比例；未知比例统一落到 9:16，避免 UI 选择和拦截 payload 分裂。
+    return ratioMap[v] ? v : '9:16'
+  }
+  state.params = { ...params, ratio: normalizeRatio(params.ratio) }
 
   const currentImgs = [
     ...document.querySelectorAll('img[src*="dreamina-sign"][src*="aigc_resize"]'),
@@ -51,7 +57,7 @@
     submit_confirmed: false,
     submit_confirmation: null,
     initialImageUrls: currentImgs,
-    params,
+    params: state.params,
   })
 
   const addUnique = (arr, value) => {
@@ -83,13 +89,13 @@
   }
 
   const selectedRatio = () => {
-    const raw = String(state.params?.ratio || '9:16').trim()
+    const raw = normalizeRatio(state.params?.ratio)
     return ratioMap[raw] || ratioMap['9:16']
   }
 
   const finalPrompt = () => {
     const prompt = String(state.params?.prompt || '').trim()
-    const ratio = String(state.params?.ratio || '9:16').trim() || '9:16'
+    const ratio = normalizeRatio(state.params?.ratio)
     if (!prompt) return ''
     return prompt.includes(ratio) ? prompt : `${prompt}\n画面比例：${ratio}`
   }

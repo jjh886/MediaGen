@@ -1,7 +1,7 @@
 {
   "platform_id": "codex",
   "display_name": "codex",
-  "sort_order": 40,
+  "sort_order": 20,
   "adapter_mode": "api",
   "login_url": "https://auth.openai.com/oauth/authorize",
   "workspace_url": "https://chatgpt.com/",

@@ -48,12 +48,6 @@ describe('getSetting', () => {
     const result = await getSetting('platform_tier_overrides')
     expect(result).toBe(overrides)
   })
-
-  it('非 Tauri 环境返回布尔类型值', async () => {
-    localStorage.setItem('settings:auto_register_enabled', 'false')
-    const result = await getSetting('auto_register_enabled')
-    expect(result).toBe(false)
-  })
 })
 
 describe('setSetting', () => {
@@ -65,11 +59,6 @@ describe('setSetting', () => {
   it('非 Tauri 环境写入字符串类型值', async () => {
     await setSetting('cache_dir', '/tmp/cache')
     expect(localStorage.getItem('settings:cache_dir')).toBe('/tmp/cache')
-  })
-
-  it('非 Tauri 环境写入布尔值', async () => {
-    await setSetting('auto_register_enabled', false)
-    expect(localStorage.getItem('settings:auto_register_enabled')).toBe('false')
   })
 })
 
@@ -85,7 +74,6 @@ describe('getAllSettings', () => {
     expect(settings.image_task_concurrency).toBe(64)
     expect(settings.image_task_queue_limit).toBe(512)
     expect(settings.check_interval_minutes).toBe(30)
-    expect(settings.auto_register_enabled).toBe(true)
     expect(settings.cache_dir).toBe('')
   })
 

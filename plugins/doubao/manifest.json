@@ -1,7 +1,7 @@
 {
   "platform_id": "doubao",
   "display_name": "豆包",
-  "sort_order": 20,
+  "sort_order": 40,
   "adapter_mode": "browser",
   "login_url": "https://www.doubao.com/chat/",
   "workspace_url": "https://www.doubao.com/chat/",
@@ -67,7 +67,8 @@
   "login_check": {
     "url": "https://www.doubao.com/passport/account/info/v2/?aid=497858&account_sdk_source=web&sdk_version=2.2.11-doubao.0",
     "cookie_domain": "doubao.com",
-    "success_field": "data.avatar_url"
+    "success_field": "data.avatar_url",
+    "inconclusive_statuses": [403, 429, 500, 502, 503, 504]
   },
   "watermark": {
     "has_watermark": true,
@@ -118,7 +119,7 @@
           "_comment": "注入参数到 window[Symbol.for('_s')].params（供后续脚本读取 model_display_name, image_aspect_ratio, prompt）",
           "action": "browser.run_script",
           "session_id": "{{browser.session_id}}",
-          "script": "(() => { const SK = Symbol.for('_s'); const s = window[SK] || (window[SK] = {}); s.params = { model_display_name: '{{js:model_display_name}}', image_aspect_ratio: '{{js:image_aspect_ratio}}', prompt: '{{js:prompt}}' }; return JSON.stringify({set:true}); })()",
+          "script": "(() => { const normalizeRatio = (value) => { const v = String(value || '').trim(); return ['9:16', '16:9', '1:1', '3:4', '4:3'].includes(v) ? v : '9:16'; }; const SK = Symbol.for('_s'); const s = window[SK] || (window[SK] = {}); const ratio = normalizeRatio('{{js:image_aspect_ratio}}'); s.params = { model_display_name: '{{js:model_display_name}}', image_aspect_ratio: ratio, prompt: '{{js:prompt}}' }; return JSON.stringify({set:true, ratio}); })()",
           "save_as": "inject_params"
         },
         {
@@ -173,7 +174,7 @@
           "_comment": "8. 选择比例 — click_text 按 role=menuitem + startsWith 匹配（如 '16:9 桌面壁纸...'）",
           "action": "browser.click_text",
           "session_id": "{{browser.session_id}}",
-          "text": "{{image_aspect_ratio}}",
+          "text": "{{inject_params.ratio}}",
           "tag": "[role=menuitem]",
           "save_as": "ratio_selected"
         },

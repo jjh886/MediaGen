@@ -4,7 +4,12 @@
   const state = window[SK] || {}
   const markerAttr = 'data-mediagen-jimeng-submit'
   const expectedRefs = Number(state.params?.refCount || 0)
-  const expectedRatio = String(state.params?.ratio || '').trim()
+  const normalizeRatio = (value) => {
+    const v = String(value || '').trim()
+    return ['1:1', '3:4', '16:9', '4:3', '9:16', '2:3', '3:2', '21:9'].includes(v) ? v : '9:16'
+  }
+  const expectedRatio = normalizeRatio(state.params?.ratio)
+  state.params = { ...(state.params || {}), ratio: expectedRatio }
   const expectedModel = String(state.params?.modelDisplayName || state.params?.modelId || '').trim()
   const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, Number(ms) || 0))
 

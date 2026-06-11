@@ -6,7 +6,12 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   const params = window.__mediagen_params || {}
   const targetModel = params.model_display_name || 'Nano Banana Pro'
-  const targetRatio = params.ratio || '9:16'
+  const normalizeRatio = (value) => {
+    const v = String(value || '').trim()
+    // Flow 没有通用 Auto 选项，API 传 auto 或未知比例时按产品约定退到 9:16。
+    return ['16:9', '4:3', '1:1', '3:4', '9:16'].includes(v) ? v : '9:16'
+  }
+  const targetRatio = normalizeRatio(params.ratio)
   const targetCount = params.count || 1
 
   const ratioMap = {

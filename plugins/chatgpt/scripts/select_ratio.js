@@ -9,7 +9,7 @@
 
   const normalizeRatio = (value) => {
     const v = String(value || '').trim()
-    return ['9:16', '16:9', '1:1', '3:4', '4:3'].includes(v) ? v : '9:16'
+    return ['auto', '9:16', '16:9', '1:1', '3:4', '4:3', '2:1'].includes(v) ? v : '9:16'
   }
 
   const targetRatio = normalizeRatio(params.ratio)

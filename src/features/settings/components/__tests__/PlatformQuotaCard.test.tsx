@@ -17,11 +17,6 @@ const settings: AppSettings = {
   check_interval_minutes: 7,
   cooldown_default_seconds: 42,
   cache_dir: '/tmp/mediagen-test-cache',
-  auto_register_enabled: false,
-  auto_register_password_mode: 'default',
-  auto_register_password: 'TestOnly@2026',
-  auto_register_birthday_mode: 'default',
-  auto_register_birthday: '2001-02-03',
   platform_tier_overrides: JSON.stringify({}),
 }
 

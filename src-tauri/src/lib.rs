@@ -236,10 +236,7 @@ fn find_plugins_dir(app_dir: &std::path::Path, resource_dir: Option<&std::path::
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()));
     let cwd = std::env::current_dir().unwrap_or_default();
-    let mut candidates = vec![
-        resource_dir.map(|d| d.join("plugins")),
-        resource_dir.map(|d| d.join("_up_").join("plugins")),
-    ];
+    let mut candidates = vec![resource_dir.map(|d| d.join("plugins"))];
 
     #[cfg(debug_assertions)]
     {
@@ -479,16 +476,16 @@ mod plugin_dir_tests {
     use super::*;
 
     #[test]
-    fn finds_legacy_up_resource_plugins_before_external_fallbacks() {
+    fn finds_resource_plugins_before_cwd_paths() {
         let tmp = tempfile::tempdir().unwrap();
         let app_dir = tmp.path().join("app-data");
         let resource_dir = tmp.path().join("resources");
-        let legacy_plugins = resource_dir.join("_up_").join("plugins");
+        let resource_plugins = resource_dir.join("plugins");
         std::fs::create_dir_all(&app_dir).unwrap();
-        std::fs::create_dir_all(&legacy_plugins).unwrap();
+        std::fs::create_dir_all(&resource_plugins).unwrap();
 
         let found = find_plugins_dir(&app_dir, Some(&resource_dir));
 
-        assert_eq!(found, legacy_plugins);
+        assert_eq!(found, resource_plugins);
     }
 }

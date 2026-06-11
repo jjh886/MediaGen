@@ -49,7 +49,7 @@ async fn parse_json(payload: web::Payload) -> Result<OpenAiImageRequest, ParseEr
 }
 
 async fn parse_multipart(mut multipart: Multipart) -> Result<OpenAiImageRequest, ParseError> {
-    let mut req = empty_request();
+    let mut req = OpenAiImageRequest::empty();
     let mut total = 0usize;
 
     while let Some(item) = multipart.next().await {
@@ -87,28 +87,6 @@ async fn parse_multipart(mut multipart: Multipart) -> Result<OpenAiImageRequest,
     }
 
     Ok(req)
-}
-
-fn empty_request() -> OpenAiImageRequest {
-    OpenAiImageRequest {
-        model: String::new(),
-        prompt: None,
-        n: None,
-        size: None,
-        quality: None,
-        response_format: None,
-        output_format: None,
-        background: None,
-        stream: None,
-        partial_images: None,
-        output_compression: None,
-        moderation: None,
-        input_fidelity: None,
-        user: None,
-        images: Vec::new(),
-        mask: None,
-        image_aspect_ratio: None,
-    }
 }
 
 async fn read_payload(mut payload: web::Payload) -> Result<Bytes, ParseError> {
@@ -252,7 +230,7 @@ mod tests {
 
     #[test]
     fn text_fields_fill_openai_request() {
-        let mut req = empty_request();
+        let mut req = OpenAiImageRequest::empty();
         apply_text_field(&mut req, "model", "gpt-image-1");
         apply_text_field(&mut req, "prompt", "hello");
         apply_text_field(&mut req, "n", "2");

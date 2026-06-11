@@ -1,6 +1,7 @@
 {
   "platform_id": "jimeng",
   "display_name": "即梦",
+  "sort_order": 30,
   "adapter_mode": "browser",
   "browser_lifecycle": "per_task",
   "login_url": "https://jimeng.jianying.com/ai-tool/home?type=image",
@@ -70,7 +71,8 @@
   "login_check": {
     "url": "https://jimeng.jianying.com/passport/account/info/v2/?aid=513695&account_sdk_source=web&sdk_version=2.2.6",
     "cookie_domain": "jianying.com",
-    "success_field": "data.user_id_str"
+    "success_field": "data.user_id_str",
+    "inconclusive_statuses": [403, 429, 500, 502, 503, 504]
   },
   "watermark": {
     "has_watermark": false,
@@ -110,7 +112,7 @@
           "_comment": "4. 注入提示词、比例、参考图数量和模型名称",
           "action": "browser.run_script",
           "session_id": "{{browser.session_id}}",
-          "script": "(() => { const SK = Symbol.for('_jimeng'); const s = window[SK] || (window[SK] = {}); const refs = JSON.parse('{{js:ref_image_locals}}' || '[]'); const ratio = String('{{js:image_aspect_ratio}}' || '9:16').trim() || '9:16'; const modelDisplayName = String('{{js:model_display_name}}' || '').trim(); const modelId = String('{{js:model_id}}' || '').trim(); s.params = { prompt: '{{js:prompt}}', ratio, refCount: Array.isArray(refs) ? refs.length : 0, modelDisplayName, modelId }; return JSON.stringify({ set: true, ratio, refCount: s.params.refCount, modelDisplayName, modelId }); })()",
+          "script": "(() => { const normalizeRatio = (value) => { const v = String(value || '').trim(); return ['1:1', '3:4', '16:9', '4:3', '9:16', '2:3', '3:2', '21:9'].includes(v) ? v : '9:16'; }; const SK = Symbol.for('_jimeng'); const s = window[SK] || (window[SK] = {}); const refs = JSON.parse('{{js:ref_image_locals}}' || '[]'); const ratio = normalizeRatio('{{js:image_aspect_ratio}}'); const modelDisplayName = String('{{js:model_display_name}}' || '').trim(); const modelId = String('{{js:model_id}}' || '').trim(); s.params = { prompt: '{{js:prompt}}', ratio, refCount: Array.isArray(refs) ? refs.length : 0, modelDisplayName, modelId }; return JSON.stringify({ set: true, ratio, refCount: s.params.refCount, modelDisplayName, modelId }); })()",
           "save_as": "params"
         },
         {

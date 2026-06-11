@@ -5,14 +5,47 @@
 // 3. 等待 composer ready。
 ;(async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+  const composerSelectors = [
+    '#prompt-textarea[contenteditable="true"]',
+    '[role="textbox"][contenteditable="true"]',
+    '[contenteditable="true"][data-lexical-editor="true"]',
+    '[contenteditable="true"]',
+    'textarea',
+  ]
+
+  function isVisible(el) {
+    if (!el) return false
+    const rect = el.getBoundingClientRect?.()
+    if (!rect || rect.width <= 0 || rect.height <= 0) return false
+    const style = window.getComputedStyle?.(el)
+    return (
+      !style || (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0')
+    )
+  }
+
+  function findComposer() {
+    for (const selector of composerSelectors) {
+      const found = Array.from(document.querySelectorAll(selector)).find((el) => {
+        if (el.closest?.('nav, aside')) return false
+        return isVisible(el)
+      })
+      if (found) return found
+    }
+    return null
+  }
 
   function snapshot() {
+    const composer = findComposer()
+    const uploadInput = document.querySelector('input#upload-files[type=file]')
     return {
       url: location.href,
       title: document.title,
       readyState: document.readyState,
       promptCount: document.querySelectorAll('#prompt-textarea[contenteditable="true"]').length,
+      anyComposer: !!composer,
+      upload_ready: !!uploadInput,
       fileInputs: document.querySelectorAll('input#upload-files[type=file]').length,
+      plusButtons: document.querySelectorAll('#composer-plus-btn').length,
     }
   }
 
@@ -44,9 +77,9 @@
     }
 
     for (let i = 0; i < 30; i++) {
-      const composer = document.querySelector('#prompt-textarea[contenteditable="true"]')
-      const fileInput = document.querySelector('input#upload-files[type=file]')
-      if (composer && fileInput) {
+      const composer = findComposer()
+      // ChatGPT 新版页面里上传 input 可能延后挂载；composer 可用就可以继续后续步骤。
+      if (composer) {
         composer.focus()
         return JSON.stringify({ prepared: true, ...snapshot() })
       }

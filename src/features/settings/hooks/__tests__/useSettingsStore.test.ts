@@ -32,11 +32,6 @@ const defaultSettings: AppSettings = {
   check_interval_minutes: 15,
   cooldown_default_seconds: 120,
   cache_dir: '/tmp/test-cache',
-  auto_register_enabled: false,
-  auto_register_password_mode: 'default',
-  auto_register_password: 'TestPass@2026',
-  auto_register_birthday_mode: 'default',
-  auto_register_birthday: '2000-01-01',
   platform_tier_overrides: '{"doubao_free":{"daily_limit":10}}',
 }
 

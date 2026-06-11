@@ -1,7 +1,7 @@
 {
   "platform_id": "chatgpt",
   "display_name": "ChatGPT",
-  "sort_order": 30,
+  "sort_order": 10,
   "adapter_mode": "browser",
   "browser_lifecycle": "persistent",
   "login_url": "https://chatgpt.com/",
@@ -159,7 +159,7 @@
           "_comment": "7. 注入参数到运行时状态，供后续脚本读取",
           "action": "browser.run_script",
           "session_id": "{{browser.session_id}}",
-          "script": "(() => { const normalizeRatio = (value) => { const v = String(value || '').trim(); return ['9:16', '16:9', '1:1', '3:4', '4:3'].includes(v) ? v : '9:16'; }; const ratioLabelMap = { '9:16': '故事', '16:9': '宽屏', '1:1': '方形', '3:4': '竖版', '4:3': '横屏' }; const refs = Array.isArray(JSON.parse('{{js:ref_image_dataurls}}' || '[]')) ? JSON.parse('{{js:ref_image_dataurls}}' || '[]') : []; const ratio = normalizeRatio('{{js:image_aspect_ratio}}'); const SK = Symbol.for('_cgpt'); const s = window[SK] || (window[SK] = {}); s.params = { prompt: '{{js:prompt}}', ratio, ratioLabel: ratioLabelMap[ratio] || '故事', refCount: refs.length, refImageDataUrls: refs }; return JSON.stringify({ set: true, refCount: s.params.refCount, normalized_ratio: s.params.ratio, ratio_label: s.params.ratioLabel }); })()",
+          "script": "(() => { const normalizeRatio = (value) => { const v = String(value || '').trim(); return ['auto', '9:16', '16:9', '1:1', '3:4', '4:3', '2:1'].includes(v) ? v : '9:16'; }; const ratioLabelMap = { auto: 'Auto', '9:16': '故事', '16:9': '宽屏', '1:1': '方形', '3:4': '竖版', '4:3': '横屏', '2:1': 'Auto' }; const refs = Array.isArray(JSON.parse('{{js:ref_image_dataurls}}' || '[]')) ? JSON.parse('{{js:ref_image_dataurls}}' || '[]') : []; const ratio = normalizeRatio('{{js:image_aspect_ratio}}'); const SK = Symbol.for('_cgpt'); const s = window[SK] || (window[SK] = {}); s.params = { prompt: '{{js:prompt}}', ratio, ratioLabel: ratioLabelMap[ratio] || '故事', refCount: refs.length, refImageDataUrls: refs }; return JSON.stringify({ set: true, refCount: s.params.refCount, normalized_ratio: s.params.ratio, ratio_label: s.params.ratioLabel }); })()",
           "save_as": "params"
         },
         {
@@ -223,7 +223,7 @@
           "action": "browser.type_text",
           "session_id": "{{browser.session_id}}",
           "selector": "#prompt-textarea[contenteditable=\"true\"]",
-          "text": "{{prompt}} Make the aspect ratio {{params.normalized_ratio}}",
+          "text": "{{prompt}} Make the aspect ratio {{w_ratio_menu.effective_ratio}}",
           "clear_first": true,
           "save_as": "typed"
         },

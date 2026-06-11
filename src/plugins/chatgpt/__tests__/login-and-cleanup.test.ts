@@ -81,7 +81,7 @@ describe('chatgpt login and cleanup scripts', () => {
         method: 'PATCH',
         credentials: 'include',
         cache: 'no-store',
-        referrer: 'http://localhost:3000/c/conv-result',
+        referrer: expect.stringMatching(/\/c\/conv-result$/),
         headers: expect.objectContaining({
           'content-type': 'application/json',
           'oai-device-id': 'device-1',

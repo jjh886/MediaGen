@@ -14,14 +14,20 @@ beforeEach(() => {
 describe('fetchPlugins', () => {
   it('非 Tauri 环境返回 mock 插件列表', async () => {
     const plugins = await fetchPlugins()
-    expect(plugins).toHaveLength(2)
+    expect(plugins).toHaveLength(5)
     expect(plugins[0]).toEqual({
-      platform_id: 'flow',
-      display_name: 'Flow',
+      platform_id: 'chatgpt',
+      display_name: 'ChatGPT',
       model_count: 1,
       supports_registration: false,
     })
-    expect(plugins[1].platform_id).toBe('doubao')
+    expect(plugins.map((p) => p.platform_id)).toEqual([
+      'chatgpt',
+      'codex',
+      'jimeng',
+      'doubao',
+      'flow',
+    ])
   })
 
   it('非 Tauri 环境 mock 数据包含正确的字段', async () => {
@@ -34,12 +40,9 @@ describe('fetchPlugins', () => {
     }
   })
 
-  it('非 Tauri 环境 flow 和豆包不支持注册', async () => {
+  it('非 Tauri 环境所有兜底插件都不支持注册', async () => {
     const plugins = await fetchPlugins()
-    const flow = plugins.find((p) => p.platform_id === 'flow')
-    const doubao = plugins.find((p) => p.platform_id === 'doubao')
-    expect(flow?.supports_registration).toBe(false)
-    expect(doubao?.supports_registration).toBe(false)
+    expect(plugins.every((p) => p.supports_registration === false)).toBe(true)
   })
 })
 

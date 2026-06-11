@@ -150,7 +150,7 @@ export function PlatformQuotaCard({
     <div style={cardStyle}>
       <h2 style={titleStyle}>平台默认配额</h2>
       <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
-        新注册的免费账号默认限额。修改后新注册的账号将使用新值。
+        新增的免费账号默认限额。修改后新增账号将使用新值。
       </div>
       {PLATFORM_QUOTA_ROWS.map((row) => (
         <PlatformQuotaRow

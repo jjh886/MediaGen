@@ -2,7 +2,12 @@
 ;(async () => {
   const SK = Symbol.for('_jimeng')
   const state = window[SK] || {}
-  const targetRatio = String(state.params?.ratio || '9:16').trim() || '9:16'
+  const normalizeRatio = (value) => {
+    const v = String(value || '').trim()
+    return ['1:1', '3:4', '16:9', '4:3', '9:16', '2:3', '3:2', '21:9'].includes(v) ? v : '9:16'
+  }
+  const targetRatio = normalizeRatio(state.params?.ratio)
+  state.params = { ...(state.params || {}), ratio: targetRatio }
   const markerAttr = 'data-mediagen-jimeng-ratio-trigger'
 
   const isVisible = (el) => {
