@@ -14,34 +14,81 @@ function json(payload) {
 }
 
 function resolveConversationId(state) {
-  return firstText([state.result_conversation_id, state.conversation_id, conversationIdFromPath()])
+  // HAR 里的删除对象就是当前 /c/{id} 页面和侧边栏 active 行，优先使用真实页面状态。
+  return firstText([
+    conversationIdFromPath(),
+    activeConversationIdFromDom(),
+    state.result_conversation_id,
+    state.conversation_id,
+  ])
 }
 
 function conversationIdFromPath() {
-  const match = String(location.pathname || '').match(/^\/c\/([^/?#]+)/)
+  return conversationIdFromUrl(location.pathname)
+}
+
+function activeConversationIdFromDom() {
+  const active =
+    document.querySelector('a[data-sidebar-item][data-active][href*="/c/"]') ||
+    document.querySelector('a[data-active][href*="/c/"]')
+  return conversationIdFromUrl(active?.getAttribute('href') || '')
+}
+
+function conversationIdFromUrl(value) {
+  const match = String(value || '').match(/\/c\/([^/?#]+)/)
   return match ? decodeURIComponent(match[1]) : ''
 }
 
 function firstText(values) {
   for (const value of values) {
-    const text = String(value || '').trim()
+    const text = valueText(value)
     if (text) return text
   }
   return ''
+}
+
+function valueText(value) {
+  const text = scalarText(value)
+  if (text) return text
+  return objectText(value)
+}
+
+function scalarText(value) {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return ''
+}
+
+function objectText(value) {
+  if (!value || typeof value !== 'object') return ''
+  const known = firstText([value.message, value.detail, value.code, value.type])
+  if (known) return known
+  try {
+    return JSON.stringify(value).slice(0, 500)
+  } catch (_) {
+    return 'unknown_object_error'
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function hideConversation(conversationId, state) {
   const resp = await fetch(`/backend-api/conversation/${encodeURIComponent(conversationId)}`, {
     method: 'PATCH',
     credentials: 'include',
+    cache: 'no-store',
+    referrer: `${location.origin}/c/${encodeURIComponent(conversationId)}`,
     headers: patchHeaders(conversationId, state),
     body: JSON.stringify({ is_visible: false }),
   })
   const body = await safeJson(resp)
+  const bodyError = responseErrorText(body, resp)
 
-  if (!resp.ok) return { ok: false, status: resp.status, error: errorText(body, resp) }
-  if (body?.success === false)
-    return { ok: false, status: resp.status, error: errorText(body, resp) }
+  if (!resp.ok) return { ok: false, status: resp.status, error: bodyError }
+  if (bodyError) return { ok: false, status: resp.status, error: bodyError }
   return { ok: true, status: resp.status }
 }
 
@@ -52,6 +99,7 @@ async function verifyConversationHidden(conversationId, state) {
   for (const offset of VERIFY_OFFSETS) {
     const resp = await fetch(conversationsUrl(offset), {
       credentials: 'include',
+      cache: 'no-store',
       headers: baseHeaders(state, '/backend-api/conversations', '/backend-api/conversations'),
     })
     const body = await safeJson(resp)
@@ -69,6 +117,7 @@ async function initEmptyComposer(state) {
     await fetch('/backend-api/conversation/init', {
       method: 'POST',
       credentials: 'include',
+      cache: 'no-store',
       headers: initHeaders(state),
       body: JSON.stringify({
         requested_default_model: null,
@@ -77,7 +126,7 @@ async function initEmptyComposer(state) {
       }),
     })
   } catch (e) {
-    state.cleanup_init_error = String(e?.message || e)
+    state.cleanup_init_error = valueText(e)
   }
 }
 
@@ -92,6 +141,64 @@ async function safeJson(resp) {
 function responseContainsConversation(body, conversationId) {
   if (!body) return false
   return JSON.stringify(body).includes(conversationId)
+}
+
+function findOptionsButton(conversationId) {
+  return [...document.querySelectorAll('[data-conversation-options-trigger]')].find(
+    (button) => button.getAttribute('data-conversation-options-trigger') === conversationId
+  )
+}
+
+function elementText(el) {
+  return String(el?.innerText || el?.textContent || el?.getAttribute?.('aria-label') || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isVisibleElement(el) {
+  const rect = el?.getBoundingClientRect?.()
+  return !!rect && rect.width > 0 && rect.height > 0
+}
+
+function findDeleteMenuItem() {
+  const controls = document.querySelectorAll('[role="menuitem"], [role="button"], button')
+  return [...controls].find((el) => isVisibleElement(el) && /删除|Delete/i.test(elementText(el)))
+}
+
+function findConfirmDeleteButton() {
+  const dialogs = document.querySelectorAll('[role="dialog"], [aria-modal="true"]')
+  for (const dialog of dialogs) {
+    const buttons = dialog.querySelectorAll('button, [role="button"]')
+    const target = [...buttons].find((button) => /删除|Delete/i.test(elementText(button)))
+    if (target) return target
+  }
+  return null
+}
+
+async function waitForElement(find, timeoutMs = 2500) {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    const target = find()
+    if (target) return target
+    await sleep(100)
+  }
+  return null
+}
+
+async function deleteViaDomMenu(conversationId) {
+  const trigger = findOptionsButton(conversationId)
+  if (!trigger) return { attempted: false, ok: false, reason: 'options_trigger_not_found' }
+
+  trigger.click()
+  const item = await waitForElement(findDeleteMenuItem)
+  if (!item) return { attempted: true, ok: false, reason: 'delete_menu_item_not_found' }
+
+  item.click()
+  const confirm = await waitForElement(findConfirmDeleteButton, 1200)
+  if (confirm) confirm.click()
+
+  await sleep(1200)
+  return { attempted: true, ok: true, reason: '' }
 }
 
 function patchHeaders(conversationId, state) {
@@ -155,25 +262,28 @@ function clearRuntimeConversation(state, conversationId) {
   if (state.conversation_id === conversationId) state.conversation_id = ''
 }
 
-function failedResult(conversationId, patch) {
+function failedResult(conversationId, cleanupError, extra = {}) {
   return {
     deleted: false,
     skipped: false,
     verified: false,
     conversation_id: conversationId,
-    status: patch.status,
-    error: patch.error || 'delete_failed',
+    ...extra,
+    // 不能用顶层 error，否则通用 run_script 会把“清理失败”升级成“生成失败”。
+    cleanup_error: cleanupError || 'delete_failed',
   }
 }
 
-function visibleResult(conversationId, patch, check) {
+function visibleResult(conversationId, check, extra = {}) {
   return {
     deleted: false,
     skipped: false,
     verified: check.verified,
     conversation_id: conversationId,
-    status: patch.status,
-    error: check.verified ? 'conversation_still_visible' : 'conversation_list_refresh_failed',
+    ...extra,
+    cleanup_error: check.verified
+      ? 'conversation_still_visible'
+      : 'conversation_list_refresh_failed',
   }
 }
 
@@ -185,6 +295,11 @@ function errorText(body, resp) {
   return firstText([body?.detail, body?.error, resp?.statusText, 'delete_failed'])
 }
 
+function responseErrorText(body, resp) {
+  if (body?.success === false) return errorText(body, resp)
+  return firstText([body?.detail, body?.error])
+}
+
 ;(async () => {
   const SK = Symbol.for('_cgpt')
   const state = window[SK] || {}
@@ -194,14 +309,36 @@ function errorText(body, resp) {
     return json({ deleted: false, skipped: true, reason: 'missing_conversation_id' })
 
   try {
-    const patch = await hideConversation(conversationId, state)
-    if (!patch.ok) return json(failedResult(conversationId, patch))
+    const uiDelete = await deleteViaDomMenu(conversationId)
+    let check = { hidden: false, verified: false }
 
-    routeAwayFromConversation(conversationId)
-    await initEmptyComposer(state)
-
-    const check = await verifyConversationHidden(conversationId, state)
-    if (!check.hidden) return json(visibleResult(conversationId, patch, check))
+    if (uiDelete.ok) {
+      routeAwayFromConversation(conversationId)
+      await initEmptyComposer(state)
+      check = await verifyConversationHidden(conversationId, state)
+    }
+    if (!check.hidden) {
+      const patch = await hideConversation(conversationId, state)
+      if (!patch.ok) {
+        return json(
+          failedResult(conversationId, patch.error, {
+            status: patch.status,
+            ui_delete: uiDelete,
+          })
+        )
+      }
+      routeAwayFromConversation(conversationId)
+      await initEmptyComposer(state)
+      check = await verifyConversationHidden(conversationId, state)
+      if (!check.hidden) {
+        return json(
+          visibleResult(conversationId, check, {
+            status: patch.status,
+            ui_delete: uiDelete,
+          })
+        )
+      }
+    }
 
     clearRuntimeConversation(state, conversationId)
     return json({
@@ -209,14 +346,9 @@ function errorText(body, resp) {
       skipped: false,
       verified: check.verified,
       conversation_id: conversationId,
-      status: patch.status,
+      ui_delete: uiDelete,
     })
   } catch (e) {
-    return json({
-      deleted: false,
-      skipped: false,
-      conversation_id: conversationId,
-      error: String(e?.message || e),
-    })
+    return json(failedResult(conversationId, valueText(e)))
   }
 })()

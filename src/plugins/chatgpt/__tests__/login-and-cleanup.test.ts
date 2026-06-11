@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   getCgptState,
+  markVisible,
   runScriptJson,
   setCgptState,
 } from '../../../../test-utils/chatgpt/script-test-utils'
 
 describe('chatgpt login and cleanup scripts', () => {
   beforeEach(() => {
+    history.replaceState(null, '', '/')
     document.body.innerHTML = ''
     vi.useRealTimers()
     vi.unstubAllGlobals()
@@ -78,6 +80,8 @@ describe('chatgpt login and cleanup scripts', () => {
       expect.objectContaining({
         method: 'PATCH',
         credentials: 'include',
+        cache: 'no-store',
+        referrer: 'http://localhost:3000/c/conv-result',
         headers: expect.objectContaining({
           'content-type': 'application/json',
           'oai-device-id': 'device-1',
@@ -116,6 +120,69 @@ describe('chatgpt login and cleanup scripts', () => {
     )
   })
 
+  it('delete_current_conversation prefers current route id over stale runtime id', async () => {
+    history.replaceState(null, '', '/c/conv-route')
+    setCgptState({ result_conversation_id: 'conv-stale', conversation_id: 'conv-stale' })
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/backend-api/conversations')) {
+        return new Response(JSON.stringify({ items: [] }))
+      }
+      return new Response(JSON.stringify({ success: true }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runScriptJson('delete_current_conversation.js')
+
+    expect(result.deleted).toBe(true)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/backend-api/conversation/conv-route',
+      expect.objectContaining({ method: 'PATCH' })
+    )
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/backend-api/conversation/conv-stale',
+      expect.anything()
+    )
+  })
+
+  it('delete_current_conversation uses sidebar delete menu before api fallback', async () => {
+    history.replaceState(null, '', '/c/conv-route')
+    document.body.innerHTML = `
+      <a data-sidebar-item data-active href="/c/conv-route">
+        <button data-conversation-options-trigger="conv-route">options</button>
+      </a>
+    `
+    let uiDeleted = false
+    const trigger = document.querySelector('[data-conversation-options-trigger]')
+    trigger?.addEventListener('click', () => {
+      const item = document.createElement('button')
+      item.setAttribute('role', 'menuitem')
+      item.textContent = '删除'
+      item.addEventListener('click', () => {
+        uiDeleted = true
+      })
+      document.body.appendChild(item)
+      markVisible(item)
+    })
+    setCgptState({ result_conversation_id: 'conv-stale' })
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/backend-api/conversations')) {
+        const items = uiDeleted ? [] : [{ id: 'conv-route' }]
+        return new Response(JSON.stringify({ items }))
+      }
+      return new Response(JSON.stringify({ success: true }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runScriptJson('delete_current_conversation.js')
+
+    expect(result.deleted).toBe(true)
+    expect(result.ui_delete).toEqual(expect.objectContaining({ attempted: true, ok: true }))
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/backend-api/conversation/conv-route'),
+      expect.objectContaining({ method: 'PATCH' })
+    )
+  })
+
   it('delete_current_conversation reports visible conversation after refresh', async () => {
     setCgptState({ conversation_id: 'conv-current' })
     const fetchMock = vi.fn(async (url: string) => {
@@ -130,7 +197,8 @@ describe('chatgpt login and cleanup scripts', () => {
 
     expect(result.deleted).toBe(false)
     expect(result.verified).toBe(true)
-    expect(result.error).toBe('conversation_still_visible')
+    expect(result.cleanup_error).toBe('conversation_still_visible')
+    expect(result.error).toBeUndefined()
   })
 
   it('delete_current_conversation skips cleanup when conversation id is missing', async () => {
@@ -164,6 +232,21 @@ describe('chatgpt login and cleanup scripts', () => {
     expect(result.deleted).toBe(false)
     expect(result.skipped).toBe(false)
     expect(result.status).toBe(403)
-    expect(result.error).toBe('permission denied')
+    expect(result.cleanup_error).toBe('permission denied')
+    expect(result.error).toBeUndefined()
+  })
+
+  it('delete_current_conversation formats object errors without failing generation flow', async () => {
+    setCgptState({ conversation_id: 'conv-current' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ error: { message: 'token expired' } })))
+    )
+
+    const result = await runScriptJson('delete_current_conversation.js')
+
+    expect(result.deleted).toBe(false)
+    expect(result.cleanup_error).toBe('token expired')
+    expect(result.error).toBeUndefined()
   })
 })
