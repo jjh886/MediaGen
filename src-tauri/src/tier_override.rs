@@ -16,7 +16,7 @@ struct TierOverride {
 }
 
 /// 按 settings 中的 `platform_tier_overrides` 覆盖 manifest 默认 TierDef。
-/// 键格式 `{platform}_{tier_key}`，例如 "doubao_free"、"flow_free"。
+/// 键格式 `{platform}_{tier_key}`，例如 "provider_free"。
 /// 仅覆盖 daily_limit / total_limit / concurrency_limit 三项；其它字段保持。
 /// 解析失败 / 缺少 key / 部分字段缺失都安全降级为原值。
 pub fn apply_overrides(

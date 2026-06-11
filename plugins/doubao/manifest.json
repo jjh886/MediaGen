@@ -27,6 +27,38 @@
       "cooldown_seconds": 30
     }
   },
+  "image_capabilities": {
+    "supports_generation": true,
+    "supports_edit": true,
+    "supports_mask": false,
+    "max_reference_images": 16,
+    "supported_output_formats": ["png", "jpeg", "webp"]
+  },
+  "failure_policy": [
+    {
+      "contains_any": ["rate limited", "rate limit", "请求过于频繁", "生成过于频繁"],
+      "state": "cooldown",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1
+    },
+    {
+      "contains_any": ["需要验证"],
+      "state": "verification_required"
+    }
+  ],
+  "verification": {
+    "trigger_contains_any": ["rate limited", "rate limit", "需要验证"],
+    "ignore_contains_any": [
+      "rate_limit_exceeded",
+      "you're generating images too quickly",
+      "you’re generating images too quickly",
+      "please wait for",
+      "生成过于频繁"
+    ],
+    "captcha_selectors": [".vc-captcha-verify-visibility"],
+    "timeout_seconds": 600,
+    "close_after_cleared_ms": [3000, 5000]
+  },
   "login_detection": {
     "method": "js_script",
     "script_file": "check_login.js",

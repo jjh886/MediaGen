@@ -174,7 +174,7 @@ impl super::BrowserEngine {
 
     /// browser.click_text: 通过文本内容查找按钮/元素并用 CDP 鼠标点击
     ///
-    /// 用于豆包等平台的 popover 触发（JS click 无法打开 popover，需要真实鼠标事件）
+    /// 用于需要真实鼠标事件的 popover 触发（JS click 无法打开时可用）
     pub(crate) async fn click_text(
         &self,
         params: &serde_json::Value,

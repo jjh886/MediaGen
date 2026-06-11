@@ -19,7 +19,7 @@ impl WatermarkEngine {
     ///
     /// 策略由插件 manifest 的 watermark.removal_strategy 决定：
     /// - "none" / "api_param" → 直通（无水印或 API 已处理）
-    /// - "stitch"             → 图片拼接（豆包：预览图上半 + 下载图下半）
+    /// - "stitch"             → 图片拼接（例如预览图上半 + 下载图下半）
     /// - "ffmpeg"             → FFmpeg 滤镜去水印（视频）
     async fn remove(&self, params: &serde_json::Value) -> Result<StepResult, AppError> {
         let input = params["input"]

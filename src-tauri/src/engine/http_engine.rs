@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use tokio::io::AsyncWriteExt;
 use tracing::debug;
 
+use crate::engine::condition::evaluate_condition as evaluate_value_condition;
 use crate::engine::AtomExecutor;
 use crate::error::AppError;
 use crate::types::StepResult;
@@ -396,51 +397,7 @@ fn extract_filename(url: &str, headers: &HeaderMap) -> String {
 
 /// 简单条件求值：支持 `path == 'value'` 和 `path != 'value'`
 fn evaluate_condition(data: &Value, condition: &str) -> bool {
-    let (path, expected, negate) = if let Some((left, right)) = condition.split_once("!=") {
-        (
-            left.trim(),
-            right.trim().trim_matches('\'').trim_matches('"'),
-            true,
-        )
-    } else if let Some((left, right)) = condition.split_once("==") {
-        (
-            left.trim(),
-            right.trim().trim_matches('\'').trim_matches('"'),
-            false,
-        )
-    } else {
-        return false;
-    };
-
-    let actual = resolve_dot_path(data, path);
-    let actual_str = match &actual {
-        Value::String(s) => s.as_str(),
-        Value::Null => "",
-        other => {
-            // 数字/布尔等先转文本比较
-            let s = other.to_string();
-            let matches = s.trim_matches('"') == expected;
-            return if negate { !matches } else { matches };
-        }
-    };
-
-    let matches = actual_str == expected;
-    if negate {
-        !matches
-    } else {
-        matches
-    }
-}
-
-fn resolve_dot_path<'a>(data: &'a Value, path: &str) -> &'a Value {
-    let mut current = data;
-    for key in path.split('.') {
-        match current.get(key) {
-            Some(v) => current = v,
-            None => return &Value::Null,
-        }
-    }
-    current
+    evaluate_value_condition(data, condition)
 }
 
 fn lookup_dot_value<'a>(data: &'a Value, path: &str) -> Option<&'a Value> {

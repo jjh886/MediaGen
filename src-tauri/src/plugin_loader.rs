@@ -1,16 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 use crate::types::{ModelDef, PluginManifest};
-
-const OPENAI_IMAGE_MODEL_ALIASES: &[&str] = &[
-    "gpt-image-2",
-    "gpt-image-1.5",
-    "gpt-image-1",
-    "gpt-image-1-mini",
-    "chatgpt-image-latest",
-];
 
 pub struct PluginLoader {
     plugins: HashMap<String, PluginManifest>,
@@ -94,13 +86,10 @@ impl PluginLoader {
         self.plugin_dirs.get(platform_id).map(|p| p.as_path())
     }
 
-    /// 通过 OpenAI 请求里的 model 字段找到对应插件和模型定义。
+    /// 通过请求里的 model 字段找到对应插件和模型定义。
     pub fn resolve_model(&self, model_id: &str) -> Option<(&PluginManifest, &ModelDef)> {
         if model_id.is_empty() {
             return None;
-        }
-        if let Some(resolved) = self.resolve_openai_alias(model_id) {
-            return Some(resolved);
         }
         let prefix = model_id.split('_').next()?;
         if let Some(manifest) = self.plugins.get(prefix) {
@@ -108,9 +97,13 @@ impl PluginLoader {
                 return Some((manifest, model));
             }
         }
-        // OpenAI 的 model 字段不要求带平台前缀；比如 ChatGPT 插件模型
-        // `ChatGPT` 的前缀不是平台 ID。前缀命中失败时全局精确查找，
-        // 保证 `/v1/models` 返回的任意 id 都能直接用于生成接口。
+        if let Some(resolved) = self.resolve_exact_model(model_id) {
+            return Some(resolved);
+        }
+        self.resolve_model_alias(model_id)
+    }
+
+    fn resolve_exact_model(&self, model_id: &str) -> Option<(&PluginManifest, &ModelDef)> {
         self.sorted_plugins().into_iter().find_map(|manifest| {
             manifest
                 .models
@@ -120,43 +113,48 @@ impl PluginLoader {
         })
     }
 
-    /// 兼容外部应用常见的 OpenAI 官方图片模型名。
-    /// 用户仍可用 `/v1/models` 返回的真实插件模型名；这些别名只负责避免标准客户端硬编码模型时报 404。
-    fn resolve_openai_alias(&self, model_id: &str) -> Option<(&PluginManifest, &ModelDef)> {
-        if !OPENAI_IMAGE_MODEL_ALIASES.contains(&model_id) {
-            return None;
-        }
-        self.resolve_first_existing(&[("chatgpt", "ChatGPT"), ("codex", "codex")])
+    fn resolve_model_alias(&self, alias: &str) -> Option<(&PluginManifest, &ModelDef)> {
+        self.model_alias_entries(Some(alias))
+            .into_iter()
+            .next()
+            .map(|(_, manifest, model)| (manifest, model))
     }
 
-    fn resolve_first_existing(
-        &self,
-        candidates: &[(&str, &str)],
-    ) -> Option<(&PluginManifest, &ModelDef)> {
-        for (platform_id, candidate_model_id) in candidates {
-            let Some(manifest) = self.plugins.get(*platform_id) else {
-                continue;
-            };
-            if let Some(model) = manifest
-                .models
-                .iter()
-                .find(|m| m.model_id == *candidate_model_id)
-            {
-                return Some((manifest, model));
+    /// 暴露给 `/v1/models` 的模型别名。别名来自插件 manifest，Rust 不写死平台偏好。
+    pub fn model_aliases(&self) -> Vec<(String, &PluginManifest, &ModelDef)> {
+        let mut seen = HashSet::new();
+        let mut aliases = Vec::new();
+        for (alias, manifest, model) in self.model_alias_entries(None) {
+            if seen.insert(alias.clone()) {
+                aliases.push((alias, manifest, model));
             }
         }
-        None
+        aliases
     }
 
-    /// 暴露给 `/v1/models` 的标准 OpenAI 图片模型别名。
-    pub fn openai_image_aliases(&self) -> Vec<(&'static str, &PluginManifest, &ModelDef)> {
-        OPENAI_IMAGE_MODEL_ALIASES
-            .iter()
-            .filter_map(|alias| {
-                self.resolve_openai_alias(alias)
-                    .map(|(manifest, model)| (*alias, manifest, model))
-            })
-            .collect()
+    fn model_alias_entries(
+        &self,
+        alias_filter: Option<&str>,
+    ) -> Vec<(String, &PluginManifest, &ModelDef)> {
+        let mut entries = Vec::new();
+        for manifest in self.sorted_plugins() {
+            for model in &manifest.models {
+                for alias in &model.aliases {
+                    if alias_filter.is_some_and(|filter| filter != alias) {
+                        continue;
+                    }
+                    entries.push((alias.clone(), manifest, model));
+                }
+            }
+        }
+        entries.sort_by(|a, b| {
+            a.2.alias_priority
+                .cmp(&b.2.alias_priority)
+                .then_with(|| a.1.sort_order.cmp(&b.1.sort_order))
+                .then_with(|| a.1.platform_id.cmp(&b.1.platform_id))
+                .then_with(|| a.2.model_id.cmp(&b.2.model_id))
+        });
+        entries
     }
 
     pub fn all_models(&self) -> Vec<(&PluginManifest, &ModelDef)> {
@@ -293,37 +291,54 @@ mod tests {
     }
 
     #[test]
-    fn resolve_model_accepts_openai_image_aliases() {
+    fn resolve_model_accepts_manifest_aliases() {
         let dir = tempdir().unwrap();
-        let sub = dir.path().join("chatgpt");
+        let sub = dir.path().join("generic");
         std::fs::create_dir_all(&sub).unwrap();
-        let manifest = minimal_manifest("chatgpt", vec![model_json("ChatGPT")]);
+        let manifest = minimal_manifest(
+            "generic",
+            vec![serde_json::json!({
+                "model_id": "generic_image",
+                "display_name": "Generic Image",
+                "task_kind": "image",
+                "aliases": ["gpt-image-1"],
+                "alias_priority": 10
+            })],
+        );
         std::fs::write(sub.join("manifest.json"), manifest).unwrap();
 
         let loader = PluginLoader::load_from(dir.path()).unwrap();
 
         let (plugin, model) = loader.resolve_model("gpt-image-1").unwrap();
-        assert_eq!(plugin.platform_id, "chatgpt");
-        assert_eq!(model.model_id, "ChatGPT");
+        assert_eq!(plugin.platform_id, "generic");
+        assert_eq!(model.model_id, "generic_image");
     }
 
     #[test]
-    fn openai_image_aliases_are_listable() {
+    fn duplicate_aliases_use_priority_then_sort_order() {
         let dir = tempdir().unwrap();
-        let sub = dir.path().join("chatgpt");
-        std::fs::create_dir_all(&sub).unwrap();
-        let manifest = minimal_manifest("chatgpt", vec![model_json("ChatGPT")]);
-        std::fs::write(sub.join("manifest.json"), manifest).unwrap();
+        for (name, priority) in [("slow", 20), ("fast", 10)] {
+            let sub = dir.path().join(name);
+            std::fs::create_dir_all(&sub).unwrap();
+            let manifest = minimal_manifest(
+                name,
+                vec![serde_json::json!({
+                    "model_id": format!("{name}_image"),
+                    "display_name": name,
+                    "task_kind": "image",
+                    "aliases": ["gpt-image-1"],
+                    "alias_priority": priority
+                })],
+            );
+            std::fs::write(sub.join("manifest.json"), manifest).unwrap();
+        }
 
         let loader = PluginLoader::load_from(dir.path()).unwrap();
-        let aliases: Vec<&str> = loader
-            .openai_image_aliases()
-            .into_iter()
-            .map(|(alias, _, _)| alias)
-            .collect();
 
-        assert!(aliases.contains(&"gpt-image-1"));
-        assert!(aliases.contains(&"chatgpt-image-latest"));
+        let (plugin, model) = loader.resolve_model("gpt-image-1").unwrap();
+        assert_eq!(plugin.platform_id, "fast");
+        assert_eq!(model.model_id, "fast_image");
+        assert_eq!(loader.model_aliases().len(), 1);
     }
 
     #[test]

@@ -133,7 +133,7 @@ fn normalize_image_bytes_for_response(
     let mut height = image.height();
     let target_size = parse_exact_size(requested_size);
 
-    // OpenAI 的 size/output_format 是响应契约。ChatGPT 网页端可能返回更大的原图，
+    // OpenAI 的 size/output_format 是响应契约。网页端插件可能返回更大的原图，
     // 这里统一归一化，避免严格客户端拿到“标 1024、实为 1254”的图片。
     let should_resize =
         target_size.is_some_and(|(target_w, target_h)| width != target_w || height != target_h);

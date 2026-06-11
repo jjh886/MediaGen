@@ -1,0 +1,103 @@
+#!/usr/bin/env node
+
+/**
+ * Rust 平台边界检查。
+ *
+ * src-tauri/src 只能实现通用原子能力和公共协议适配，不允许把具体插件名、
+ * 站点域名或供应商上传细节写进生产代码。平台差异必须放到插件 manifest
+ * 或插件脚本中。
+ */
+
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const CURRENT_FILE = fileURLToPath(import.meta.url)
+const REPO_ROOT = path.resolve(path.dirname(CURRENT_FILE), '..')
+const RUST_ROOT = path.join(REPO_ROOT, 'src-tauri', 'src')
+
+const BANNED_PATTERNS = [
+  { label: 'chatgpt platform id', pattern: /\bchatgpt\b/i },
+  { label: 'codex platform id', pattern: /\bcodex\b/i },
+  { label: 'doubao platform id', pattern: /\bdoubao\b/i },
+  { label: 'jimeng platform id', pattern: /\bjimeng\b/i },
+  { label: 'chinese platform name', pattern: /豆包|即梦|剪映/ },
+  { label: 'platform domain', pattern: /\b(?:chatgpt|doubao|jianying)\.com\b/i },
+  { label: 'platform upload vendor', pattern: /\b(?:imagex|snssdk)\b/i },
+]
+
+const SKIP_DIR_NAMES = new Set(['target'])
+
+async function walk(dir) {
+  let entries
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+
+  const files = []
+  for (const entry of entries) {
+    if (SKIP_DIR_NAMES.has(entry.name)) continue
+    const absolutePath = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...(await walk(absolutePath)))
+    } else if (entry.isFile() && entry.name.endsWith('.rs')) {
+      files.push(absolutePath)
+    }
+  }
+  return files
+}
+
+function productionPart(content) {
+  return content.split('\n#[cfg(test)]')[0]
+}
+
+function isStandaloneTestFile(filePath) {
+  const normalized = filePath.replaceAll(path.sep, '/')
+  const base = path.basename(filePath)
+  return (
+    normalized.includes('/tests/') ||
+    base === 'tests.rs' ||
+    base.endsWith('_tests.rs') ||
+    base.startsWith('tests_')
+  )
+}
+
+function findViolations(filePath, content) {
+  const violations = []
+  const lines = productionPart(content).split('\n')
+  for (const [index, line] of lines.entries()) {
+    for (const { label, pattern } of BANNED_PATTERNS) {
+      if (pattern.test(line)) {
+        const rel = path.relative(REPO_ROOT, filePath).replaceAll(path.sep, '/')
+        violations.push(`${rel}:${index + 1} ${label}: ${line.trim()}`)
+      }
+    }
+  }
+  return violations
+}
+
+async function main() {
+  const files = await walk(RUST_ROOT)
+  const violations = []
+  for (const filePath of files) {
+    if (isStandaloneTestFile(filePath)) continue
+    const content = await fs.readFile(filePath, 'utf8')
+    violations.push(...findViolations(filePath, content))
+  }
+
+  if (violations.length === 0) {
+    console.log('Rust platform boundary check passed.')
+    return
+  }
+
+  console.error('\nRust platform boundary violations:\n')
+  for (const violation of violations) {
+    console.error(`  ${violation}`)
+  }
+  console.error('\nMove platform-specific rules to plugin manifests or plugin scripts.')
+  process.exitCode = 1
+}
+
+await main()

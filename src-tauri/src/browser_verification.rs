@@ -11,7 +11,7 @@ use crate::types::LoginDetection;
 pub struct VerificationConfig {
     pub chrome_path: Option<String>,
     pub profile_dir: PathBuf,
-    /// 平台页面 URL（如 https://www.doubao.com/chat/）
+    /// 平台页面 URL。
     pub page_url: String,
     /// 恢复的 cookies
     pub cookies_json: String,

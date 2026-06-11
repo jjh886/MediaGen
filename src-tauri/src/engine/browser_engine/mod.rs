@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use headless_chrome::Browser;
 
+use crate::engine::condition::evaluate_condition;
 use crate::engine::AtomExecutor;
 use crate::error::AppError;
 use crate::sync_ext::MutexExt;
@@ -249,42 +250,14 @@ fn inject_stealth_js(tab: &headless_chrome::Tab, fingerprint: &AccountFingerprin
 
 /// 简单条件求值（复用 http_engine 同样的逻辑）
 fn evaluate_poll_condition(data: &serde_json::Value, condition: &str) -> bool {
-    let (path, expected, negate) = if let Some((left, right)) = condition.split_once("!=") {
-        (
-            left.trim(),
-            right.trim().trim_matches('\'').trim_matches('"'),
-            true,
-        )
-    } else if let Some((left, right)) = condition.split_once("==") {
-        (
-            left.trim(),
-            right.trim().trim_matches('\'').trim_matches('"'),
-            false,
-        )
-    } else {
-        return false;
-    };
-
-    let actual = resolve_dot_path(data, path);
-    let actual_str = match actual {
-        serde_json::Value::String(s) => s.as_str().to_string(),
-        serde_json::Value::Null => String::new(),
-        other => other.to_string().trim_matches('"').to_string(),
-    };
-
-    let matches = actual_str == expected;
-    if negate {
-        !matches
-    } else {
-        matches
-    }
+    evaluate_condition(data, condition)
 }
 
 /// 通过原始 CDP `Network.getAllCookies` 拉所有 cookies，返回 `cookies` 字段原值。
 ///
 /// 为什么不直接用 `tab.get_cookies()`：headless_chrome 把 CDP `Network.Cookie.sourcePort`
 /// 生成为 `u32`，但协议规定端口未知时返回 `-1`。只要有一条 cookie 的 sourcePort=-1
-/// （Flow / 豆包 session cookie 常见），`get_cookies()` 直接返回
+/// （部分网页登录态 cookie 常见），`get_cookies()` 直接返回
 /// `invalid value integer -1, expected u32` 错误。这里用 Value 接住，绕开强类型。
 ///
 /// 登录检测 / cookie 备份 / 登录态轮询都复用它，避免三处各自处理。
@@ -314,17 +287,6 @@ pub(crate) fn dump_cookies_as_json(tab: &headless_chrome::Tab) -> String {
         }
         None => String::new(),
     }
-}
-
-fn resolve_dot_path<'a>(data: &'a serde_json::Value, path: &str) -> &'a serde_json::Value {
-    let mut current = data;
-    for key in path.split('.') {
-        match current.get(key) {
-            Some(v) => current = v,
-            None => return &serde_json::Value::Null,
-        }
-    }
-    current
 }
 
 #[cfg(test)]

@@ -9,7 +9,7 @@ use crate::types::BrowserLifecycle;
 
 /// 任务流结束后统一强制关闭该 profile 下的浏览器实例，确保进程被回收。
 /// 兼容 `profile_dir` 为空（API-only 平台，是 no-op）。
-/// 对 `browser_lifecycle = persistent` 的平台（如 Flow）会跳过关闭，保持常驻。
+/// 对 `browser_lifecycle = persistent` 的平台会跳过关闭，保持常驻。
 pub(crate) async fn force_close_browser(
     registry: &EngineRegistry,
     plugin_loader: &PluginLoader,

@@ -159,6 +159,15 @@ pub struct PluginManifest {
     /// 浏览器生命周期；不填或未识别值都视作 `PerTask`，保持现有平台行为不变。
     #[serde(default)]
     pub browser_lifecycle: BrowserLifecycle,
+    /// 图片接口能力声明。Rust 只读取能力，不按平台名判断支持什么参数。
+    #[serde(default)]
+    pub image_capabilities: ImageCapabilities,
+    /// 任务失败后的账号状态策略。平台文案差异放在 manifest，不写进账号管理层。
+    #[serde(default)]
+    pub failure_policy: Vec<FailurePolicyRule>,
+    /// 人工验证策略。没有配置时表示该插件不启用自动有头验证兜底。
+    #[serde(default)]
+    pub verification: Option<VerificationPolicy>,
 }
 
 fn default_plugin_sort_order() -> i32 {
@@ -168,7 +177,7 @@ fn default_plugin_sort_order() -> i32 {
 /// 跨插件的人工验证兜底配置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerificationFallback {
-    /// 兜底使用的平台 id（如 "doubao"）
+    /// 兜底使用的平台 id。
     pub platform: String,
     /// 兜底使用的 flow 名字，默认 "generate_image"
     #[serde(default = "default_verification_flow_name")]
@@ -177,6 +186,45 @@ pub struct VerificationFallback {
 
 fn default_verification_flow_name() -> String {
     "generate_image".to_string()
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ImageCapabilities {
+    #[serde(default)]
+    pub supports_generation: bool,
+    #[serde(default)]
+    pub supports_edit: bool,
+    #[serde(default)]
+    pub supports_mask: bool,
+    #[serde(default)]
+    pub max_reference_images: Option<u32>,
+    #[serde(default)]
+    pub supported_output_formats: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailurePolicyRule {
+    #[serde(default)]
+    pub contains_any: Vec<String>,
+    pub state: LoginState,
+    #[serde(default)]
+    pub cooldown_from_message: bool,
+    #[serde(default)]
+    pub cooldown_seconds: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VerificationPolicy {
+    #[serde(default)]
+    pub trigger_contains_any: Vec<String>,
+    #[serde(default)]
+    pub ignore_contains_any: Vec<String>,
+    #[serde(default)]
+    pub captcha_selectors: Vec<String>,
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
+    #[serde(default)]
+    pub close_after_cleared_ms: Vec<u64>,
 }
 
 /// 登录检测方式
@@ -233,9 +281,9 @@ pub enum AdapterMode {
 
 /// 浏览器生命周期：控制任务结束后是否保留 Chrome 进程。
 ///
-/// - `PerTask`（默认）：每次任务 open → close 关闭 Chrome。豆包等国内平台适用。
+/// - `PerTask`（默认）：每次任务 open → close 关闭 Chrome，适合按任务隔离浏览器的插件。
 /// - `Persistent`：登录后常驻，仅在 relogin / 删除账号 / App 退出时关闭。
-///   Flow 这类 Google 强反爬平台需要避免"每次 Chrome 重启 + cookie 注入被识别为 session 搬家"。
+///   强风控浏览器平台需要避免"每次 Chrome 重启 + cookie 注入被识别为 session 搬家"。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum BrowserLifecycle {
@@ -249,6 +297,16 @@ pub struct ModelDef {
     pub model_id: String,
     pub display_name: String,
     pub task_kind: TaskKind,
+    /// 对外兼容别名，例如 OpenAI Image API 常见 model 名。
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    /// 同一个别名被多个模型声明时，数值越小优先级越高。
+    #[serde(default = "default_model_alias_priority")]
+    pub alias_priority: i32,
+}
+
+fn default_model_alias_priority() -> i32 {
+    1000
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

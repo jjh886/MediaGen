@@ -1,6 +1,6 @@
 use super::*;
+use crate::plugin_loader::PluginLoader;
 use crate::types::LoginState;
-use chrono::Utc;
 use tempfile::tempdir;
 
 fn make_manager() -> (AccountManager, tempfile::TempDir) {
@@ -12,38 +12,10 @@ fn make_manager() -> (AccountManager, tempfile::TempDir) {
 }
 
 fn sample_account(id: &str, platform: &str) -> PlatformAccount {
-    let now = Utc::now();
-    PlatformAccount {
-        id: id.to_string(),
-        platform: platform.to_string(),
-        name: "测试账号".to_string(),
-        notes: String::new(),
-        login_state: LoginState::Available,
-        login_state_reason: String::new(),
-        login_state_updated_at: now,
-        cookies: String::new(),
-        api_token: String::new(),
-        refresh_token: String::new(),
-        token_expires_at: None,
-        profile_dir: String::new(),
-        tier: "free".to_string(),
-        concurrency_limit: 1,
-        daily_limit: 0,
-        total_limit: 0,
-        used_today: 0,
-        used_total: 0,
-        usage_date: "2026-04-13".to_string(),
-        cooldown_until: None,
-        user_id: String::new(),
-        username: String::new(),
-        email: String::new(),
-        avatar_url: String::new(),
-        password_encrypted: String::new(),
-        created_at: now,
-        last_check_at: None,
-        last_refreshed_at: None,
-        last_used_at: None,
-    }
+    let mut account = crate::types::platform_account_fixture(id, platform);
+    account.name = "测试账号".to_string();
+    account.usage_date = "2026-04-13".to_string();
+    account
 }
 
 #[tokio::test]
@@ -129,14 +101,59 @@ fn test_classify_browser_selector_error_no_state_change() {
     );
 }
 
+fn loader_with_failure_policy() -> (tempfile::TempDir, PluginLoader) {
+    let dir = tempdir().unwrap();
+    let sub = dir.path().join("demo");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(
+        sub.join("manifest.json"),
+        serde_json::json!({
+            "platform_id": "demo",
+            "display_name": "demo",
+            "adapter_mode": "browser",
+            "login_url": "https://example.com/login",
+            "workspace_url": "https://example.com",
+            "models": [],
+            "tiers": {},
+            "flows": {},
+            "failure_policy": [
+                {
+                    "contains_any": ["未进入图片模式", "创建图片入口"],
+                    "state": "cooldown",
+                    "cooldown_seconds": 180
+                },
+                {
+                    "contains_any": ["rate_limit_exceeded"],
+                    "state": "cooldown",
+                    "cooldown_from_message": true,
+                    "cooldown_seconds": -1
+                }
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let loader = PluginLoader::load_from(dir.path()).unwrap();
+    (dir, loader)
+}
+
 #[test]
-fn test_classify_chatgpt_image_mode_failure_short_cooldown() {
+fn test_classify_manifest_failure_short_cooldown() {
+    let (_dir, loader) = loader_with_failure_policy();
     assert_eq!(
-        classify_chatgpt_flow_failure("chatgpt", "平台错误: 未进入图片模式，且未找到创建图片入口"),
+        classify_manifest_failure(
+            &loader,
+            "demo",
+            "平台错误: 未进入图片模式，且未找到创建图片入口"
+        ),
         Some((LoginState::Cooldown, 180))
     );
     assert_eq!(
-        classify_chatgpt_flow_failure("doubao", "平台错误: 未进入图片模式，且未找到创建图片入口"),
+        classify_manifest_failure(
+            &loader,
+            "other",
+            "平台错误: 未进入图片模式，且未找到创建图片入口"
+        ),
         None
     );
 }
@@ -157,27 +174,28 @@ fn test_classify_rate_limit_no_state_change() {
 #[test]
 fn test_extract_rate_limit_cooldown_hint_from_openai_message() {
     let msg = "You're generating images too quickly. To ensure the best experience for everyone, we have rate limits in place. Please wait for 29 minutes before generating more images.";
-    assert_eq!(extract_rate_limit_cooldown_hint(msg), Some(29 * 60));
+    assert_eq!(extract_cooldown_duration_hint(msg), Some(29 * 60));
 }
 
 #[test]
 fn test_extract_rate_limit_cooldown_hint_fallbacks_when_no_duration() {
+    let (_dir, loader) = loader_with_failure_policy();
     assert_eq!(
-        extract_rate_limit_cooldown_hint("platform error: rate_limit_exceeded"),
-        Some(-1)
+        classify_manifest_failure(&loader, "demo", "platform error: rate_limit_exceeded"),
+        Some((LoginState::Cooldown, -1))
     );
 }
 
 #[test]
 fn test_extract_rate_limit_cooldown_hint_from_chinese_modal() {
     let msg = "平台错误: 生成过于频繁: 请求过于频繁 你的请求过于频繁。为保障数据安全，我们已暂时限制你访问对话记录。 请稍等几分钟后再重试。";
-    assert_eq!(extract_rate_limit_cooldown_hint(msg), Some(180));
+    assert_eq!(extract_cooldown_duration_hint(msg), Some(180));
 }
 
 #[test]
 fn test_extract_rate_limit_cooldown_hint_from_chinese_minutes() {
     let msg = "平台错误: 生成过于频繁: 请求过于频繁 请稍等8分钟后再重试。";
-    assert_eq!(extract_rate_limit_cooldown_hint(msg), Some(8 * 60));
+    assert_eq!(extract_cooldown_duration_hint(msg), Some(8 * 60));
 }
 
 #[test]

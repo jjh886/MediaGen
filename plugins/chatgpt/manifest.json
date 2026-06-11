@@ -10,7 +10,9 @@
     {
       "model_id": "ChatGPT",
       "display_name": "ChatGPT",
-      "task_kind": "image"
+      "task_kind": "image",
+      "aliases": ["gpt-image-2"],
+      "alias_priority": 30
     }
   ],
   "tiers": {
@@ -22,6 +24,45 @@
       "total_limit": 0,
       "cooldown_seconds": 30
     }
+  },
+  "image_capabilities": {
+    "supports_generation": true,
+    "supports_edit": true,
+    "supports_mask": false,
+    "max_reference_images": 16,
+    "supported_output_formats": ["png", "jpeg", "webp"]
+  },
+  "failure_policy": [
+    {
+      "contains_any": ["未进入图片模式", "创建图片入口"],
+      "state": "cooldown",
+      "cooldown_seconds": 180
+    },
+    {
+      "contains_any": [
+        "rate_limit_exceeded",
+        "you're generating images too quickly",
+        "you’re generating images too quickly",
+        "please wait for",
+        "rate limited",
+        "rate limit",
+        "http 429",
+        "请求过于频繁",
+        "生成过于频繁"
+      ],
+      "state": "cooldown",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1
+    },
+    {
+      "contains_any": ["free plan limit", "image generations requests", "limit resets in"],
+      "state": "disabled"
+    }
+  ],
+  "verification": {
+    "trigger_contains_any": [],
+    "ignore_contains_any": [],
+    "captcha_selectors": []
   },
   "login_detection": {
     "method": "js_script",

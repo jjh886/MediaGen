@@ -61,7 +61,7 @@ pub struct BrowserLoginConfig {
 ///
 /// 登录完成后无论 lifecycle 都走 `graceful_shutdown_owned_browser` 优雅关闭本次有头 Chrome
 /// （CDP `Page.close` → SIGTERM → 等进程退出），让 Chrome 把 session/cookies 写进 profile
-/// SQLite 再退出。`lifecycle = Persistent` 额外在关闭后随机冷却 2–4 秒，让 Google 侧看到的是
+/// SQLite 再退出。`lifecycle = Persistent` 额外在关闭后随机冷却 2–4 秒，让强风控平台看到的是
 /// "浏览器 session 正常结束"而不是"紧邻的进程搬家"——任务来了再以 `--headless=new` 启动并
 /// 靠 profile 持久化恢复 cookies，风控更友好。
 ///
@@ -84,7 +84,7 @@ pub fn open_and_wait_for_login(
         tracing::info!(
             logged_in,
             cooldown_ms,
-            "persistent 平台登录关闭后冷却，避免 Google 识别为 session 搬家"
+            "persistent 平台登录关闭后冷却，避免强风控平台识别为 session 搬家"
         );
         std::thread::sleep(std::time::Duration::from_millis(cooldown_ms));
     }

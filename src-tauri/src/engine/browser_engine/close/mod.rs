@@ -56,7 +56,7 @@ impl super::BrowserEngine {
     ///   有并发任务时跳过，避免误杀其他 tab 的 CDP 连接。
     /// - `session_id + profile_dir`（PerTask 并发安全）：先释放自己的 tab，若同 profile 下
     ///   还有其他活跃任务则保留 Chrome；若自己是最后一个则 graceful 关闭 Chrome。
-    ///   豆包等 PerTask 平台并发场景使用。
+    ///   适用于同一 profile 下存在并发任务的场景。
     pub(crate) async fn close(&self, params: &serde_json::Value) -> Result<StepResult, AppError> {
         let session_id = params["session_id"].as_str().unwrap_or("").to_string();
         let profile_dir = params["profile_dir"].as_str().unwrap_or("").to_string();

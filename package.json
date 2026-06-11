@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "type-check": "tsc --noEmit",
-    "lint": "node scripts/check-code-line-limit.mjs --scope app --max 500 && node scripts/check-import-boundaries.mjs && eslint src/ --max-warnings 0",
+    "lint": "node scripts/check-code-line-limit.mjs --scope app --max 500 && node scripts/check-import-boundaries.mjs && node scripts/check-rust-platform-boundaries.mjs && eslint src/ --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage:gate": "node scripts/gates/check-coverage-gate.mjs --app",

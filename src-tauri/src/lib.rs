@@ -1,5 +1,6 @@
 pub mod account_manager;
 pub mod account_verification;
+mod account_verification_policy;
 pub mod api_server;
 pub mod browser_manager;
 pub mod browser_verification;

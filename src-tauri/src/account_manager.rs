@@ -125,9 +125,6 @@ const FAILURE_RULES: &[(&[&str], Option<(LoginState, i64)>)] = &[
         &[
             "quota_exhausted",
             "额度耗尽",
-            "free plan limit",
-            "image generations requests",
-            "limit resets in",
             "account disabled",
             "suspended",
             "banned",
@@ -161,33 +158,8 @@ fn classify_failure(error_msg: &str) -> Option<(LoginState, i64)> {
     None
 }
 
-fn classify_chatgpt_flow_failure(platform: &str, error_msg: &str) -> Option<(LoginState, i64)> {
-    if platform != "chatgpt" {
-        return None;
-    }
+fn extract_cooldown_duration_hint(error_msg: &str) -> Option<i64> {
     let msg = error_msg.to_lowercase();
-    let image_mode_entry_failed = msg.contains("未进入图片模式") || msg.contains("创建图片入口");
-    if image_mode_entry_failed {
-        return Some((LoginState::Cooldown, 180));
-    }
-    None
-}
-
-fn extract_rate_limit_cooldown_hint(error_msg: &str) -> Option<i64> {
-    let msg = error_msg.to_lowercase();
-    let looks_like_rate_limit = msg.contains("rate_limit_exceeded")
-        || msg.contains("you're generating images too quickly")
-        || msg.contains("you’re generating images too quickly")
-        || msg.contains("please wait for")
-        || msg.contains("rate limited")
-        || msg.contains("请求过于频繁")
-        || msg.contains("生成过于频繁")
-        || (msg.contains("请稍等") && msg.contains("分钟"))
-        || (msg.contains("请等待") && msg.contains("分钟"));
-    if !looks_like_rate_limit {
-        return None;
-    }
-
     let parse_after = |text: &str, marker: &str, unit_hint: &str| -> Option<i64> {
         let start = text.find(marker)? + marker.len();
         let rest = &text[start..];
@@ -208,18 +180,40 @@ fn extract_rate_limit_cooldown_hint(error_msg: &str) -> Option<i64> {
         Some(value.max(1))
     };
 
-    parse_after(&msg, "please wait for ", "minute")
+    let parsed = parse_after(&msg, "please wait for ", "minute")
         .or_else(|| parse_after(&msg, "请等待", "minute"))
         .or_else(|| parse_after(&msg, "请稍等", "minute"))
-        .or_else(|| parse_after(&msg, "等待", "minute"))
-        // 命中了中文模糊文案"几分钟"时，默认冷却 3 分钟；英文无数字仍回退默认配置。
-        .or_else(|| {
-            if msg.contains("几分钟") {
-                Some(180)
-            } else {
-                Some(-1)
-            }
-        })
+        .or_else(|| parse_after(&msg, "等待", "minute"));
+    parsed.or_else(|| msg.contains("几分钟").then_some(180))
+}
+
+fn classify_manifest_failure(
+    plugin_loader: &PluginLoader,
+    platform: &str,
+    error_msg: &str,
+) -> Option<(LoginState, i64)> {
+    let manifest = plugin_loader.get_plugin(platform)?;
+    let msg = error_msg.to_lowercase();
+    manifest.failure_policy.iter().find_map(|rule| {
+        if rule.contains_any.is_empty() {
+            return None;
+        }
+        let matched = rule
+            .contains_any
+            .iter()
+            .any(|needle| msg.contains(&needle.to_lowercase()));
+        if !matched {
+            return None;
+        }
+        let cooldown = if rule.cooldown_from_message {
+            extract_cooldown_duration_hint(error_msg)
+                .or(rule.cooldown_seconds)
+                .unwrap_or(0)
+        } else {
+            rule.cooldown_seconds.unwrap_or(0)
+        };
+        Some((rule.state, cooldown))
+    })
 }
 
 fn truncate_reason(input: &str, max_chars: usize) -> String {
@@ -262,9 +256,7 @@ pub fn handle_task_failure(
     let is_timeout = matches!(error, AppError::GenerationTimeout);
     let classification = if is_timeout {
         None
-    } else if let Some(cooldown_hint) = extract_rate_limit_cooldown_hint(&combined) {
-        Some((LoginState::Cooldown, cooldown_hint))
-    } else if let Some(v) = classify_chatgpt_flow_failure(&account_platform, &combined) {
+    } else if let Some(v) = classify_manifest_failure(plugin_loader, &account_platform, &combined) {
         Some(v)
     } else {
         classify_failure(&combined)

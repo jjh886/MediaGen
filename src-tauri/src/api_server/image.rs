@@ -4,6 +4,7 @@ use super::browser_lifecycle::{force_close_browser, force_close_browser_session}
 use super::image_account::{
     allocate_account_when_available, AccountQueueReporter, ActiveAccountLease, PrepareError,
 };
+use super::image_capabilities::validate_image_capabilities;
 use super::image_output::process_poll_images;
 use super::image_partials::{collect_partial_images, format_partial_sse_event, PartialImageEvent};
 use super::image_refs::fetch_ref_images_as_data_urls;
@@ -96,18 +97,12 @@ pub(crate) async fn prepare_image_context(
                 )
             })?;
     let platform = manifest.platform_id.clone();
+    validate_image_capabilities(manifest, endpoint, body)?;
     let mask_image_url = body
         .mask
         .as_ref()
         .and_then(|item| item.image_url.clone())
         .filter(|url| !url.trim().is_empty());
-    if mask_image_url.is_some() && platform != "codex" {
-        return Err((
-            400,
-            "unsupported_parameter",
-            format!("{} 当前插件流程暂不支持 mask 参数", platform),
-        ));
-    }
 
     let flow = manifest
         .flows
@@ -306,8 +301,10 @@ pub(crate) async fn generate_image_response(
                 let storage = state.storage.lock_recover();
                 handle_task_failure(&storage, &state.plugin_loader, &ctx.account_id, &e, &[]);
             }
-            if crate::account_verification::error_suggests_verification(&e.to_string())
-                && !crate::account_verification::is_verification_task(&ctx)
+            if crate::account_verification::error_suggests_verification(
+                state.plugin_loader.get_plugin(&ctx.platform),
+                &e.to_string(),
+            ) && !crate::account_verification::is_verification_task(&ctx)
             {
                 crate::account_verification::spawn(state.clone().into_inner(), ctx.clone());
             }

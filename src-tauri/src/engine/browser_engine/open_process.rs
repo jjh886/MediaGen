@@ -100,7 +100,7 @@ pub(super) async fn spawn_chrome_process(
 
         // 无头和有头都先等 Chrome 自己生成的初始 tab 注册，再扫描当前窗口里
         // 所有已注册 tab。只要有空白/新标签启动页就沿用；找不到才创建新 tab。
-        // 这样不会误抢已有业务页，也避免调试时额外堆出一个 ChatGPT 标签。
+        // 这样不会误抢已有业务页，也避免调试时额外堆出一个业务标签。
         #[allow(deprecated)]
         let _ = browser.wait_for_initial_tab();
         let startup_tab = {

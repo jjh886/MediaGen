@@ -42,6 +42,26 @@
       "cooldown_seconds": 180
     }
   },
+  "image_capabilities": {
+    "supports_generation": true,
+    "supports_edit": true,
+    "supports_mask": false,
+    "max_reference_images": 16,
+    "supported_output_formats": ["png", "jpeg", "webp"]
+  },
+  "failure_policy": [
+    {
+      "contains_any": ["rate limited", "rate limit", "请求过于频繁", "生成过于频繁"],
+      "state": "cooldown",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1
+    }
+  ],
+  "verification": {
+    "trigger_contains_any": [],
+    "ignore_contains_any": [],
+    "captcha_selectors": []
+  },
   "login_detection": {
     "method": "js_script",
     "script_file": "check_login.js",

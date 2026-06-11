@@ -1,6 +1,6 @@
 //! 异步账号验证任务
 //!
-//! 当豆包等浏览器平台生成任务返回 `rate limited` 时，主流程已经把账号置为 cooldown、
+//! 当插件声明的验证触发错误出现时，主流程已经把账号置为 cooldown、
 //! 失败返回给调用方；本模块在此基础上额外 spawn 一个独立 tokio 任务：
 //!
 //! 1. 克隆该任务的 flow，把 `browser.open` 改为
@@ -9,7 +9,7 @@
 //!    `offscreen=true` 会给 Chrome 追加 `--window-position=-32000,-32000`，窗口启动后
 //!    在屏幕外，用户看不到，避免打扰。
 //! 2. 以原任务参数重跑 flow。
-//! 3. Captcha Watchdog：每秒轮询 `.vc-captcha-verify-visibility` 元素：
+//! 3. Captcha Watchdog：按插件 manifest 的选择器轮询验证码元素：
 //!    - 首次检测到 → 调用 `browser.show_window` 把窗口移回可见区域，等用户处理。
 //!    - 出现过后又消失 → 延迟随机 3-5 秒自动关闭浏览器。
 //! 4. flow 完成或失败（包括用户/watchdog 关闭窗口导致 tab 失效）→ 账号恢复 Available
@@ -23,21 +23,18 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+pub(crate) use crate::account_verification_policy::error_suggests_verification;
+use crate::account_verification_policy::{captcha_probe_script, cloned_policy, close_delay_bounds};
 use crate::api_server::ImageGenContext;
 use crate::engine::browser_engine::kill_chrome_by_profile;
 use crate::orchestrator::Orchestrator;
 use crate::sync_ext::MutexExt;
-use crate::types::{FlowDef, LoginState};
+use crate::types::{FlowDef, LoginState, VerificationPolicy};
 use crate::AppState;
 
 const VERIFICATION_TIMEOUT_SECS: u64 = 600;
-const CAPTCHA_SELECTOR: &str = ".vc-captcha-verify-visibility";
 /// Watchdog 轮询间隔
 const WATCHDOG_INTERVAL_MS: u64 = 1_000;
-/// 验证码消失后随机延迟下限（毫秒）
-const CAPTCHA_CLEARED_MIN_MS: u64 = 3_000;
-/// 验证码消失后随机延迟上限（毫秒）
-const CAPTCHA_CLEARED_MAX_MS: u64 = 5_000;
 
 /// 检查 ctx 是否本身就是一个有头验证任务（防止套娃触发无限次 spawn）。
 pub(crate) fn is_verification_task(ctx: &ImageGenContext) -> bool {
@@ -47,20 +44,6 @@ pub(crate) fn is_verification_task(ctx: &ImageGenContext) -> bool {
         == Some(true)
 }
 
-/// 判断错误字符串是否属于"账号被平台限流/要求人工验证"类，用于决定是否 spawn 验证任务。
-pub(crate) fn error_suggests_verification(msg: &str) -> bool {
-    let lower = msg.to_lowercase();
-    let explicit_cooldown = lower.contains("rate_limit_exceeded")
-        || lower.contains("you're generating images too quickly")
-        || lower.contains("you’re generating images too quickly")
-        || lower.contains("please wait for")
-        || lower.contains("生成过于频繁");
-    if explicit_cooldown {
-        return false;
-    }
-    lower.contains("rate limited") || lower.contains("rate limit") || lower.contains("需要验证")
-}
-
 /// 异步 spawn 一个人工验证任务，不阻塞调用方。
 pub(crate) fn spawn(state: Arc<AppState>, ctx: ImageGenContext) {
     tokio::spawn(async move {
@@ -68,12 +51,29 @@ pub(crate) fn spawn(state: Arc<AppState>, ctx: ImageGenContext) {
     });
 }
 
-async fn run(state: Arc<AppState>, mut ctx: ImageGenContext) {
-    let account_id = ctx.account_id.clone();
-    let profile_dir = ctx.profile_dir.clone();
+struct VerificationRunPlan {
+    account_id: String,
+    profile_dir: String,
+    session_id: String,
+    policy: VerificationPolicy,
+    timeout_secs: u64,
+    visible_flow: FlowDef,
+}
 
+async fn run(state: Arc<AppState>, mut ctx: ImageGenContext) {
+    let plan = prepare_verification_run(&state, &mut ctx);
+    let outcome =
+        wait_for_verification_outcome(state.clone(), &plan, ctx.initial_context.clone()).await;
+    handle_verification_outcome(&state, &plan, outcome);
+}
+
+fn prepare_verification_run(state: &AppState, ctx: &mut ImageGenContext) -> VerificationRunPlan {
     // 预生成 session_id，让 flow 里的 browser.open 和 watchdog 共享同一个 tab
     let session_id = uuid::Uuid::new_v4().to_string();
+    let policy = cloned_policy(state, ctx).unwrap_or_default();
+    let timeout_secs = policy.timeout_seconds.unwrap_or(VERIFICATION_TIMEOUT_SECS);
+    let account_id = ctx.account_id.clone();
+    let profile_dir = ctx.profile_dir.clone();
 
     tracing::warn!(
         account_id,
@@ -81,80 +81,102 @@ async fn run(state: Arc<AppState>, mut ctx: ImageGenContext) {
         platform = %ctx.platform,
         session_id = %session_id,
         "启动有头浏览器进行人工验证（最长 {} 秒）",
-        VERIFICATION_TIMEOUT_SECS
+        timeout_secs
     );
 
-    let (visible_flow, scripts_dir_override) = build_visible_flow(&state, &ctx, &session_id);
+    let (visible_flow, scripts_dir_override) = build_visible_flow(state, ctx, &session_id);
+    mark_verification_context(ctx, scripts_dir_override.as_deref());
 
+    VerificationRunPlan {
+        account_id,
+        profile_dir,
+        session_id,
+        policy,
+        timeout_secs,
+        visible_flow,
+    }
+}
+
+fn mark_verification_context(ctx: &mut ImageGenContext, scripts_dir_override: Option<&str>) {
     if let Value::Object(ref mut map) = ctx.initial_context {
         map.insert("is_verification_task".to_string(), json!(true));
-        if let Some(sd) = scripts_dir_override.as_ref() {
+        if let Some(sd) = scripts_dir_override {
             // 走跨插件 fallback 时，脚本要从 fallback 插件的目录加载
             map.insert("scripts_dir".to_string(), json!(sd));
         }
     }
+}
 
-    let flow_fut = Orchestrator::execute_flow(
-        &visible_flow,
-        &state.engine_registry,
-        ctx.initial_context.clone(),
-    );
-    let watchdog_fut = watch_captcha(state.clone(), session_id.clone());
+async fn wait_for_verification_outcome(
+    state: Arc<AppState>,
+    plan: &VerificationRunPlan,
+    initial_context: Value,
+) -> FlowOutcome {
+    let flow_fut =
+        Orchestrator::execute_flow(&plan.visible_flow, &state.engine_registry, initial_context);
+    let watchdog_fut = watch_captcha(state.clone(), plan.session_id.clone(), plan.policy.clone());
 
-    let outcome = tokio::select! {
+    tokio::select! {
         // flow 先结束（成功 / 失败 / 窗口被 watchdog 关掉导致失败）
         res = flow_fut => FlowOutcome::Flow(res),
         // watchdog 主动关了浏览器
         _ = watchdog_fut => FlowOutcome::WatchdogClosed,
-        // 整体 10 分钟超时
-        _ = tokio::time::sleep(Duration::from_secs(VERIFICATION_TIMEOUT_SECS)) => FlowOutcome::Timeout,
-    };
+        // 整体超时由插件 verification.timeout_seconds 控制，未配置时使用默认值。
+        _ = tokio::time::sleep(Duration::from_secs(plan.timeout_secs)) => FlowOutcome::Timeout,
+    }
+}
 
+fn handle_verification_outcome(state: &AppState, plan: &VerificationRunPlan, outcome: FlowOutcome) {
     match outcome {
         FlowOutcome::Flow(Ok(_)) => {
-            tracing::info!(account_id, "人工验证 flow 正常完成，账号恢复可用");
-            set_account_state(&state, &account_id, LoginState::Available, "人工验证完成");
+            tracing::info!(account_id = %plan.account_id, "人工验证 flow 正常完成，账号恢复可用");
+            set_account_state(
+                state,
+                &plan.account_id,
+                LoginState::Available,
+                "人工验证完成",
+            );
         }
         FlowOutcome::Flow(Err(e)) => {
             // flow 失败（包括用户关闭窗口导致 tab 失效）视作人已介入，账号恢复
             tracing::info!(
-                account_id,
+                account_id = %plan.account_id,
                 error = %e,
                 "人工验证 flow 结束（可能窗口被关闭），账号恢复可用"
             );
             set_account_state(
-                &state,
-                &account_id,
+                state,
+                &plan.account_id,
                 LoginState::Available,
                 "人工验证流程结束",
             );
         }
         FlowOutcome::WatchdogClosed => {
             tracing::info!(
-                account_id,
+                account_id = %plan.account_id,
                 "检测到验证码消失并已自动关闭浏览器，账号恢复可用"
             );
             set_account_state(
-                &state,
-                &account_id,
+                state,
+                &plan.account_id,
                 LoginState::Available,
                 "人工验证完成（自动关窗）",
             );
         }
         FlowOutcome::Timeout => {
             tracing::warn!(
-                account_id,
-                profile_dir,
+                account_id = %plan.account_id,
+                profile_dir = %plan.profile_dir,
                 "人工验证 {} 秒超时，账号标记为需要验证",
-                VERIFICATION_TIMEOUT_SECS
+                plan.timeout_secs
             );
             set_account_state(
-                &state,
-                &account_id,
+                state,
+                &plan.account_id,
                 LoginState::VerificationRequired,
                 "人工验证超时",
             );
-            kill_chrome_by_profile(&profile_dir);
+            kill_chrome_by_profile(&plan.profile_dir);
         }
     }
 }
@@ -167,12 +189,13 @@ enum FlowOutcome {
 
 /// Watchdog：轮询验证码 DOM 元素。元素先出现过、后消失 → 随机 3-5 秒后关浏览器退出。
 /// 若元素从未出现，watchdog 不主动干预，靠 flow 自身或 timeout 结束。
-async fn watch_captcha(state: Arc<AppState>, session_id: String) {
+async fn watch_captcha(state: Arc<AppState>, session_id: String, policy: VerificationPolicy) {
+    let Some(probe_script) = captcha_probe_script(&policy.captcha_selectors) else {
+        std::future::pending::<()>().await;
+        return;
+    };
+    let (clear_min_ms, clear_max_ms) = close_delay_bounds(&policy);
     let mut seen = false;
-    let probe_script = format!(
-        "JSON.stringify({{ present: document.querySelector('{}') !== null }})",
-        CAPTCHA_SELECTOR
-    );
 
     loop {
         tokio::time::sleep(Duration::from_millis(WATCHDOG_INTERVAL_MS)).await;
@@ -201,7 +224,7 @@ async fn watch_captcha(state: Arc<AppState>, session_id: String) {
         }
 
         if seen {
-            let delay = random_between_ms(CAPTCHA_CLEARED_MIN_MS, CAPTCHA_CLEARED_MAX_MS);
+            let delay = random_between_ms(clear_min_ms, clear_max_ms);
             tracing::info!(
                 session_id = %session_id,
                 delay_ms = delay,
@@ -364,19 +387,6 @@ fn random_between_ms(min_ms: u64, max_ms: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_error_suggests_verification() {
-        assert!(error_suggests_verification("平台错误: rate limited"));
-        assert!(error_suggests_verification("RATE LIMIT"));
-        assert!(error_suggests_verification("需要验证"));
-        assert!(!error_suggests_verification(
-            "平台错误: 生成过于频繁: You're generating images too quickly. Please wait for 8 minutes before generating more images."
-        ));
-        assert!(!error_suggests_verification("rate_limit_exceeded"));
-        assert!(!error_suggests_verification("内容违规"));
-        assert!(!error_suggests_verification("登录失效"));
-    }
 
     #[test]
     fn test_preserve_cooldown_when_restoring_available() {

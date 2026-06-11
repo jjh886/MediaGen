@@ -1,6 +1,7 @@
 mod browser_lifecycle;
 mod image;
 mod image_account;
+mod image_capabilities;
 mod image_events;
 mod image_handler;
 mod image_multipart;
@@ -8,7 +9,6 @@ mod image_output;
 mod image_partials;
 mod image_refs;
 mod image_sse;
-mod imagex_proxy;
 
 use actix_web::http::header;
 use actix_web::{web, App, HttpResponse, HttpServer};
@@ -88,13 +88,9 @@ pub async fn start_api_servers(
         App::new()
             .wrap(cors)
             .app_data(data.clone())
-            // 放宽 body 限制以容纳 imagex_put_blob 的图片字节（默认 256KB 太小，放到 50MB）
+            // 放宽 body 限制以容纳图片编辑接口的 multipart 图片字节（默认 256KB 太小，放到 50MB）。
             .app_data(web::PayloadConfig::new(50 * 1024 * 1024))
             .route("/v1/models", web::get().to(get_models))
-            .route(
-                "/api/internal/imagex_put_blob",
-                web::post().to(imagex_proxy::imagex_put_blob),
-            )
             .route(
                 "/v1/images/generations",
                 web::post().to(image_handler::generate_image),
@@ -201,7 +197,7 @@ async fn get_models(state: web::Data<AppState>) -> HttpResponse {
             })
         })
         .collect();
-    models.extend(state.plugin_loader.openai_image_aliases().into_iter().map(
+    models.extend(state.plugin_loader.model_aliases().into_iter().map(
         |(alias, manifest, target)| {
             serde_json::json!({
                 "id": alias,
