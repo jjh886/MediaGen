@@ -236,7 +236,15 @@
           "save_as": "local_file"
         },
         {
-          "_comment": "17. 并发安全关闭：session_id 定位当前 tab，profile_dir 避免影响同账号其他任务",
+          "_comment": "17. 隐藏本次生成产生的 ChatGPT 对话，避免侧边栏堆积图片生成记录；失败不影响已下载结果",
+          "action": "browser.run_script",
+          "session_id": "{{browser.session_id}}",
+          "script_file": "delete_current_conversation.js",
+          "await_promise": true,
+          "save_as": "delete_conversation"
+        },
+        {
+          "_comment": "18. 并发安全关闭：session_id 定位当前 tab，profile_dir 避免影响同账号其他任务",
           "action": "browser.close",
           "session_id": "{{browser.session_id}}",
           "profile_dir": "{{profile_dir}}"

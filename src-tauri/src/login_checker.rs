@@ -82,43 +82,43 @@ enum StatusCheck {
     Inconclusive,
 }
 
-/// 用 HTTP 请求验证单个账号的登录态（通用，不含平台逻辑）
-///
-/// 返回 `Some(reason)` 表示过期，`None` 表示仍然有效
-async fn check_account_http(account: &PlatformAccount, config: &LoginCheck) -> Option<String> {
+/// 用 HTTP 请求验证单个账号的登录态（通用，不含平台逻辑）。
+/// 这里故意保守：只有明确的 401/重定向/过期时间才判过期，其它探测异常都归为“不确定”。
+async fn check_account_http(account: &PlatformAccount, config: &LoginCheck) -> AccountCheckOutcome {
     let cookie_header = match resolve_cookie_header(account, config) {
         Ok(header) => header,
-        Err(reason) => return Some(reason),
+        Err(reason) => return AccountCheckOutcome::Expired(reason),
     };
 
-    let resp = send_login_check_request(account, config, &cookie_header).await?;
+    let Some(resp) = send_login_check_request(account, config, &cookie_header).await else {
+        return AccountCheckOutcome::Inconclusive("登录检查请求失败".to_string());
+    };
 
     match classify_login_status(account, config, resp.status()) {
         StatusCheck::Continue => {}
-        StatusCheck::Expired(reason) => return Some(reason),
-        StatusCheck::Inconclusive => return None,
+        StatusCheck::Expired(reason) => return AccountCheckOutcome::Expired(reason),
+        StatusCheck::Inconclusive => {
+            return AccountCheckOutcome::Inconclusive(format!("HTTP {}", resp.status()));
+        }
     };
 
     let json = match read_login_check_json(resp).await {
         Some(Ok(json)) => json,
-        Some(Err(reason)) => return Some(reason),
-        None => return None,
+        Some(Err(reason)) => return AccountCheckOutcome::Inconclusive(reason),
+        None => return AccountCheckOutcome::Inconclusive("登录检查响应读取失败".to_string()),
     };
 
-    if let Some(reason) = validate_success_field(&json, config) {
-        return Some(reason);
-    }
-
-    if let Some(reason) = expired_session_reason(&json, config) {
-        return Some(reason);
-    }
+    let outcome = classify_login_json(&json, config);
+    if !matches!(&outcome, AccountCheckOutcome::Valid(_)) {
+        return outcome;
+    };
 
     debug!(
         account_id = %account.id,
         platform = %account.platform,
         "HTTP 登录验证通过"
     );
-    None
+    outcome
 }
 
 fn resolve_cookie_header(account: &PlatformAccount, config: &LoginCheck) -> Result<String, String> {
@@ -214,14 +214,38 @@ fn validate_success_field(json: &serde_json::Value, config: &LoginCheck) -> Opti
     Some(format!("字段 '{}' 为空或不存在", config.success_field))
 }
 
-fn expired_session_reason(json: &serde_json::Value, config: &LoginCheck) -> Option<String> {
-    let expires_path = config.expires_field.as_ref()?;
-    let expires_str = resolve_field(json, expires_path)?;
-    let expires_at = chrono::DateTime::parse_from_rfc3339(&expires_str).ok()?;
-    if expires_at >= chrono::Utc::now() {
-        return None;
+enum ExpiryState {
+    Fresh,
+    Expired(String),
+    Unknown,
+}
+
+fn classify_login_json(json: &serde_json::Value, config: &LoginCheck) -> AccountCheckOutcome {
+    match session_expiry_state(json, config) {
+        ExpiryState::Expired(reason) => return AccountCheckOutcome::Expired(reason),
+        ExpiryState::Fresh => return AccountCheckOutcome::Valid(None),
+        ExpiryState::Unknown => {}
     }
-    Some(format!("session 已过期 ({expires_str})"))
+    if let Some(reason) = validate_success_field(json, config) {
+        return AccountCheckOutcome::Inconclusive(reason);
+    }
+    AccountCheckOutcome::Valid(None)
+}
+
+fn session_expiry_state(json: &serde_json::Value, config: &LoginCheck) -> ExpiryState {
+    let Some(expires_path) = config.expires_field.as_ref() else {
+        return ExpiryState::Unknown;
+    };
+    let Some(expires_str) = resolve_field(json, expires_path) else {
+        return ExpiryState::Unknown;
+    };
+    let Ok(expires_at) = chrono::DateTime::parse_from_rfc3339(&expires_str) else {
+        return ExpiryState::Unknown;
+    };
+    if expires_at >= chrono::Utc::now() {
+        return ExpiryState::Fresh;
+    }
+    ExpiryState::Expired(format!("session 已过期 ({expires_str})"))
 }
 
 // ── 批量检查 ──
@@ -247,7 +271,7 @@ pub async fn check_all_accounts(
     let mut expired = 0usize;
 
     for account in &accounts {
-        if account.login_state != LoginState::Available {
+        if !should_check_login_state(&account.login_state) {
             continue;
         }
 
@@ -271,6 +295,10 @@ pub async fn check_all_accounts(
     (checked, expired)
 }
 
+fn should_check_login_state(state: &LoginState) -> bool {
+    matches!(state, LoginState::Available | LoginState::LoginExpired)
+}
+
 async fn check_account_by_manifest(
     account: &PlatformAccount,
     plugin_loader: &Arc<PluginLoader>,
@@ -278,10 +306,7 @@ async fn check_account_by_manifest(
 ) -> Option<AccountCheckOutcome> {
     let manifest = plugin_loader.get_plugin(&account.platform)?;
     if let Some(config) = manifest.login_check.as_ref() {
-        return Some(match check_account_http(account, config).await {
-            Some(reason) => AccountCheckOutcome::Expired(reason),
-            None => AccountCheckOutcome::Valid(None),
-        });
+        return Some(check_account_http(account, config).await);
     }
     let engine = engine_registry?;
     let flow = manifest.flows.get("check_account")?;

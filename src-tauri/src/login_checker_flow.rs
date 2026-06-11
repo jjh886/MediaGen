@@ -191,7 +191,20 @@ fn mark_account_valid(
 ) {
     match patch {
         Some(patch) => update_account_with_patch(storage, account, patch),
-        None => mark_account_checked(storage, account),
+        None => mark_account_available_checked(storage, account),
+    }
+}
+
+fn mark_account_available_checked(storage: &Arc<Mutex<Storage>>, account: &PlatformAccount) {
+    let s = storage.lock_recover();
+    if account.login_state != LoginState::Available {
+        if let Err(e) = s.update_login_state(&account.id, LoginState::Available, "账号健康检查通过")
+        {
+            warn!(error = %e, account_id = %account.id, "恢复账号登录状态失败");
+        }
+    }
+    if let Err(e) = s.update_last_check_at(&account.id) {
+        warn!(error = %e, account_id = %account.id, "更新 last_check_at 失败");
     }
 }
 

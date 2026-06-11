@@ -50,13 +50,15 @@ function codexRefreshAuth(ctx, auth, reason) {
     timeout_ms: 30000,
   })
   if (!result.success) {
+    const kind = codexRefreshErrorKind(result)
+    const prefix = codexRefreshFailureRequiresLogin(kind) ? 'LOGIN_EXPIRED' : 'AUTH_INCONCLUSIVE'
     throw new Error(
-      'LOGIN_EXPIRED: token 刷新失败（' + reason + '，' + codexHttpSummary(result) + '）'
+      prefix + ': token 刷新失败（' + reason + '）：' + codexRefreshFailureMessage(result, kind)
     )
   }
   const token = result.data.body || {}
   if (!codexString(token.access_token)) {
-    throw new Error('LOGIN_EXPIRED: token 刷新响应缺少 access_token，请重新登录 codex。')
+    throw new Error('AUTH_INCONCLUSIVE: token 刷新响应缺少 access_token。')
   }
   const next = codexBuildAuthFile(token, auth)
   host.call('file.write_json', { path: codexAuthPath(ctx), value: next })
@@ -165,10 +167,43 @@ function codexHealthFromHttpResult(result, auth) {
   if (status === 401) {
     return { logged_in: false, status: 'login_expired', reason: codexHttpSummary(result) }
   }
-  if ([403, 429, 500, 502, 503, 504].indexOf(status) >= 0) {
-    return { logged_in: null, status: 'inconclusive', reason: codexHttpSummary(result) }
+  return { logged_in: null, status: 'inconclusive', reason: codexHttpSummary(result) }
+}
+
+function codexRefreshErrorKind(result) {
+  const text = codexHttpSummary(result).toLowerCase()
+  if (text.includes('unsupported_country_region_territory')) return 'unsupported_country_region'
+  if (text.includes('refresh_token_reused')) return 'refresh_token_reused'
+  if (text.includes('refresh_token_expired')) return 'refresh_token_expired'
+  if (text.includes('refresh_token_invalidated')) return 'refresh_token_invalidated'
+  if (text.includes('token_invalidated')) return 'refresh_token_invalidated'
+  if (text.includes('authentication token has been invalidated')) return 'refresh_token_invalidated'
+  if (text.includes('invalid_grant')) return 'invalid_grant'
+  if (text.includes('invalid refresh token')) return 'invalid_grant'
+  return 'other'
+}
+
+function codexRefreshFailureRequiresLogin(kind) {
+  return [
+    'refresh_token_reused',
+    'refresh_token_expired',
+    'refresh_token_invalidated',
+    'invalid_grant',
+  ].includes(kind)
+}
+
+function codexRefreshFailureMessage(result, kind) {
+  const original = codexHttpSummary(result)
+  const messages = {
+    refresh_token_reused:
+      'Codex 授权已失效：refresh_token 已被其它客户端或实例使用过。请重新登录，并避免官方 Codex、其它实例或外部工具同时刷新同一账号。',
+    refresh_token_expired: 'Codex 登录授权已过期，无法自动刷新。请重新登录 Codex 账号。',
+    refresh_token_invalidated:
+      'Codex 登录授权已被服务端撤销，无法自动刷新。请重新登录 Codex 账号。',
+    invalid_grant: 'Codex 登录授权无效，无法自动刷新。请重新登录 Codex 账号。',
+    unsupported_country_region: '当前网络地区不支持刷新 Codex 授权。请切换到支持的网络地区后重试。',
   }
-  return { logged_in: false, status: 'login_expired', reason: codexHttpSummary(result) }
+  return (messages[kind] || 'Codex token 刷新失败。') + ' 原始错误: ' + original
 }
 
 function codexAccountId(auth) {
@@ -198,13 +233,26 @@ function codexDecodeJwtPayload(token) {
 }
 
 function codexHttpSummary(result) {
-  const status = codexHttpStatus(result)
   const error = codexString(result.error)
-  return error || (status ? 'HTTP ' + status : '请求失败')
+  if (error) return error
+  const body = codexBodySummary(codexPath(result, ['data', 'body']))
+  if (body) return body
+  const status = codexHttpStatus(result)
+  return status ? 'HTTP ' + status : '请求失败'
 }
 
 function codexHttpStatus(result) {
   return Number(codexPath(result, ['data', 'status'])) || 0
+}
+
+function codexBodySummary(body) {
+  if (!body || typeof body !== 'object') return codexString(body)
+  const code = codexFirstNonEmpty([codexGet(body, ['error', 'code']), codexGet(body, ['code'])])
+  const message = codexFirstNonEmpty([
+    codexGet(body, ['error', 'message']),
+    codexGet(body, ['message']),
+  ])
+  return [code, message].filter(Boolean).join(': ')
 }
 
 function codexFindString(value, keys) {

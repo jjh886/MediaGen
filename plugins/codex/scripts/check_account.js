@@ -3,7 +3,7 @@ function main(ctx) {
   try {
     auth = codexEnsureFreshAuth(ctx)
   } catch (error) {
-    return codexExpiredHealth(error)
+    return codexHealthFromError(error)
   }
 
   let result = codexFetchAccountProfile(auth)
@@ -12,20 +12,25 @@ function main(ctx) {
       auth = codexRefreshAuth(ctx, auth, '账号检查返回 401')
       result = codexFetchAccountProfile(auth)
     } catch (error) {
-      return codexExpiredHealth(error)
+      return codexHealthFromError(error)
     }
   }
 
   return codexHealthFromHttpResult(result, auth)
 }
 
-function codexExpiredHealth(error) {
+function codexHealthFromError(error) {
+  const message = String((error && error.message) || error || 'Codex 登录检查失败')
+  if (message.startsWith('AUTH_INCONCLUSIVE:')) {
+    return {
+      logged_in: null,
+      status: 'inconclusive',
+      reason: message.replace(/^AUTH_INCONCLUSIVE:\s*/, ''),
+    }
+  }
   return {
     logged_in: false,
     status: 'login_expired',
-    reason: String((error && error.message) || error || 'Codex 登录已过期').replace(
-      /^LOGIN_EXPIRED:\s*/,
-      ''
-    ),
+    reason: message.replace(/^LOGIN_EXPIRED:\s*/, ''),
   }
 }

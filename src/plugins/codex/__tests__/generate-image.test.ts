@@ -236,4 +236,174 @@ describe('codex image bridge script', () => {
     expect(health.account.email).toBe('profile@example.com')
     expect(health.account.user_id).toBe('acct_123')
   })
+
+  it('keeps Codex health inconclusive when the account check request is unreachable', () => {
+    const accessToken = jwt({ exp: Math.floor(Date.now() / 1000) + 3600 })
+    const sandbox = {
+      ctx: { profile_dir: '/profile', account: {} },
+      host: {
+        call: (name: string, args: Record<string, unknown>) => {
+          if (name === 'file.read_json') {
+            return { tokens: { access_token: accessToken, refresh_token: 'refresh' } }
+          }
+          if (name === 'crypto.base64url_decode_utf8') {
+            return { value: Buffer.from(String(args.text), 'base64url').toString('utf8') }
+          }
+          throw new Error(`unexpected host.call ${name}`)
+        },
+        tryCall: () => ({
+          success: false,
+          data: { status: 0 },
+          error: 'network unreachable',
+        }),
+      },
+    }
+
+    const raw = vm.runInNewContext(
+      authScript + '\n' + checkAccountScript + '\nJSON.stringify(main(ctx))',
+      sandbox
+    )
+    const health = JSON.parse(String(raw)) as { status: string; logged_in: unknown }
+
+    expect(health.status).toBe('inconclusive')
+    expect(health.logged_in).toBeNull()
+  })
+
+  it('keeps Codex health inconclusive when token refresh hits a temporary server error', () => {
+    const accessToken = jwt({ exp: Math.floor(Date.now() / 1000) + 60 })
+    const sandbox = {
+      ctx: { profile_dir: '/profile', account: {} },
+      host: {
+        call: (name: string, args: Record<string, unknown>) => {
+          if (name === 'file.read_json') {
+            return { tokens: { access_token: accessToken, refresh_token: 'refresh' } }
+          }
+          if (name === 'crypto.base64url_decode_utf8') {
+            return { value: Buffer.from(String(args.text), 'base64url').toString('utf8') }
+          }
+          throw new Error(`unexpected host.call ${name}`)
+        },
+        tryCall: () => ({
+          success: false,
+          data: { status: 500 },
+          error: 'HTTP 500',
+        }),
+      },
+    }
+
+    const raw = vm.runInNewContext(
+      authScript + '\n' + checkAccountScript + '\nJSON.stringify(main(ctx))',
+      sandbox
+    )
+    const health = JSON.parse(String(raw)) as { status: string; reason: string }
+
+    expect(health.status).toBe('inconclusive')
+    expect(health.reason).toContain('token 刷新失败')
+  })
+
+  it('expires Codex health only when refresh error says the refresh token is invalid', () => {
+    const accessToken = jwt({ exp: Math.floor(Date.now() / 1000) + 60 })
+    const sandbox = {
+      ctx: { profile_dir: '/profile', account: {} },
+      host: {
+        call: (name: string, args: Record<string, unknown>) => {
+          if (name === 'file.read_json') {
+            return { tokens: { access_token: accessToken, refresh_token: 'refresh' } }
+          }
+          if (name === 'crypto.base64url_decode_utf8') {
+            return { value: Buffer.from(String(args.text), 'base64url').toString('utf8') }
+          }
+          throw new Error(`unexpected host.call ${name}`)
+        },
+        tryCall: () => ({
+          success: false,
+          data: { status: 400 },
+          error: 'invalid_grant: refresh_token_expired',
+        }),
+      },
+    }
+
+    const raw = vm.runInNewContext(
+      authScript + '\n' + checkAccountScript + '\nJSON.stringify(main(ctx))',
+      sandbox
+    )
+    const health = JSON.parse(String(raw)) as { status: string; reason: string }
+
+    expect(health.status).toBe('login_expired')
+    expect(health.reason).toContain('token 刷新失败')
+  })
+
+  it('keeps Codex health inconclusive when refresh fails without token-invalid evidence', () => {
+    const accessToken = jwt({ exp: Math.floor(Date.now() / 1000) + 60 })
+    const sandbox = {
+      ctx: { profile_dir: '/profile', account: {} },
+      host: {
+        call: (name: string, args: Record<string, unknown>) => {
+          if (name === 'file.read_json') {
+            return { tokens: { access_token: accessToken, refresh_token: 'refresh' } }
+          }
+          if (name === 'crypto.base64url_decode_utf8') {
+            return { value: Buffer.from(String(args.text), 'base64url').toString('utf8') }
+          }
+          throw new Error(`unexpected host.call ${name}`)
+        },
+        tryCall: () => ({
+          success: false,
+          data: { status: 403 },
+          error: 'unsupported_country_region_territory',
+        }),
+      },
+    }
+
+    const raw = vm.runInNewContext(
+      authScript + '\n' + checkAccountScript + '\nJSON.stringify(main(ctx))',
+      sandbox
+    )
+    const health = JSON.parse(String(raw)) as { status: string; logged_in: unknown }
+
+    expect(health.status).toBe('inconclusive')
+    expect(health.logged_in).toBeNull()
+    expect(String((health as { reason?: string }).reason)).toContain(
+      '当前网络地区不支持刷新 Codex 授权'
+    )
+  })
+
+  it('detects Codex refresh-token reuse from response body like cockpit-tools', () => {
+    const accessToken = jwt({ exp: Math.floor(Date.now() / 1000) + 60 })
+    const sandbox = {
+      ctx: { profile_dir: '/profile', account: {} },
+      host: {
+        call: (name: string, args: Record<string, unknown>) => {
+          if (name === 'file.read_json') {
+            return { tokens: { access_token: accessToken, refresh_token: 'refresh' } }
+          }
+          if (name === 'crypto.base64url_decode_utf8') {
+            return { value: Buffer.from(String(args.text), 'base64url').toString('utf8') }
+          }
+          throw new Error(`unexpected host.call ${name}`)
+        },
+        tryCall: () => ({
+          success: false,
+          data: {
+            status: 401,
+            body: {
+              error: {
+                code: 'refresh_token_reused',
+                message: 'Your refresh token has already been used.',
+              },
+            },
+          },
+        }),
+      },
+    }
+
+    const raw = vm.runInNewContext(
+      authScript + '\n' + checkAccountScript + '\nJSON.stringify(main(ctx))',
+      sandbox
+    )
+    const health = JSON.parse(String(raw)) as { status: string; reason: string }
+
+    expect(health.status).toBe('login_expired')
+    expect(health.reason).toContain('refresh_token 已被其它客户端或实例使用过')
+  })
 })

@@ -1,5 +1,7 @@
 use super::*;
-use crate::login_checker_flow::{classify_flow_value, AccountCheckOutcome};
+use crate::login_checker_flow::{
+    classify_flow_value, persist_account_outcome, AccountCheckOutcome,
+};
 use crate::sync_ext::MutexExt;
 
 // ── resolve_field 测试 ──
@@ -254,6 +256,51 @@ fn classify_flow_inconclusive_does_not_expire_account() {
     }
 }
 
+#[test]
+fn missing_success_field_is_inconclusive_not_expired() {
+    let config = test_login_check(vec![]);
+    let value = serde_json::json!({"user": {}, "authStatus": "logged_in"});
+
+    match classify_login_json(&value, &config) {
+        AccountCheckOutcome::Inconclusive(reason) => {
+            assert!(reason.contains("user.email"));
+        }
+        _ => panic!("字段缺失只能说明 HTTP 探测不确定，不能直接判登录过期"),
+    }
+}
+
+#[test]
+fn future_expiry_can_validate_session_even_without_success_field() {
+    let mut config = test_login_check(vec![]);
+    config.expires_field = Some("expires".to_string());
+    let value = serde_json::json!({"user": {}, "expires": "2099-01-01T00:00:00.000Z"});
+
+    match classify_login_json(&value, &config) {
+        AccountCheckOutcome::Valid(None) => {}
+        _ => panic!("明确的未来 expires 应判定为有效 session"),
+    }
+}
+
+#[test]
+fn past_expiry_is_still_conclusive_login_expired() {
+    let mut config = test_login_check(vec![]);
+    config.expires_field = Some("expires".to_string());
+    let value = serde_json::json!({"user": {}, "expires": "2020-01-01T00:00:00.000Z"});
+
+    match classify_login_json(&value, &config) {
+        AccountCheckOutcome::Expired(reason) => assert!(reason.contains("session 已过期")),
+        _ => panic!("明确的过去 expires 应判定为登录过期"),
+    }
+}
+
+#[test]
+fn login_expired_accounts_are_checked_for_recovery() {
+    assert!(should_check_login_state(&LoginState::Available));
+    assert!(should_check_login_state(&LoginState::LoginExpired));
+    assert!(!should_check_login_state(&LoginState::Disabled));
+    assert!(!should_check_login_state(&LoginState::Cooldown));
+}
+
 // ── check_all_accounts 集成测试 ──
 
 fn test_login_check(inconclusive_statuses: Vec<u16>) -> LoginCheck {
@@ -303,6 +350,36 @@ fn make_test_account(
         last_refreshed_at: None,
         last_used_at: None,
     }
+}
+
+#[test]
+fn valid_check_restores_previously_expired_account() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test.db");
+    let storage = Arc::new(Mutex::new(Storage::new(&db_path).unwrap()));
+    let account = make_test_account(
+        "recoverable",
+        "chatgpt",
+        LoginState::LoginExpired,
+        r#"[{"name":"sid","value":"123","domain":".chatgpt.com"}]"#,
+    );
+
+    {
+        let s = storage.lock_recover();
+        s.insert_account(&account).unwrap();
+    }
+
+    let expired = persist_account_outcome(&storage, &account, AccountCheckOutcome::Valid(None));
+    let restored = storage
+        .lock_recover()
+        .get_account("recoverable")
+        .unwrap()
+        .unwrap();
+
+    assert!(!expired);
+    assert_eq!(restored.login_state, LoginState::Available);
+    assert_eq!(restored.login_state_reason, "账号健康检查通过");
+    assert!(restored.last_check_at.is_some());
 }
 
 #[tokio::test]
