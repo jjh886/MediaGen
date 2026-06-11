@@ -8,7 +8,7 @@ MediaGen Studio 是一个独立桌面应用，用本地 OpenAI 兼容 API 和浏
 
 ## 2. 架构硬边界
 
-- 桌面端是唯一执行真源，不再保留旧 Web 管理后台和 Go 服务。
+- rust只提供原子能力，不处理任何特定平台的规则，所有的特台特有的特性全部放在插件中完成。如果需要功能当前的原子能力不满足，可以新增或扩展当前的原子能力（有限扩展），但是所有的原子能力一定要考虑通用性，不要和任何平台绑定。
 - 禁止在 `engine/`、`orchestrator.rs`、`scheduler.rs` 中写平台特定流程。
 - 前端组件禁止直接调 Tauri command，必须通过 service 层。
 - OpenAI 兼容接口的请求/响应结构以 `docs/api/openai-api.md` 为参考。
