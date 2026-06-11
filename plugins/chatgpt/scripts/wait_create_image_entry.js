@@ -15,7 +15,18 @@
     String(text || '')
       .replace(/\s+/g, ' ')
       .trim()
-  const labels = ['创建图片', 'Create image']
+  const labels = [
+    '创建图片',
+    '生成图片',
+    '制作图片',
+    '图片',
+    'Create image',
+    'Create an image',
+    'Generate image',
+    'Image',
+    'Images',
+  ]
+  const rejectTokens = ['上传', '附件', '文件', 'upload', 'attach', 'file']
   const start = Date.now()
 
   return new Promise((resolve) => {
@@ -29,14 +40,20 @@
         ).find((el) => {
           if (!visible(el)) return false
           const text = normalize(el.textContent)
+          const lower = text.toLowerCase()
+          if (rejectTokens.some((token) => lower.includes(token.toLowerCase()))) return false
           return labels.some(
-            (label) => text === label || text.startsWith(label) || text.includes(label)
+            (label) =>
+              lower === label.toLowerCase() ||
+              lower.startsWith(label.toLowerCase()) ||
+              lower.includes(label.toLowerCase())
           )
         })
         if (option) {
           clearInterval(timer)
           const text = normalize(option.textContent)
-          const target = labels.find((label) => text.includes(label)) || '创建图片'
+          const lower = text.toLowerCase()
+          const target = labels.find((label) => lower.includes(label.toLowerCase())) || '创建图片'
           resolve(JSON.stringify({ found: true, target_text: target, w: 1 }))
           return
         }

@@ -89,6 +89,24 @@ describe('chatgpt plugin scripts', () => {
     expect(result.target_text).toBe('创建图片')
   })
 
+  it('wait_create_image_entry accepts english image item and ignores upload item', async () => {
+    vi.useFakeTimers()
+    document.body.innerHTML = `
+      <div role="menu" id="menu">
+        <div role="menuitem">Upload image</div>
+        <div role="menuitem">Image</div>
+      </div>
+    `
+    markVisible(document.querySelector('#menu'))
+    document.querySelectorAll('[role="menuitem"]').forEach((el) => markVisible(el))
+
+    const pending = runScriptJson('wait_create_image_entry.js')
+    await vi.advanceTimersByTimeAsync(150)
+    const result = await pending
+    expect(result.found).toBe(true)
+    expect(result.target_text).toBe('Image')
+  })
+
   it('wait_ratio_menu_option finds chinese ratio option by state params', async () => {
     vi.useFakeTimers()
     document.body.innerHTML = `
@@ -174,6 +192,31 @@ describe('chatgpt plugin scripts', () => {
     expect(state.startTime).toBeGreaterThanOrEqual(beforeStart)
     expect(typeof state.task_token).toBe('string')
     expect(state.task_token.length).toBeGreaterThan(8)
+  })
+
+  it('setup_interceptor remembers ChatGPT api headers for cleanup calls', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{}'))
+    )
+    setCgptState({ fetchHooked: false, fetchLog: [], uploaded_refs: [], debugEvents: [] })
+
+    await runScriptJson('setup_interceptor.js')
+    await window.fetch('/backend-api/conversations', {
+      headers: {
+        'oai-device-id': 'device-1',
+        'oai-session-id': 'session-1',
+      },
+    })
+
+    const stateHolder = window as unknown as Record<symbol, Record<string, unknown>>
+    const state = stateHolder[Symbol.for('_cgpt')]
+    expect(state.api_headers).toEqual(
+      expect.objectContaining({
+        'oai-device-id': 'device-1',
+        'oai-session-id': 'session-1',
+      })
+    )
   })
 
   it('mark_submit resets result state right before enter', async () => {

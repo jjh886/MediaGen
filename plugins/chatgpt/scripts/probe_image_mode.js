@@ -17,7 +17,15 @@
     '16:9',
   ]
   const imageModeTokens = ['图片', 'image']
-  const directEntryTokens = ['生成图片', 'create image', 'image generation']
+  const directEntryTokens = [
+    '生成图片',
+    '创建图片',
+    '制作图片',
+    'create image',
+    'create an image',
+    'generate image',
+    'image generation',
+  ]
 
   if (!dom) {
     return JSON.stringify({
@@ -52,6 +60,7 @@
     return (
       directEntryTokens.some((token) => text.includes(token.toLowerCase())) ||
       text === '图片' ||
+      text === 'image' ||
       text.startsWith('图片 ')
     )
   })

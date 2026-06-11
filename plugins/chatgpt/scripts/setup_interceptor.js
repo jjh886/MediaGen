@@ -67,6 +67,34 @@
     return match ? match[1] : ''
   }
 
+  // 记录网页端真实请求头，后续删除会话时复用，避免接口因缺少 oai-* 头而只“看似成功”。
+  const TRACKED_API_HEADERS = [
+    'oai-client-build-number',
+    'oai-client-version',
+    'oai-device-id',
+    'oai-language',
+    'oai-session-id',
+  ]
+
+  const toReadableHeaders = (headers) => {
+    try {
+      return headers ? new Headers(headers) : null
+    } catch (_) {
+      return null
+    }
+  }
+
+  const rememberApiHeaders = (args) => {
+    const headers = toReadableHeaders(args[1]?.headers || args[0]?.headers)
+    if (!headers) return
+
+    const saved = (state.api_headers = state.api_headers || {})
+    for (const name of TRACKED_API_HEADERS) {
+      const value = headers.get(name)
+      if (value) saved[name] = value
+    }
+  }
+
   const parseConversationIdFromUrl = (url) => {
     try {
       return new URL(String(url || ''), location.origin).searchParams.get('conversation_id') || ''
@@ -154,52 +182,82 @@
     }
   }
 
+  const parseJsonLine = (line) => {
+    try {
+      return JSON.parse(line)
+    } catch (_) {
+      return null
+    }
+  }
+
+  const rememberConversationId = (conversationId) => {
+    if (!conversationId) return
+    state.conversation_id = conversationId
+    promotePendingResultIfMatched()
+  }
+
+  // SSE 会同时推会话 token 和消息 patch，拆开处理可以避免一个函数承担太多分支。
+  const handleConversationEvent = (data) => {
+    if (!data?.conversation_id) return false
+    if (data.type === 'resume_conversation_token') {
+      rememberConversationId(data.conversation_id)
+      pushEvent('conversation_started', { conversationId: data.conversation_id })
+      return true
+    }
+    if (data.type === 'conversation_async_status') {
+      rememberConversationId(data.conversation_id)
+      state.async_status = data.async_status
+      return true
+    }
+    return false
+  }
+
+  const rememberPatchConversation = (patch) => {
+    if (!patch?.v?.conversation_id) return
+    if (state.conversation_id) return
+    rememberConversationId(patch.v.conversation_id)
+  }
+
+  const rememberImageTask = (message) => {
+    const taskId = message?.metadata?.image_gen_task_id
+    if (!taskId) return
+    state.image_gen_task_id = taskId
+    pushEvent('image_gen_task', { taskId })
+  }
+
+  const messageText = (message) => {
+    const parts = message?.content?.parts
+    return Array.isArray(parts) ? parts.join('\n') : ''
+  }
+
+  const rememberTextError = (text) => {
+    const rateLimitMessage = extractRateLimitMessage(text)
+    if (rateLimitMessage) {
+      state.status = 'error'
+      state.error_code = 'rate_limit_exceeded'
+      state.message = rateLimitMessage
+      return
+    }
+    if (/something went wrong|出错|错误|无法生成|try again/i.test(text)) {
+      state.status = 'error'
+      state.message = text.substring(0, 200)
+    }
+  }
+
+  const handleMessagePatch = (patch) => {
+    const message = patch?.v?.message
+    if (!message) return
+    rememberPatchConversation(patch)
+    rememberImageTask(message)
+    rememberTextError(messageText(message))
+  }
+
   const parseSseLine = (line, taskToken) => {
     if (!isCurrentTask(taskToken)) return
     if (!line) return
-    try {
-      const data = JSON.parse(line)
-      if (data?.type === 'resume_conversation_token' && data?.conversation_id) {
-        state.conversation_id = data.conversation_id
-        pushEvent('conversation_started', { conversationId: data.conversation_id })
-        promotePendingResultIfMatched()
-        return
-      }
-      if (data?.type === 'conversation_async_status' && data?.conversation_id) {
-        state.conversation_id = data.conversation_id
-        state.async_status = data.async_status
-        promotePendingResultIfMatched()
-        return
-      }
-    } catch (_) {}
-
-    try {
-      const patch = JSON.parse(line)
-      const message = patch?.v?.message
-      if (!message) return
-      if (patch?.v?.conversation_id && !state.conversation_id) {
-        state.conversation_id = patch.v.conversation_id
-        promotePendingResultIfMatched()
-      }
-      const meta = message?.metadata || {}
-      if (meta?.image_gen_task_id) {
-        state.image_gen_task_id = meta.image_gen_task_id
-        pushEvent('image_gen_task', { taskId: meta.image_gen_task_id })
-      }
-      const textParts = message?.content?.parts || []
-      const text = Array.isArray(textParts) ? textParts.join('\n') : ''
-      const rateLimitMessage = extractRateLimitMessage(text)
-      if (rateLimitMessage) {
-        state.status = 'error'
-        state.error_code = 'rate_limit_exceeded'
-        state.message = rateLimitMessage
-        return
-      }
-      if (/something went wrong|出错|错误|无法生成|try again/i.test(text)) {
-        state.status = 'error'
-        state.message = text.substring(0, 200)
-      }
-    } catch (_) {}
+    const data = parseJsonLine(line)
+    if (handleConversationEvent(data)) return
+    handleMessagePatch(data)
   }
 
   const readSseStream = async (resp, taskToken) => {
@@ -232,6 +290,7 @@
     const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || ''
     const taskToken = state.task_token
     pushLog(url)
+    rememberApiHeaders(args)
 
     const resp = await origFetch.apply(this, args)
 

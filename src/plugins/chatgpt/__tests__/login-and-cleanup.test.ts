@@ -54,27 +54,83 @@ describe('chatgpt login and cleanup scripts', () => {
     setCgptState({
       conversation_id: 'conv-current',
       result_conversation_id: 'conv-result',
+      api_headers: {
+        'oai-device-id': 'device-1',
+        'oai-session-id': 'session-1',
+      },
     })
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ success: true })))
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (String(url).includes('/backend-api/conversations')) {
+        return new Response(JSON.stringify({ items: [{ id: 'conv-other' }] }))
+      }
+      return new Response(JSON.stringify({ success: true }))
+    })
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await runScriptJson('delete_current_conversation.js')
-    const [, init] = fetchMock.mock.calls[0]
+    const [, patchInit] = fetchMock.mock.calls[0]
     const state = getCgptState()
 
     expect(result.deleted).toBe(true)
+    expect(result.verified).toBe(true)
     expect(fetchMock).toHaveBeenCalledWith(
       '/backend-api/conversation/conv-result',
       expect.objectContaining({
         method: 'PATCH',
         credentials: 'include',
-        headers: { 'content-type': 'application/json' },
+        headers: expect.objectContaining({
+          'content-type': 'application/json',
+          'oai-device-id': 'device-1',
+          'oai-session-id': 'session-1',
+          'x-openai-target-route': '/backend-api/conversation/{conversation_id}',
+        }),
       })
     )
-    expect(JSON.parse(String((init as RequestInit).body))).toEqual({ is_visible: false })
+    expect(JSON.parse(String((patchInit as RequestInit).body))).toEqual({ is_visible: false })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/backend-api/conversations?offset=0'),
+      expect.objectContaining({ credentials: 'include' })
+    )
     expect(state.deleted_conversation_id).toBe('conv-result')
     expect(state.result_conversation_id).toBe('')
     expect(state.conversation_id).toBe('conv-current')
+  })
+
+  it('delete_current_conversation falls back to current /c route id', async () => {
+    history.replaceState(null, '', '/c/conv-route')
+    setCgptState({})
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/backend-api/conversations')) {
+        return new Response(JSON.stringify({ items: [] }))
+      }
+      return new Response(JSON.stringify({ success: true }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runScriptJson('delete_current_conversation.js')
+
+    expect(result.deleted).toBe(true)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/backend-api/conversation/conv-route',
+      expect.objectContaining({ method: 'PATCH' })
+    )
+  })
+
+  it('delete_current_conversation reports visible conversation after refresh', async () => {
+    setCgptState({ conversation_id: 'conv-current' })
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/backend-api/conversations')) {
+        return new Response(JSON.stringify({ items: [{ id: 'conv-current' }] }))
+      }
+      return new Response(JSON.stringify({ success: true }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runScriptJson('delete_current_conversation.js')
+
+    expect(result.deleted).toBe(false)
+    expect(result.verified).toBe(true)
+    expect(result.error).toBe('conversation_still_visible')
   })
 
   it('delete_current_conversation skips cleanup when conversation id is missing', async () => {
