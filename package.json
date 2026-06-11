@@ -17,7 +17,7 @@
     "cargo-check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "cargo-test": "cargo test --manifest-path src-tauri/Cargo.toml",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "tauri:build": "node scripts/tauri-build.mjs",
     "format:check": "node scripts/check-prettier-format.mjs --all",
     "quality:start": "node scripts/gates/run-start-quality-gate.mjs",
     "quality:semgrep": "node scripts/run-semgrep-local.mjs",

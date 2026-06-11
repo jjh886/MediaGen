@@ -4,8 +4,11 @@ import { checkChromeAvailable } from './shared/services/settings-service'
 
 export type PageId = 'tasks' | 'accounts' | 'logs' | 'settings'
 
+// 账号是使用 MediaGen 前最需要先确认的入口，所以应用首次打开默认进入账号页。
+const DEFAULT_PAGE: PageId = 'accounts'
+
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<PageId>('tasks')
+  const [currentPage, setCurrentPage] = useState<PageId>(DEFAULT_PAGE)
   const [chromeError, setChromeError] = useState<string | null>(null)
   const [checking, setChecking] = useState(true)
 
