@@ -11,12 +11,14 @@ type TierOverride = {
   daily_limit?: number
   total_limit?: number
   concurrency_limit?: number
+  task_interval_seconds?: number
 }
 
 type TierDefaults = {
   daily_limit: number
   total_limit: number
   concurrency_limit: number
+  task_interval_seconds: number
 }
 
 type TierField = keyof TierOverride
@@ -56,6 +58,7 @@ function resolveQuotaValues(current: TierOverride, defaults: TierDefaults): Tier
     daily_limit: current.daily_limit ?? defaults.daily_limit,
     total_limit: current.total_limit ?? defaults.total_limit,
     concurrency_limit: current.concurrency_limit ?? defaults.concurrency_limit,
+    task_interval_seconds: current.task_interval_seconds ?? defaults.task_interval_seconds,
   }
 }
 
@@ -132,7 +135,14 @@ function PlatformQuotaRow({
         value={values.concurrency_limit}
         onChange={(v) => setField('concurrency_limit', v)}
       />
-      <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>(0=无限)</span>
+      <QuotaNumberInput
+        label="间隔"
+        value={values.task_interval_seconds}
+        onChange={(v) => setField('task_interval_seconds', v)}
+      />
+      <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>
+        限额 0=无限，间隔 0=不等待
+      </span>
     </div>
   )
 }
@@ -148,9 +158,9 @@ export function PlatformQuotaCard({
 
   return (
     <div style={cardStyle}>
-      <h2 style={titleStyle}>平台默认配额</h2>
+      <h2 style={titleStyle}>平台默认配额与间隔</h2>
       <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
-        新增的免费账号默认限额。修改后新增账号将使用新值。
+        新增账号和同档位已有账号会使用这里的值；任务间隔用于避免同一账号连续开启新任务。
       </div>
       {PLATFORM_QUOTA_ROWS.map((row) => (
         <PlatformQuotaRow

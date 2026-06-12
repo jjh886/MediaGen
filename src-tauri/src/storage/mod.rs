@@ -30,6 +30,7 @@ const CORE_SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS accounts (
     concurrency_limit     INTEGER NOT NULL DEFAULT 1,
     daily_limit           INTEGER NOT NULL DEFAULT 0,
     total_limit           INTEGER NOT NULL DEFAULT 0,
+    task_interval_seconds INTEGER NOT NULL DEFAULT 0,
     used_today            INTEGER NOT NULL DEFAULT 0,
     used_total            INTEGER NOT NULL DEFAULT 0,
     usage_date            TEXT NOT NULL DEFAULT '',
@@ -94,13 +95,13 @@ impl Storage {
                 id, platform, name, notes, login_state, login_state_reason,
                 login_state_updated_at, cookies, api_token, refresh_token,
                 token_expires_at, profile_dir, tier, concurrency_limit,
-                daily_limit, total_limit, used_today, used_total, usage_date,
-                cooldown_until, user_id, username, email, avatar_url,
-                password_encrypted, created_at, last_check_at,
+                daily_limit, total_limit, task_interval_seconds, used_today,
+                used_total, usage_date, cooldown_until, user_id, username, email,
+                avatar_url, password_encrypted, created_at, last_check_at,
                 last_refreshed_at, last_used_at
             ) VALUES (
                 ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,
-                ?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29
+                ?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30
             )",
             params![
                 a.id,
@@ -119,6 +120,7 @@ impl Storage {
                 a.concurrency_limit,
                 a.daily_limit,
                 a.total_limit,
+                a.task_interval_seconds,
                 a.used_today,
                 a.used_total,
                 a.usage_date,
@@ -169,10 +171,10 @@ impl Storage {
                 cookies=?8, api_token=?9, refresh_token=?10,
                 token_expires_at=?11, profile_dir=?12, tier=?13,
                 concurrency_limit=?14, daily_limit=?15, total_limit=?16,
-                used_today=?17, used_total=?18, usage_date=?19,
-                cooldown_until=?20, user_id=?21, username=?22, email=?23,
-                avatar_url=?24, password_encrypted=?25, created_at=?26,
-                last_check_at=?27, last_refreshed_at=?28, last_used_at=?29
+                task_interval_seconds=?17, used_today=?18, used_total=?19,
+                usage_date=?20, cooldown_until=?21, user_id=?22, username=?23,
+                email=?24, avatar_url=?25, password_encrypted=?26, created_at=?27,
+                last_check_at=?28, last_refreshed_at=?29, last_used_at=?30
             WHERE id = ?1",
             params![
                 a.id,
@@ -191,6 +193,7 @@ impl Storage {
                 a.concurrency_limit,
                 a.daily_limit,
                 a.total_limit,
+                a.task_interval_seconds,
                 a.used_today,
                 a.used_total,
                 a.usage_date,
@@ -357,5 +360,8 @@ fn run_schema_migrations(conn: &Connection) {
     // 增量迁移：给已有数据库添加新列（已存在则忽略）。
     let _ =
         conn.execute_batch("ALTER TABLE accounts ADD COLUMN avatar_url TEXT NOT NULL DEFAULT '';");
+    let _ = conn.execute_batch(
+        "ALTER TABLE accounts ADD COLUMN task_interval_seconds INTEGER NOT NULL DEFAULT 0;",
+    );
     let _ = conn.execute_batch("ALTER TABLE tasks ADD COLUMN result_data TEXT;");
 }

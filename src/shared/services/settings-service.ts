@@ -23,6 +23,7 @@ export interface TierOverride {
   daily_limit?: number
   total_limit?: number
   cooldown_seconds?: number
+  task_interval_seconds?: number
 }
 
 const DEFAULTS: AppSettings = {

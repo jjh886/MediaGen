@@ -19,7 +19,12 @@ interface AccountStore {
   toggle: (id: string, disabled: boolean) => Promise<void>
   update: (
     id: string,
-    updates: Partial<Pick<Account, 'tier' | 'concurrency_limit' | 'daily_limit' | 'total_limit'>>
+    updates: Partial<
+      Pick<
+        Account,
+        'tier' | 'concurrency_limit' | 'daily_limit' | 'total_limit' | 'task_interval_seconds'
+      >
+    >
   ) => Promise<void>
   checkLogin: () => Promise<{ checked: number; expired: number }>
 }

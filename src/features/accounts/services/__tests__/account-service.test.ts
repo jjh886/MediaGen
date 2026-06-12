@@ -183,6 +183,7 @@ describe('account-service (Tauri 环境)', () => {
         concurrency_limit: 3,
         daily_limit: 100,
         total_limit: 1000,
+        task_interval_seconds: 45,
       })
       expect(mockInvoke).toHaveBeenCalledWith('update_account', {
         id: 'acc-001',
@@ -190,6 +191,7 @@ describe('account-service (Tauri 环境)', () => {
         concurrencyLimit: 3,
         dailyLimit: 100,
         totalLimit: 1000,
+        taskIntervalSeconds: 45,
       })
     })
 

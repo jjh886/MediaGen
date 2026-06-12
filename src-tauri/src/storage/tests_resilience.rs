@@ -1,4 +1,4 @@
-use super::sample_account;
+use super::super::test_helpers::sample_account;
 use crate::storage::Storage;
 use tempfile::tempdir;
 

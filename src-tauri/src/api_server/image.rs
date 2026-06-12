@@ -382,30 +382,31 @@ fn release_account_and_update_usage(
     mut account_lease: ActiveAccountLease,
     result: &Result<Vec<crate::types::StepResult>, crate::error::AppError>,
 ) {
-    // 先释放账号并发，让后续排队任务尽快接上；Drop 也会兜底，避免异常路径泄漏占用。
-    account_lease.release();
-
-    let storage = state.storage.lock_recover();
-    if let Ok(Some(mut acc)) = storage.get_account(&ctx.account_id) {
-        acc.used_today += 1;
-        acc.used_total += 1;
-        let _ = storage.update_usage(&ctx.account_id, acc.used_today, acc.used_total);
-        if let Ok(results) = result {
-            if let Some(close_result) = results
-                .iter()
-                .rev()
-                .find(|r| r.data.get("cookies_json").is_some())
-            {
-                if let Some(cj) = close_result.data["cookies_json"]
-                    .as_str()
-                    .filter(|v| !v.is_empty())
+    {
+        let storage = state.storage.lock_recover();
+        if let Ok(Some(mut acc)) = storage.get_account(&ctx.account_id) {
+            acc.used_today += 1;
+            acc.used_total += 1;
+            acc.last_used_at = Some(chrono::Utc::now());
+            if let Ok(results) = result {
+                if let Some(close_result) = results
+                    .iter()
+                    .rev()
+                    .find(|r| r.data.get("cookies_json").is_some())
                 {
-                    acc.cookies = cj.to_string();
-                    let _ = storage.update_account(&acc);
+                    if let Some(cj) = close_result.data["cookies_json"]
+                        .as_str()
+                        .filter(|v| !v.is_empty())
+                    {
+                        acc.cookies = cj.to_string();
+                    }
                 }
             }
+            let _ = storage.update_account(&acc);
         }
     }
+    // 时间戳先落库，再释放账号并发，避免下一单绕过刚写入的任务间隔。
+    account_lease.release();
 }
 
 fn find_poll_data(results: &[crate::types::StepResult]) -> Option<&serde_json::Value> {

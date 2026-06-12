@@ -22,6 +22,7 @@ pub struct PlatformAccount {
     pub concurrency_limit: i32,
     pub daily_limit: i32,
     pub total_limit: i32,
+    pub task_interval_seconds: i32,
     pub used_today: i32,
     pub used_total: i32,
     pub usage_date: String,
@@ -71,6 +72,7 @@ pub fn platform_account_fixture(id: &str, platform: &str) -> PlatformAccount {
         "concurrency_limit": 1,
         "daily_limit": 0,
         "total_limit": 0,
+        "task_interval_seconds": 0,
         "used_today": 0,
         "used_total": 0,
         "usage_date": "",
@@ -318,6 +320,8 @@ pub struct TierDef {
     pub daily_limit: i32,
     pub total_limit: i32,
     pub cooldown_seconds: i32,
+    #[serde(default)]
+    pub task_interval_seconds: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

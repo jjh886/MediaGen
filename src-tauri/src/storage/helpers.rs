@@ -53,6 +53,7 @@ pub(super) fn row_to_account(row: &rusqlite::Row) -> rusqlite::Result<PlatformAc
         concurrency_limit: row.get("concurrency_limit")?,
         daily_limit: row.get("daily_limit")?,
         total_limit: row.get("total_limit")?,
+        task_interval_seconds: row.get("task_interval_seconds")?,
         used_today: row.get("used_today")?,
         used_total: row.get("used_total")?,
         usage_date: row.get("usage_date")?,

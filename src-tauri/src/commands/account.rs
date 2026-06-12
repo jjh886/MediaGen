@@ -245,6 +245,7 @@ fn default_account_tier_def() -> TierDef {
         daily_limit: 0,
         total_limit: 0,
         cooldown_seconds: 60,
+        task_interval_seconds: 0,
     }
 }
 
@@ -288,6 +289,7 @@ fn build_new_account(
         concurrency_limit: td.concurrency_limit,
         daily_limit: td.daily_limit,
         total_limit: td.total_limit,
+        task_interval_seconds: td.task_interval_seconds,
         used_today: 0,
         used_total: 0,
         usage_date: now.format("%Y-%m-%d").to_string(),

@@ -336,6 +336,7 @@ fn make_test_account(
         concurrency_limit: 1,
         daily_limit: 100,
         total_limit: 1000,
+        task_interval_seconds: 0,
         used_today: 0,
         used_total: 0,
         usage_date: String::new(),

@@ -22,7 +22,8 @@
       "concurrency_limit": 1,
       "daily_limit": 40,
       "total_limit": 0,
-      "cooldown_seconds": 30
+      "cooldown_seconds": 30,
+      "task_interval_seconds": 5
     }
   },
   "image_capabilities": {

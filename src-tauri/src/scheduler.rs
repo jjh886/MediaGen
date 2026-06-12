@@ -205,42 +205,58 @@ impl Scheduler {
         self.active_counts.get(account_id).copied().unwrap_or(0)
     }
 
-    /// 检查账号是否满足全部 6 个调度条件。
+    /// 检查账号是否满足全部调度条件；具体规则拆到 helper，避免调度入口继续堆分支。
     pub fn can_schedule(account: &PlatformAccount, active: i32, check_interval_secs: i64) -> bool {
-        // ① login_state == Available
-        if account.login_state != LoginState::Available {
-            return false;
-        }
-        // ② active_tasks < concurrency_limit；0 表示不限制账号并发。
-        if account.concurrency_limit > 0 && active >= account.concurrency_limit {
-            return false;
-        }
-        // ③ used_today < daily_limit（0 表示无限制）
-        if account.daily_limit != 0 && account.used_today >= account.daily_limit {
-            return false;
-        }
-        // ④ used_total < total_limit（0 表示无限制）
-        if account.total_limit != 0 && account.used_total >= account.total_limit {
-            return false;
-        }
-        // ⑤ cooldown_until 为 None 或已过期
-        if let Some(cd) = account.cooldown_until {
-            if cd > Utc::now() {
-                return false;
-            }
-        }
-        // ⑥ last_check_at 存在且在 2× check_interval 以内
-        match account.last_check_at {
-            None => return false,
-            Some(last) => {
-                let threshold = Duration::seconds(check_interval_secs * 2);
-                if Utc::now() - last > threshold {
-                    return false;
-                }
-            }
-        }
+        account_is_available(account)
+            && concurrency_allows(account, active)
+            && quota_allows(account)
+            && cooldown_elapsed(account)
+            && task_interval_remaining_seconds(account).is_none()
+            && last_check_is_fresh(account, check_interval_secs)
+    }
+}
 
-        true
+fn account_is_available(account: &PlatformAccount) -> bool {
+    account.login_state == LoginState::Available
+}
+
+fn concurrency_allows(account: &PlatformAccount, active: i32) -> bool {
+    account.concurrency_limit == 0 || active < account.concurrency_limit
+}
+
+fn quota_allows(account: &PlatformAccount) -> bool {
+    usage_limit_allows(account.daily_limit, account.used_today)
+        && usage_limit_allows(account.total_limit, account.used_total)
+}
+
+fn usage_limit_allows(limit: i32, used: i32) -> bool {
+    limit == 0 || used < limit
+}
+
+fn cooldown_elapsed(account: &PlatformAccount) -> bool {
+    match account.cooldown_until {
+        Some(cooldown_until) => cooldown_until <= Utc::now(),
+        None => true,
+    }
+}
+
+pub fn task_interval_remaining_seconds(account: &PlatformAccount) -> Option<i64> {
+    let interval = i64::from(account.task_interval_seconds.max(0));
+    if interval == 0 {
+        return None;
+    }
+    let last_used_at = account.last_used_at?;
+    let remaining = interval - (Utc::now() - last_used_at).num_seconds();
+    (remaining > 0).then_some(remaining)
+}
+
+fn last_check_is_fresh(account: &PlatformAccount, check_interval_secs: i64) -> bool {
+    match account.last_check_at {
+        Some(last_check_at) => {
+            let threshold = Duration::seconds(check_interval_secs * 2);
+            Utc::now() - last_check_at <= threshold
+        }
+        None => false,
     }
 }
 
@@ -387,5 +403,25 @@ mod tests {
         let mut cooled = make_test_account("c2", "doubao");
         cooled.cooldown_until = Some(Utc::now() - Duration::minutes(1));
         assert!(Scheduler::can_schedule(&cooled, 0, 300));
+    }
+
+    #[test]
+    fn test_task_interval_blocks_recently_used_account() {
+        let mut acc = make_test_account("a1", "chatgpt");
+        acc.task_interval_seconds = 60;
+        acc.last_used_at = Some(Utc::now() - Duration::seconds(10));
+
+        assert!(!Scheduler::can_schedule(&acc, 0, 300));
+        assert!(task_interval_remaining_seconds(&acc).is_some());
+    }
+
+    #[test]
+    fn test_task_interval_allows_account_after_wait() {
+        let mut acc = make_test_account("a1", "chatgpt");
+        acc.task_interval_seconds = 60;
+        acc.last_used_at = Some(Utc::now() - Duration::seconds(61));
+
+        assert!(Scheduler::can_schedule(&acc, 0, 300));
+        assert!(task_interval_remaining_seconds(&acc).is_none());
     }
 }

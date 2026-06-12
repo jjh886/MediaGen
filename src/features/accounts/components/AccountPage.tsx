@@ -72,7 +72,13 @@ export default function AccountPage() {
 
   const handleSaveConfig = async (
     id: string,
-    updates: { tier: string; concurrency_limit: number; daily_limit: number; total_limit: number }
+    updates: {
+      tier: string
+      concurrency_limit: number
+      daily_limit: number
+      total_limit: number
+      task_interval_seconds: number
+    }
   ) => {
     await update(id, updates)
   }

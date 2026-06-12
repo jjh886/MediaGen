@@ -101,6 +101,12 @@ export default function AccountTable({
       render: (r) => `${r.used_total}/${r.total_limit}`,
     },
     {
+      key: 'task_interval_seconds',
+      title: '任务间隔',
+      width: 90,
+      render: (r) => (r.task_interval_seconds > 0 ? `${r.task_interval_seconds}秒` : '不等待'),
+    },
+    {
       key: 'actions',
       title: '操作',
       width: 220,

@@ -25,11 +25,11 @@ describe('PlatformQuotaCard', () => {
     render(<PlatformQuotaCard settings={settings} update={vi.fn()} />)
 
     const expectedRows = [
-      { label: 'Flow 免费', values: ['50', '0', '1'] },
-      { label: '豆包 免费', values: ['60', '0', '1'] },
-      { label: 'ChatGPT 免费', values: ['40', '0', '1'] },
-      { label: 'codex 免费', values: ['40', '0', '1'] },
-      { label: '即梦 免费', values: ['100', '0', '3'] },
+      { label: 'Flow 免费', values: ['50', '0', '1', '0'] },
+      { label: '豆包 免费', values: ['60', '0', '1', '0'] },
+      { label: 'ChatGPT 免费', values: ['40', '0', '1', '5'] },
+      { label: 'codex 免费', values: ['40', '0', '1', '0'] },
+      { label: '即梦 免费', values: ['100', '0', '3', '0'] },
     ]
 
     for (const row of expectedRows) {

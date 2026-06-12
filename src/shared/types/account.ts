@@ -20,5 +20,6 @@ export interface Account {
   used_total: number
   total_limit: number
   concurrency_limit: number
+  task_interval_seconds: number
   created_at: string
 }

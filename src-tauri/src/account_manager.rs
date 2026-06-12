@@ -61,14 +61,19 @@ impl AccountManager {
 
         account.used_today += 1;
         account.used_total += 1;
+        account.last_used_at = Some(chrono::Utc::now());
 
         if account.total_limit > 0 && account.used_total >= account.total_limit {
-            db.update_login_state(id, LoginState::TotalQuotaExhausted, "总用量已达上限")?;
+            account.login_state = LoginState::TotalQuotaExhausted;
+            account.login_state_reason = "总用量已达上限".to_string();
+            account.login_state_updated_at = chrono::Utc::now();
         } else if account.daily_limit > 0 && account.used_today >= account.daily_limit {
-            db.update_login_state(id, LoginState::DailyQuotaExhausted, "当日用量已达上限")?;
+            account.login_state = LoginState::DailyQuotaExhausted;
+            account.login_state_reason = "当日用量已达上限".to_string();
+            account.login_state_updated_at = chrono::Utc::now();
         }
 
-        db.update_usage(id, account.used_today, account.used_total)
+        db.update_account(&account)
     }
 
     pub async fn reset_daily_quotas(&self) -> Result<u64, AppError> {

@@ -7,7 +7,12 @@ const isTauri = '__TAURI_INTERNALS__' in window
 
 export async function updateAccount(
   id: string,
-  updates: Partial<Pick<Account, 'tier' | 'concurrency_limit' | 'daily_limit' | 'total_limit'>>
+  updates: Partial<
+    Pick<
+      Account,
+      'tier' | 'concurrency_limit' | 'daily_limit' | 'total_limit' | 'task_interval_seconds'
+    >
+  >
 ): Promise<void> {
   if (!isTauri) return
   // Tauri v2 默认把 Rust 的 snake_case 参数暴露成 camelCase，必须用 camelCase 键，否则 Option<T> 会静默回落为 None
@@ -16,6 +21,9 @@ export async function updateAccount(
   if (updates.concurrency_limit !== undefined) payload.concurrencyLimit = updates.concurrency_limit
   if (updates.daily_limit !== undefined) payload.dailyLimit = updates.daily_limit
   if (updates.total_limit !== undefined) payload.totalLimit = updates.total_limit
+  if (updates.task_interval_seconds !== undefined) {
+    payload.taskIntervalSeconds = updates.task_interval_seconds
+  }
   await tauriInvoke('update_account', payload)
 }
 

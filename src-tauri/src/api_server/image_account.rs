@@ -6,7 +6,7 @@ use actix_web::web;
 use tokio::sync::mpsc;
 
 use super::image_events::sse_bytes;
-use crate::scheduler::Scheduler;
+use crate::scheduler::{task_interval_remaining_seconds, Scheduler};
 use crate::sync_ext::MutexExt;
 use crate::types::{AllocationResult, LoginState, PlatformAccount};
 use crate::AppState;
@@ -40,6 +40,7 @@ struct AccountWaitStatus {
     queue_position: usize,
     active: i32,
     cooldown_seconds: Option<i64>,
+    wait_seconds: Option<i64>,
     message: String,
 }
 
@@ -102,6 +103,7 @@ impl AccountQueueReporter {
                     "queue_position": status.queue_position,
                     "active": status.active,
                     "cooldown_seconds": status.cooldown_seconds,
+                    "wait_seconds": status.wait_seconds,
                     "message": status.message,
                 }),
             ))
@@ -267,10 +269,13 @@ fn build_wait_status(
     total: usize,
 ) -> AccountWaitStatus {
     let cooldown_seconds = next_cooldown_seconds(accounts);
-    let reason = if cooldown_seconds.is_some() {
-        "cooldown"
+    let task_interval_seconds = next_task_interval_seconds(accounts);
+    let (reason, wait_seconds) = if let Some(seconds) = cooldown_seconds {
+        ("cooldown", Some(seconds))
+    } else if let Some(seconds) = task_interval_seconds {
+        ("task_interval", Some(seconds))
     } else {
-        "busy"
+        ("busy", None)
     };
     let queued = total.saturating_sub(1);
     AccountWaitStatus {
@@ -281,18 +286,22 @@ fn build_wait_status(
         queue_position: ahead + 1,
         active: accounts.iter().map(|a| scheduler.active_count(&a.id)).sum(),
         cooldown_seconds,
-        message: wait_message(reason, ahead, cooldown_seconds),
+        wait_seconds,
+        message: wait_message(reason, ahead, wait_seconds),
     }
 }
 
-fn wait_message(reason: &str, ahead: usize, cooldown_seconds: Option<i64>) -> String {
+fn wait_message(reason: &str, ahead: usize, wait_seconds: Option<i64>) -> String {
     let prefix = if ahead == 0 {
         "当前任务排在最前面".to_string()
     } else {
         format!("前面还有 {ahead} 个任务")
     };
-    match (reason, cooldown_seconds) {
+    match (reason, wait_seconds) {
         ("cooldown", Some(seconds)) => format!("{prefix}，账号冷却中，约 {seconds} 秒后重试"),
+        ("task_interval", Some(seconds)) => {
+            format!("{prefix}，账号任务间隔中，约 {seconds} 秒后重试")
+        }
         _ => format!("{prefix}，正在等待可用账号"),
     }
 }
@@ -307,6 +316,20 @@ fn next_cooldown_seconds(accounts: &[PlatformAccount]) -> Option<i64> {
         .min()
 }
 
+fn next_task_interval_seconds(accounts: &[PlatformAccount]) -> Option<i64> {
+    accounts
+        .iter()
+        .filter(|account| {
+            account.login_state == LoginState::Available
+                && !cooldown_active(account)
+                && account.daily_limit_available()
+                && account.total_limit_available()
+                && last_check_fresh(account)
+        })
+        .filter_map(task_interval_remaining_seconds)
+        .min()
+}
+
 fn can_wait_for_account_slot(scheduler: &Scheduler, accounts: &[PlatformAccount]) -> bool {
     accounts.iter().any(|account| {
         if !account.daily_limit_available()
@@ -316,6 +339,12 @@ fn can_wait_for_account_slot(scheduler: &Scheduler, accounts: &[PlatformAccount]
             return false;
         }
         if is_recoverable_cooldown(account) {
+            return true;
+        }
+        if account.login_state == LoginState::Available
+            && !cooldown_active(account)
+            && task_interval_remaining_seconds(account).is_some()
+        {
             return true;
         }
         account.login_state == LoginState::Available
@@ -382,6 +411,30 @@ mod tests {
         account.used_today = 3;
 
         assert!(!can_wait_for_account_slot(&scheduler, &[account]));
+    }
+
+    #[test]
+    fn task_interval_account_can_enter_wait_queue() {
+        let scheduler = Scheduler::new();
+        let mut account = make_account("a1");
+        account.task_interval_seconds = 30;
+        account.last_used_at = Some(chrono::Utc::now());
+
+        assert!(can_wait_for_account_slot(&scheduler, &[account]));
+    }
+
+    #[test]
+    fn wait_status_reports_task_interval_reason() {
+        let scheduler = Scheduler::new();
+        let mut account = make_account("a1");
+        account.task_interval_seconds = 30;
+        account.last_used_at = Some(chrono::Utc::now());
+
+        let status = build_wait_status("chatgpt", &scheduler, &[account], 0, 1);
+
+        assert_eq!(status.reason, "task_interval");
+        assert!(status.wait_seconds.is_some());
+        assert!(status.message.contains("账号任务间隔中"));
     }
 
     #[test]

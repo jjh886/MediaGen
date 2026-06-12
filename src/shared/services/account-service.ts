@@ -15,6 +15,7 @@ const MOCK_ACCOUNTS: Account[] = [
     used_total: 80,
     total_limit: 5000,
     concurrency_limit: 5,
+    task_interval_seconds: 0,
     created_at: '2026-02-20T00:00:00Z',
   },
   {
@@ -30,6 +31,7 @@ const MOCK_ACCOUNTS: Account[] = [
     used_total: 200,
     total_limit: 2000,
     concurrency_limit: 2,
+    task_interval_seconds: 30,
     created_at: '2026-01-10T00:00:00Z',
   },
 ]

@@ -84,6 +84,7 @@ pub async fn update_account(
     concurrency_limit: Option<i32>,
     daily_limit: Option<i32>,
     total_limit: Option<i32>,
+    task_interval_seconds: Option<i32>,
 ) -> Result<(), String> {
     let storage = state.storage.lock_recover();
     let mut account = storage
@@ -101,6 +102,9 @@ pub async fn update_account(
     }
     if let Some(v) = total_limit {
         account.total_limit = v;
+    }
+    if let Some(v) = task_interval_seconds {
+        account.task_interval_seconds = v;
     }
     storage.update_account(&account).map_err(|e| e.to_string())
 }

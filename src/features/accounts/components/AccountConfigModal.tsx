@@ -8,7 +8,13 @@ interface AccountConfigModalProps {
   account: Account | null
   onSave: (
     id: string,
-    updates: { tier: string; concurrency_limit: number; daily_limit: number; total_limit: number }
+    updates: {
+      tier: string
+      concurrency_limit: number
+      daily_limit: number
+      total_limit: number
+      task_interval_seconds: number
+    }
   ) => Promise<void>
 }
 
@@ -45,6 +51,7 @@ export default function AccountConfigModal({
   const [concurrency, setConcurrency] = useState('')
   const [dailyLimit, setDailyLimit] = useState('')
   const [totalLimit, setTotalLimit] = useState('')
+  const [taskInterval, setTaskInterval] = useState('')
 
   useEffect(() => {
     if (account) {
@@ -52,6 +59,7 @@ export default function AccountConfigModal({
       setConcurrency(String(account.concurrency_limit))
       setDailyLimit(String(account.daily_limit))
       setTotalLimit(String(account.total_limit))
+      setTaskInterval(String(account.task_interval_seconds ?? 0))
     }
   }, [account])
 
@@ -62,6 +70,7 @@ export default function AccountConfigModal({
       concurrency_limit: toNonNegativeInt(concurrency),
       daily_limit: toNonNegativeInt(dailyLimit),
       total_limit: toNonNegativeInt(totalLimit),
+      task_interval_seconds: toNonNegativeInt(taskInterval),
     })
     onClose()
   }
@@ -115,6 +124,18 @@ export default function AccountConfigModal({
             value={totalLimit}
             onChange={(e) => setTotalLimit(e.target.value)}
           />
+        </div>
+        <div style={fieldStyle}>
+          <label style={labelStyle}>任务间隔（秒）</label>
+          <KtInput
+            type="number"
+            min={0}
+            value={taskInterval}
+            onChange={(e) => setTaskInterval(e.target.value)}
+          />
+          <span style={{ color: 'var(--text-disabled)', fontSize: 12 }}>
+            一个任务结束后，至少等待这么久再让这个账号接下一单；0 表示不等待。
+          </span>
         </div>
       </div>
     </KtModal>
