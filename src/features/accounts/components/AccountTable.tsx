@@ -41,7 +41,9 @@ export default function AccountTable({
     {
       key: 'name',
       title: '名称',
-      width: 180,
+      width: 260,
+      minWidth: 180,
+      maxWidth: 420,
       render: (r) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {r.avatar_url ? (
@@ -67,23 +69,33 @@ export default function AccountTable({
               {r.name?.[0] || '?'}
             </div>
           )}
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span
+            style={{
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+            title={r.name}
+          >
             {r.name}
           </span>
         </div>
       ),
     },
-    { key: 'email', title: '邮箱/手机', width: 160 },
+    { key: 'email', title: '邮箱/手机', width: 260, minWidth: 180, maxWidth: 420 },
     {
       key: 'tier',
       title: '等级',
-      width: 80,
+      width: 100,
+      minWidth: 80,
       render: (r) => <KtBadge variant="info">{r.tier}</KtBadge>,
     },
     {
       key: 'login_state',
       title: '状态',
-      width: 90,
+      width: 110,
+      minWidth: 90,
       render: (r) => (
         <KtBadge variant={stateVariant[r.login_state]}>{stateLabel[r.login_state]}</KtBadge>
       ),
@@ -91,27 +103,31 @@ export default function AccountTable({
     {
       key: 'used_today',
       title: '今日用量',
-      width: 100,
+      width: 120,
+      minWidth: 100,
       render: (r) => `${r.used_today}/${r.daily_limit}`,
     },
     {
       key: 'used_total',
       title: '总用量',
-      width: 100,
+      width: 120,
+      minWidth: 100,
       render: (r) => `${r.used_total}/${r.total_limit}`,
     },
     {
       key: 'task_interval_seconds',
       title: '任务间隔',
-      width: 90,
+      width: 120,
+      minWidth: 100,
       render: (r) => (r.task_interval_seconds > 0 ? `${r.task_interval_seconds}秒` : '不等待'),
     },
     {
       key: 'actions',
       title: '操作',
-      width: 220,
+      width: 280,
+      minWidth: 240,
       render: (r) => (
-        <div style={{ display: 'flex', gap: 4 }}>
+        <div style={{ display: 'flex', gap: 4, whiteSpace: 'nowrap' }}>
           <KtButton size="sm" variant="text" onClick={() => onConfigure(r)}>
             配置
           </KtButton>

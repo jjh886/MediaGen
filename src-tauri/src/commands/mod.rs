@@ -1,5 +1,6 @@
 pub mod account;
 mod account_plugin_flow;
+pub mod macos_permissions;
 
 use std::sync::Arc;
 

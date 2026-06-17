@@ -74,7 +74,8 @@ export default function TaskList() {
     {
       key: 'id',
       title: 'ID',
-      width: 80,
+      width: 96,
+      minWidth: 80,
       render: (r) => (
         <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.id.slice(0, 8)}</span>
       ),
@@ -82,13 +83,17 @@ export default function TaskList() {
     {
       key: 'task_kind',
       title: '类型',
-      width: 60,
+      width: 90,
+      minWidth: 72,
       render: (r) => <KtBadge variant="info">{kindLabel[r.task_kind]}</KtBadge>,
     },
-    { key: 'model_id', title: '模型', width: 140 },
+    { key: 'model_id', title: '模型', width: 180, minWidth: 120, maxWidth: 320 },
     {
       key: 'prompt',
       title: '提示词',
+      width: 420,
+      minWidth: 220,
+      maxWidth: 900,
       render: (r) => (
         <span
           style={{
@@ -96,7 +101,7 @@ export default function TaskList() {
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
             display: 'block',
-            maxWidth: 200,
+            width: '100%',
           }}
           title={r.prompt}
         >
@@ -107,7 +112,9 @@ export default function TaskList() {
     {
       key: 'account_id',
       title: '账号',
-      width: 100,
+      width: 160,
+      minWidth: 120,
+      maxWidth: 360,
       render: (r) => {
         if (!r.account_id) return <span style={{ color: 'var(--text-tertiary)' }}>-</span>
         const name = accountMap.get(r.account_id)
@@ -118,7 +125,7 @@ export default function TaskList() {
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
               display: 'block',
-              maxWidth: 100,
+              width: '100%',
             }}
             title={name ?? r.account_id}
           >
@@ -130,25 +137,29 @@ export default function TaskList() {
     {
       key: 'status',
       title: '状态',
-      width: 80,
+      width: 100,
+      minWidth: 90,
       render: (r) => <KtBadge variant={statusVariant[r.status]}>{statusLabel[r.status]}</KtBadge>,
     },
     {
       key: 'duration',
       title: '耗时',
-      width: 80,
+      width: 110,
+      minWidth: 90,
       render: (r) => formatDuration(r),
     },
     {
       key: 'created_at',
       title: '时间',
-      width: 110,
+      width: 140,
+      minWidth: 120,
       render: (r) => formatTime(r.created_at),
     },
     {
       key: 'actions',
       title: '',
-      width: 70,
+      width: 90,
+      minWidth: 70,
       render: (r) =>
         r.status === 'pending' || r.status === 'processing' ? (
           <KtButton

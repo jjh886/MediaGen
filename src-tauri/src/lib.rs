@@ -80,6 +80,8 @@ pub fn run() {
             commands::set_setting,
             commands::check_chrome_available,
             commands::check_chrome_version,
+            commands::macos_permissions::check_macos_startup_permissions,
+            commands::macos_permissions::open_macos_privacy_settings,
             commands::get_cache_size,
             commands::clear_cache,
             commands::account::add_account_start,

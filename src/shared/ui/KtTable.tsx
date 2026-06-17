@@ -1,9 +1,12 @@
-import React, { useState, useCallback } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 
 interface Column<T> {
   key: string
   title: string
   width?: number | string
+  minWidth?: number
+  maxWidth?: number
+  resizable?: boolean
   render?: (record: T, index: number) => React.ReactNode
 }
 
@@ -14,9 +17,25 @@ interface KtTableProps<T> {
   onRowClick?: (record: T) => void
   selectedRowKey?: string
   emptyText?: string
+  expandedRowRender?: (record: T, index: number) => React.ReactNode
+  isRowExpanded?: (record: T) => boolean
 }
 
+interface MeasuredColumn<T> extends Column<T> {
+  measuredWidth: number
+  minWidthValue: number
+  maxWidthValue: number
+}
+
+const DEFAULT_COLUMN_WIDTH = 160
+const DEFAULT_MIN_WIDTH = 72
+const DEFAULT_MAX_WIDTH = 900
+
 const styles = {
+  wrapper: {
+    width: '100%',
+    overflowX: 'auto' as const,
+  },
   table: {
     width: '100%',
     borderCollapse: 'collapse' as const,
@@ -32,12 +51,12 @@ const styles = {
     textAlign: 'left' as const,
     borderBottom: '1px solid rgba(255,255,255,0.05)',
     boxSizing: 'border-box' as const,
+    position: 'relative' as const,
   },
   row: {
     height: 48,
     background: 'transparent',
     borderBottom: '1px solid rgba(255,255,255,0.05)',
-    cursor: 'pointer',
     transition: 'background 150ms ease',
   },
   cell: {
@@ -47,12 +66,34 @@ const styles = {
     overflow: 'hidden' as const,
     textOverflow: 'ellipsis' as const,
     whiteSpace: 'nowrap' as const,
+    boxSizing: 'border-box' as const,
   },
   empty: {
     textAlign: 'center' as const,
     color: 'rgba(255,255,255,0.4)',
     padding: '32px 0',
     fontSize: 14,
+  },
+  resizeHandle: {
+    position: 'absolute' as const,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: 10,
+    cursor: 'col-resize',
+    zIndex: 1,
+  },
+  resizeHandleLine: {
+    position: 'absolute' as const,
+    top: 8,
+    right: 4,
+    bottom: 8,
+    width: 1,
+    background: 'rgba(90,176,254,0.2)',
+  },
+  expandedCell: {
+    padding: 0,
+    borderBottom: '1px solid rgba(255,255,255,0.05)',
   },
 } as const
 
@@ -62,73 +103,346 @@ function getRowKey<T>(record: T, rowKey: string | ((record: T) => string)): stri
     : String((record as Record<string, unknown>)[rowKey])
 }
 
-function KtTable<T>({
+function widthToNumber(width: number | string | undefined, fallback: number): number {
+  if (typeof width === 'number' && Number.isFinite(width)) return width
+  if (typeof width !== 'string') return fallback
+
+  const parsed = Number.parseInt(width, 10)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function clampWidth(width: number, minWidth: number, maxWidth: number): number {
+  return Math.min(Math.max(width, minWidth), maxWidth)
+}
+
+function measureColumn<T>(
+  column: Column<T>,
+  columnWidths: Record<string, number>
+): MeasuredColumn<T> {
+  const minWidth = column.minWidth ?? DEFAULT_MIN_WIDTH
+  const maxWidth = Math.max(column.maxWidth ?? DEFAULT_MAX_WIDTH, minWidth)
+  const defaultWidth = widthToNumber(column.width, DEFAULT_COLUMN_WIDTH)
+  const measuredWidth = clampWidth(columnWidths[column.key] ?? defaultWidth, minWidth, maxWidth)
+
+  return {
+    ...column,
+    measuredWidth,
+    minWidthValue: minWidth,
+    maxWidthValue: maxWidth,
+  }
+}
+
+function getCellText<T>(record: T, key: string): string {
+  const value = (record as Record<string, unknown>)[key]
+  return value == null ? '' : String(value)
+}
+
+function getRowBackground(isSelected: boolean, isHovered: boolean): string {
+  if (isSelected) return 'rgba(90,176,254,0.05)'
+  if (isHovered) return 'rgba(255,255,255,0.03)'
+  return 'transparent'
+}
+
+function startColumnResize<T>(
+  event: React.MouseEvent,
+  column: MeasuredColumn<T>,
+  setColumnWidths: React.Dispatch<React.SetStateAction<Record<string, number>>>
+) {
+  event.preventDefault()
+  event.stopPropagation()
+
+  const startX = event.clientX
+  const startWidth = column.measuredWidth
+  const previousUserSelect = document.body.style.userSelect
+
+  // 拖动时禁用页面选中文本，避免列宽调整变成选中一整行文字。
+  document.body.style.userSelect = 'none'
+
+  const handleMouseMove = (moveEvent: MouseEvent) => {
+    const nextWidth = clampWidth(
+      startWidth + moveEvent.clientX - startX,
+      column.minWidthValue,
+      column.maxWidthValue
+    )
+    setColumnWidths((prev) => ({ ...prev, [column.key]: nextWidth }))
+  }
+
+  const handleMouseUp = () => {
+    document.body.style.userSelect = previousUserSelect
+    document.removeEventListener('mousemove', handleMouseMove)
+    document.removeEventListener('mouseup', handleMouseUp)
+  }
+
+  document.addEventListener('mousemove', handleMouseMove)
+  document.addEventListener('mouseup', handleMouseUp)
+}
+
+interface HeaderCellProps<T> {
+  column: MeasuredColumn<T>
+  onResizeStart: (event: React.MouseEvent, column: MeasuredColumn<T>) => void
+}
+
+function HeaderCell<T>({ column, onResizeStart }: HeaderCellProps<T>) {
+  return (
+    <th style={{ ...styles.headerCell, width: column.measuredWidth }}>
+      {column.title}
+      {column.resizable !== false && (
+        <span
+          aria-label={`调整${column.title || '当前'}列宽`}
+          role="separator"
+          style={styles.resizeHandle}
+          title="拖动调整列宽"
+          onMouseDown={(event) => onResizeStart(event, column)}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <span style={styles.resizeHandleLine} />
+        </span>
+      )}
+    </th>
+  )
+}
+
+interface TableCellProps<T> {
+  column: MeasuredColumn<T>
+  record: T
+  index: number
+}
+
+function TableCell<T>({ column, record, index }: TableCellProps<T>) {
+  const fallbackText = getCellText(record, column.key)
+  const content = column.render ? column.render(record, index) : fallbackText
+
+  return (
+    <td
+      style={{ ...styles.cell, width: column.measuredWidth }}
+      title={typeof content === 'string' ? content : fallbackText}
+    >
+      {content}
+    </td>
+  )
+}
+
+interface BodyRowProps<T> {
+  columns: MeasuredColumn<T>[]
+  expandedRowRender?: (record: T, index: number) => React.ReactNode
+  hoveredKey: string | null
+  index: number
+  isRowExpanded?: (record: T) => boolean
+  onMouseEnter: (key: string) => void
+  onMouseLeave: () => void
+  onRowClick?: (record: T) => void
+  record: T
+  rowIdentity: string
+  selectedRowKey?: string
+}
+
+function BodyRow<T>({
+  columns,
+  expandedRowRender,
+  hoveredKey,
+  index,
+  isRowExpanded,
+  onMouseEnter,
+  onMouseLeave,
+  onRowClick,
+  record,
+  rowIdentity,
+  selectedRowKey,
+}: BodyRowProps<T>) {
+  const rowBg = getRowBackground(selectedRowKey === rowIdentity, hoveredKey === rowIdentity)
+  const expanded = isRowExpanded?.(record) ?? false
+
+  return (
+    <>
+      <tr
+        style={{
+          ...styles.row,
+          background: rowBg,
+          cursor: onRowClick ? 'pointer' : 'default',
+        }}
+        onClick={() => onRowClick?.(record)}
+        onMouseEnter={() => onMouseEnter(rowIdentity)}
+        onMouseLeave={onMouseLeave}
+      >
+        {columns.map((column) => (
+          <TableCell<T> key={column.key} column={column} record={record} index={index} />
+        ))}
+      </tr>
+      {expanded && expandedRowRender && (
+        <tr>
+          <td colSpan={columns.length} style={styles.expandedCell}>
+            {expandedRowRender(record, index)}
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+interface TableBodyProps<T> extends Pick<KtTableProps<T>, 'data' | 'emptyText' | 'rowKey'> {
+  columns: MeasuredColumn<T>[]
+  expandedRowRender?: (record: T, index: number) => React.ReactNode
+  hoveredKey: string | null
+  isRowExpanded?: (record: T) => boolean
+  onMouseEnter: (key: string) => void
+  onMouseLeave: () => void
+  onRowClick?: (record: T) => void
+  selectedRowKey?: string
+}
+
+function TableBody<T>({
   columns,
   data,
-  rowKey,
+  emptyText,
+  expandedRowRender,
+  hoveredKey,
+  isRowExpanded,
+  onMouseEnter,
+  onMouseLeave,
   onRowClick,
+  rowKey,
   selectedRowKey,
-  emptyText = '暂无数据',
-}: KtTableProps<T>) {
-  const [hoveredKey, setHoveredKey] = useState<string | null>(null)
+}: TableBodyProps<T>) {
+  if (data.length === 0) {
+    return (
+      <tbody>
+        <tr>
+          <td colSpan={columns.length} style={styles.empty}>
+            {emptyText}
+          </td>
+        </tr>
+      </tbody>
+    )
+  }
 
+  return (
+    <tbody>
+      {data.map((record, index) => {
+        const rowIdentity = getRowKey(record, rowKey)
+        return (
+          <BodyRow<T>
+            key={rowIdentity}
+            columns={columns}
+            expandedRowRender={expandedRowRender}
+            hoveredKey={hoveredKey}
+            index={index}
+            isRowExpanded={isRowExpanded}
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
+            onRowClick={onRowClick}
+            record={record}
+            rowIdentity={rowIdentity}
+            selectedRowKey={selectedRowKey}
+          />
+        )
+      })}
+    </tbody>
+  )
+}
+
+function useMeasuredColumns<T>(columns: Column<T>[]) {
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
+  const measuredColumns = useMemo(
+    () => columns.map((column) => measureColumn(column, columnWidths)),
+    [columns, columnWidths]
+  )
+  const tableMinWidth = useMemo(
+    () => measuredColumns.reduce((total, column) => total + column.measuredWidth, 0),
+    [measuredColumns]
+  )
+  const resizeColumn = useCallback((event: React.MouseEvent, column: MeasuredColumn<T>) => {
+    startColumnResize(event, column, setColumnWidths)
+  }, [])
+
+  return { measuredColumns, resizeColumn, tableMinWidth }
+}
+
+function useTableHover() {
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null)
   const handleMouseEnter = useCallback((key: string) => {
     setHoveredKey(key)
   }, [])
-
   const handleMouseLeave = useCallback(() => {
     setHoveredKey(null)
   }, [])
 
+  return { handleMouseEnter, handleMouseLeave, hoveredKey }
+}
+
+function ColumnGroup<T>({ columns }: { columns: MeasuredColumn<T>[] }) {
   return (
-    <table style={styles.table}>
-      <thead>
-        <tr>
-          {columns.map((col) => (
-            <th key={col.key} style={{ ...styles.headerCell, width: col.width }}>
-              {col.title}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {data.length === 0 ? (
-          <tr>
-            <td colSpan={columns.length} style={styles.empty}>
-              {emptyText}
-            </td>
-          </tr>
-        ) : (
-          data.map((record, index) => {
-            const key = getRowKey(record, rowKey)
-            const isSelected = selectedRowKey === key
-            const isHovered = hoveredKey === key
+    <colgroup>
+      {columns.map((col) => (
+        <col key={col.key} style={{ width: col.measuredWidth }} />
+      ))}
+    </colgroup>
+  )
+}
 
-            let rowBg = 'transparent'
-            if (isSelected) rowBg = 'rgba(90,176,254,0.05)'
-            else if (isHovered) rowBg = 'rgba(255,255,255,0.03)'
+function TableHeader<T>({
+  columns,
+  onResizeStart,
+}: {
+  columns: MeasuredColumn<T>[]
+  onResizeStart: (event: React.MouseEvent, column: MeasuredColumn<T>) => void
+}) {
+  return (
+    <thead>
+      <tr>
+        {columns.map((col) => (
+          <HeaderCell<T> key={col.key} column={col} onResizeStart={onResizeStart} />
+        ))}
+      </tr>
+    </thead>
+  )
+}
 
-            return (
-              <tr
-                key={key}
-                style={{ ...styles.row, background: rowBg }}
-                onClick={() => onRowClick?.(record)}
-                onMouseEnter={() => handleMouseEnter(key)}
-                onMouseLeave={handleMouseLeave}
-              >
-                {columns.map((col) => (
-                  <td key={col.key} style={{ ...styles.cell, width: col.width }}>
-                    {col.render
-                      ? col.render(record, index)
-                      : String((record as Record<string, unknown>)[col.key] ?? '')}
-                  </td>
-                ))}
-              </tr>
-            )
-          })
-        )}
-      </tbody>
-    </table>
+interface TableLayoutProps<T> extends KtTableProps<T> {
+  handleMouseEnter: (key: string) => void
+  handleMouseLeave: () => void
+  hoveredKey: string | null
+  measuredColumns: MeasuredColumn<T>[]
+  onResizeStart: (event: React.MouseEvent, column: MeasuredColumn<T>) => void
+  tableMinWidth: number
+}
+
+function TableLayout<T>(props: TableLayoutProps<T>) {
+  return (
+    <div style={styles.wrapper}>
+      <table style={{ ...styles.table, minWidth: props.tableMinWidth }}>
+        <ColumnGroup<T> columns={props.measuredColumns} />
+        <TableHeader<T> columns={props.measuredColumns} onResizeStart={props.onResizeStart} />
+        <TableBody<T>
+          columns={props.measuredColumns}
+          data={props.data}
+          emptyText={props.emptyText}
+          expandedRowRender={props.expandedRowRender}
+          hoveredKey={props.hoveredKey}
+          isRowExpanded={props.isRowExpanded}
+          onMouseEnter={props.handleMouseEnter}
+          onMouseLeave={props.handleMouseLeave}
+          onRowClick={props.onRowClick}
+          rowKey={props.rowKey}
+          selectedRowKey={props.selectedRowKey}
+        />
+      </table>
+    </div>
+  )
+}
+
+function KtTable<T>({ emptyText = '暂无数据', ...props }: KtTableProps<T>) {
+  const { measuredColumns, resizeColumn, tableMinWidth } = useMeasuredColumns(props.columns)
+  const hoverState = useTableHover()
+
+  return (
+    <TableLayout<T>
+      {...props}
+      {...hoverState}
+      emptyText={emptyText}
+      measuredColumns={measuredColumns}
+      onResizeStart={resizeColumn}
+      tableMinWidth={tableMinWidth}
+    />
   )
 }
 
