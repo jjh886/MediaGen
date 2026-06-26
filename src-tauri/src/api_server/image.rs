@@ -384,6 +384,10 @@ fn release_account_and_update_usage(
 ) {
     {
         let storage = state.storage.lock_recover();
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        if let Err(e) = storage.refresh_stale_daily_usage(&today) {
+            tracing::warn!(error = %e, "刷新账号今日用量失败");
+        }
         if let Ok(Some(mut acc)) = storage.get_account(&ctx.account_id) {
             acc.used_today += 1;
             acc.used_total += 1;

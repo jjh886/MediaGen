@@ -124,8 +124,10 @@ export default function AccountTable({
     {
       key: 'actions',
       title: '操作',
-      width: 280,
-      minWidth: 240,
+      width: 248,
+      minWidth: 220,
+      sticky: 'right',
+      resizable: false,
       render: (r) => (
         <div style={{ display: 'flex', gap: 4, whiteSpace: 'nowrap' }}>
           <KtButton size="sm" variant="text" onClick={() => onConfigure(r)}>

@@ -1,4 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
+import { KtTableHorizontalScrollbar } from './KtTableHorizontalScrollbar'
 
 interface Column<T> {
   key: string
@@ -7,6 +8,7 @@ interface Column<T> {
   minWidth?: number
   maxWidth?: number
   resizable?: boolean
+  sticky?: 'right'
   render?: (record: T, index: number) => React.ReactNode
 }
 
@@ -38,7 +40,8 @@ const styles = {
   },
   table: {
     width: '100%',
-    borderCollapse: 'collapse' as const,
+    borderCollapse: 'separate' as const,
+    borderSpacing: 0,
     tableLayout: 'fixed' as const,
   },
   headerCell: {
@@ -143,6 +146,22 @@ function getRowBackground(isSelected: boolean, isHovered: boolean): string {
   return 'transparent'
 }
 
+function getStickyColumnStyle<T>(column: MeasuredColumn<T>, background: string) {
+  if (column.sticky !== 'right') return {}
+
+  return {
+    position: 'sticky' as const,
+    right: 0,
+    zIndex: 2,
+    background,
+    boxShadow: '-16px 0 18px -18px rgba(0,0,0,0.9)',
+  }
+}
+
+function getBodyCellBackground(rowBackground: string): string {
+  return rowBackground === 'transparent' ? 'var(--bg-primary)' : rowBackground
+}
+
 function startColumnResize<T>(
   event: React.MouseEvent,
   column: MeasuredColumn<T>,
@@ -184,7 +203,14 @@ interface HeaderCellProps<T> {
 
 function HeaderCell<T>({ column, onResizeStart }: HeaderCellProps<T>) {
   return (
-    <th style={{ ...styles.headerCell, width: column.measuredWidth }}>
+    <th
+      style={{
+        ...styles.headerCell,
+        ...getStickyColumnStyle(column, styles.headerCell.background),
+        ...(column.sticky === 'right' ? { zIndex: 3 } : {}),
+        width: column.measuredWidth,
+      }}
+    >
       {column.title}
       {column.resizable !== false && (
         <span
@@ -204,17 +230,22 @@ function HeaderCell<T>({ column, onResizeStart }: HeaderCellProps<T>) {
 
 interface TableCellProps<T> {
   column: MeasuredColumn<T>
+  rowBackground: string
   record: T
   index: number
 }
 
-function TableCell<T>({ column, record, index }: TableCellProps<T>) {
+function TableCell<T>({ column, rowBackground, record, index }: TableCellProps<T>) {
   const fallbackText = getCellText(record, column.key)
   const content = column.render ? column.render(record, index) : fallbackText
 
   return (
     <td
-      style={{ ...styles.cell, width: column.measuredWidth }}
+      style={{
+        ...styles.cell,
+        ...getStickyColumnStyle(column, getBodyCellBackground(rowBackground)),
+        width: column.measuredWidth,
+      }}
       title={typeof content === 'string' ? content : fallbackText}
     >
       {content}
@@ -265,7 +296,13 @@ function BodyRow<T>({
         onMouseLeave={onMouseLeave}
       >
         {columns.map((column) => (
-          <TableCell<T> key={column.key} column={column} record={record} index={index} />
+          <TableCell<T>
+            key={column.key}
+            column={column}
+            rowBackground={rowBg}
+            record={record}
+            index={index}
+          />
         ))}
       </tr>
       {expanded && expandedRowRender && (
@@ -407,26 +444,31 @@ interface TableLayoutProps<T> extends KtTableProps<T> {
 }
 
 function TableLayout<T>(props: TableLayoutProps<T>) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+
   return (
-    <div style={styles.wrapper}>
-      <table style={{ ...styles.table, minWidth: props.tableMinWidth }}>
-        <ColumnGroup<T> columns={props.measuredColumns} />
-        <TableHeader<T> columns={props.measuredColumns} onResizeStart={props.onResizeStart} />
-        <TableBody<T>
-          columns={props.measuredColumns}
-          data={props.data}
-          emptyText={props.emptyText}
-          expandedRowRender={props.expandedRowRender}
-          hoveredKey={props.hoveredKey}
-          isRowExpanded={props.isRowExpanded}
-          onMouseEnter={props.handleMouseEnter}
-          onMouseLeave={props.handleMouseLeave}
-          onRowClick={props.onRowClick}
-          rowKey={props.rowKey}
-          selectedRowKey={props.selectedRowKey}
-        />
-      </table>
-    </div>
+    <>
+      <div ref={scrollRef} className="kt-table__scroll" style={styles.wrapper}>
+        <table style={{ ...styles.table, minWidth: props.tableMinWidth }}>
+          <ColumnGroup<T> columns={props.measuredColumns} />
+          <TableHeader<T> columns={props.measuredColumns} onResizeStart={props.onResizeStart} />
+          <TableBody<T>
+            columns={props.measuredColumns}
+            data={props.data}
+            emptyText={props.emptyText}
+            expandedRowRender={props.expandedRowRender}
+            hoveredKey={props.hoveredKey}
+            isRowExpanded={props.isRowExpanded}
+            onMouseEnter={props.handleMouseEnter}
+            onMouseLeave={props.handleMouseLeave}
+            onRowClick={props.onRowClick}
+            rowKey={props.rowKey}
+            selectedRowKey={props.selectedRowKey}
+          />
+        </table>
+      </div>
+      <KtTableHorizontalScrollbar scrollRef={scrollRef} />
+    </>
   )
 }
 

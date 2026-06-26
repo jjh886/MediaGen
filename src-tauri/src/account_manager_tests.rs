@@ -72,6 +72,24 @@ async fn test_increment_usage_total_limit() {
 }
 
 #[tokio::test]
+async fn test_increment_usage_refreshes_stale_daily_usage() {
+    let (mgr, _dir) = make_manager();
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let mut acc = sample_account("a1", "doubao");
+    acc.used_today = 9;
+    acc.used_total = 40;
+    acc.usage_date = "2026-04-12".to_string();
+    mgr.add_account(acc).await.unwrap();
+
+    mgr.increment_usage("a1").await.unwrap();
+
+    let acc = mgr.get_account("a1").await.unwrap().unwrap();
+    assert_eq!(acc.used_today, 1);
+    assert_eq!(acc.used_total, 41);
+    assert_eq!(acc.usage_date, today);
+}
+
+#[tokio::test]
 async fn test_reset_daily_quotas() {
     let (mgr, _dir) = make_manager();
     let mut acc = sample_account("a1", "doubao");

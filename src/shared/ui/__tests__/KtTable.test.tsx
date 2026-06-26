@@ -46,4 +46,32 @@ describe('KtTable', () => {
 
     expect(screen.getByText('展开详情：第二条测试备注')).toBeInTheDocument()
   })
+
+  it('keeps sticky right column visible while horizontal content scrolls', () => {
+    render(
+      <KtTable<DemoRow>
+        columns={[
+          ...columns,
+          {
+            key: 'actions',
+            title: '操作',
+            width: 120,
+            sticky: 'right',
+            render: () => '配置',
+          },
+        ]}
+        data={rows}
+        rowKey="id"
+      />
+    )
+
+    expect(screen.getByText('操作').closest('th')).toHaveStyle({
+      position: 'sticky',
+      right: '0px',
+    })
+    expect(screen.getAllByText('配置')[0].closest('td')).toHaveStyle({
+      position: 'sticky',
+      right: '0px',
+    })
+  })
 })

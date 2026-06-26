@@ -62,6 +62,26 @@ mod tests {
     }
 
     #[test]
+    fn list_by_platform_refreshes_stale_daily_usage() {
+        let (db, _dir) = make_storage();
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let mut acc = sample_account("a1", "doubao");
+        acc.login_state = LoginState::DailyQuotaExhausted;
+        acc.login_state_reason = "当日用量已达上限".to_string();
+        acc.used_today = 8;
+        acc.used_total = 42;
+        acc.usage_date = "2026-04-13".to_string();
+        db.insert_account(&acc).unwrap();
+
+        let accounts = db.list_accounts_by_platform("doubao").unwrap();
+
+        assert_eq!(accounts[0].used_today, 0);
+        assert_eq!(accounts[0].used_total, 42);
+        assert_eq!(accounts[0].usage_date, today);
+        assert_eq!(accounts[0].login_state, LoginState::Available);
+    }
+
+    #[test]
     fn update_login_state() {
         let (db, _dir) = make_storage();
         db.insert_account(&sample_account("a1", "doubao")).unwrap();

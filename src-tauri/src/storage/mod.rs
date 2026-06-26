@@ -152,6 +152,7 @@ impl Storage {
         &self,
         platform: &str,
     ) -> Result<Vec<PlatformAccount>, AppError> {
+        self.refresh_stale_daily_usage(&current_usage_date())?;
         let mut stmt = self.conn.prepare(
             "SELECT * FROM accounts WHERE platform = ?1 ORDER BY created_at DESC, id ASC",
         )?;
@@ -276,7 +277,31 @@ impl Storage {
         Ok(changed as u64)
     }
 
+    pub fn refresh_stale_daily_usage(&self, date: &str) -> Result<u64, AppError> {
+        let changed = self.conn.execute(
+            "UPDATE accounts SET
+                used_today=0,
+                usage_date=?1,
+                login_state=CASE
+                    WHEN login_state='daily_quota_exhausted' THEN 'available'
+                    ELSE login_state
+                END,
+                login_state_reason=CASE
+                    WHEN login_state='daily_quota_exhausted' THEN '每日配额已重置'
+                    ELSE login_state_reason
+                END,
+                login_state_updated_at=CASE
+                    WHEN login_state='daily_quota_exhausted' THEN ?2
+                    ELSE login_state_updated_at
+                END
+             WHERE usage_date != ?1",
+            params![date, dt_to_str(&Utc::now())],
+        )?;
+        Ok(changed as u64)
+    }
+
     pub fn list_all_accounts(&self) -> Result<Vec<PlatformAccount>, AppError> {
+        self.refresh_stale_daily_usage(&current_usage_date())?;
         let mut stmt = self
             .conn
             .prepare("SELECT * FROM accounts ORDER BY created_at DESC, id ASC")?;
@@ -338,6 +363,10 @@ impl Storage {
 }
 
 // ── 辅助函数 ──
+
+fn current_usage_date() -> String {
+    Utc::now().format("%Y-%m-%d").to_string()
+}
 
 fn initialize_connection(conn: &Connection) -> Result<(), AppError> {
     configure_connection(conn)?;

@@ -55,6 +55,8 @@ impl AccountManager {
 
     pub async fn increment_usage(&self, id: &str) -> Result<(), AppError> {
         let db = self.storage.lock_recover();
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        db.refresh_stale_daily_usage(&today)?;
         let mut account = db
             .get_account(id)?
             .ok_or_else(|| AppError::AccountUnavailable(format!("账号不存在: {id}")))?;
@@ -79,18 +81,7 @@ impl AccountManager {
     pub async fn reset_daily_quotas(&self) -> Result<u64, AppError> {
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
         let db = self.storage.lock_recover();
-        let count = db.reset_daily_usage(&today)?;
-        // 将 DailyQuotaExhausted 状态的账号恢复为 Available
-        let platforms = db.list_distinct_platforms()?;
-        for platform in platforms {
-            let accounts = db.list_accounts_by_platform(&platform)?;
-            for acc in accounts {
-                if acc.login_state == LoginState::DailyQuotaExhausted {
-                    db.update_login_state(&acc.id, LoginState::Available, "每日配额已重置")?;
-                }
-            }
-        }
-        Ok(count)
+        db.refresh_stale_daily_usage(&today)
     }
 
     pub async fn get_all_platforms(&self) -> Result<Vec<String>, AppError> {
