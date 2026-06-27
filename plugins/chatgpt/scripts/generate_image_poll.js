@@ -140,6 +140,7 @@
       error_code: state.error_code || '',
       message: state.message || '生成失败',
       conversation_id: state.conversation_id || '',
+      usage_consumed: false,
     })
   }
 
@@ -177,6 +178,7 @@
           error_code: 'rate_limit_exceeded',
           message: `生成过于频繁: ${message || 'rate_limit_exceeded'}`,
           conversation_id: state.conversation_id || '',
+          usage_consumed: false,
         })
       }
     }
@@ -199,6 +201,7 @@
         error_code: 'quota_exhausted',
         message: `账号额度耗尽: ${message || 'free plan limit'}`,
         conversation_id: state.conversation_id || '',
+        usage_consumed: false,
       })
     }
   }
@@ -218,6 +221,7 @@
       error_code: 'content_policy_refusal',
       message: `ChatGPT 拒绝生成图片: ${refusalMessage.replace(/\s+/g, ' ').trim().slice(0, 220)}`,
       conversation_id: state.conversation_id || '',
+      usage_consumed: false,
     })
   }
 
@@ -234,8 +238,11 @@
     if (bodyText.includes(phrase)) {
       return JSON.stringify({
         status: 'error',
+        error_code: phrase.includes('违反') ? 'content_policy_refusal' : 'platform_busy',
         message: `页面提示失败: "${phrase}"`,
         conversation_id: state.conversation_id || '',
+        retryable: phrase !== '违反',
+        usage_consumed: false,
       })
     }
   }
@@ -318,8 +325,11 @@
   if (elapsed > 600000) {
     return JSON.stringify({
       status: 'error',
+      error_code: 'generation_timeout',
       message: '生成超时（10min）',
       conversation_id: state.conversation_id || '',
+      retryable: true,
+      usage_consumed: false,
     })
   }
 

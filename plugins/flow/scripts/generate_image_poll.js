@@ -45,7 +45,13 @@
   const fatalPhrases = ['UNSAFE', 'unsafe', '不安全', '违规', '无法生成']
   for (const phrase of fatalPhrases) {
     if (bodyText.includes(phrase)) {
-      const result = { status: 'error', message: `内容审核拦截: "${phrase}"`, retryable: false }
+      const result = {
+        status: 'error',
+        error_code: 'content_policy_refusal',
+        message: `内容审核拦截: "${phrase}"`,
+        retryable: false,
+        usage_consumed: false,
+      }
       window.__mediagen = result
       return JSON.stringify(result)
     }
@@ -56,7 +62,13 @@
     const retryablePhrases = ['稍后再试', '服务繁忙', '请求频繁', 'rate limit', 'too many']
     for (const phrase of retryablePhrases) {
       if (bodyText.toLowerCase().includes(phrase.toLowerCase())) {
-        const result = { status: 'error', message: `平台受限: "${phrase}"`, retryable: true }
+        const result = {
+          status: 'error',
+          error_code: /rate|频繁|too many/i.test(phrase) ? 'rate_limit_exceeded' : 'platform_busy',
+          message: `平台受限: "${phrase}"`,
+          retryable: true,
+          usage_consumed: false,
+        }
         window.__mediagen = result
         return JSON.stringify(result)
       }
@@ -65,7 +77,13 @@
 
   // 超时（600 秒）
   if (elapsed > 600000) {
-    const result = { status: 'error', message: '生成超时（600s）' }
+    const result = {
+      status: 'error',
+      error_code: 'generation_timeout',
+      message: '生成超时（600s）',
+      retryable: true,
+      usage_consumed: false,
+    }
     window.__mediagen = result
     return JSON.stringify(result)
   }

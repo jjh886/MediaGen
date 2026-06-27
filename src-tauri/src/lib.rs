@@ -7,6 +7,7 @@ pub mod browser_verification;
 mod commands;
 pub mod engine;
 pub mod error;
+pub mod failure_strategy;
 pub mod log_layer;
 pub mod login_checker;
 mod login_checker_flow;

@@ -1,6 +1,12 @@
 import { KtBadge, KtButton } from '@/shared/ui'
 import type { Task } from '../types/task'
-import { parseResultData, statusVariant, statusLabel } from '../types/task'
+import {
+  attemptActionLabel,
+  attemptStatusLabel,
+  parseResultData,
+  statusVariant,
+  statusLabel,
+} from '../types/task'
 
 const labelStyle: React.CSSProperties = {
   color: 'var(--text-secondary)',
@@ -47,6 +53,10 @@ function formatDuration(task: Task): string {
   const ms = new Date(task.completed_at).getTime() - new Date(task.created_at).getTime()
   const sec = Math.round(ms / 1000)
   return sec >= 60 ? `${Math.floor(sec / 60)}分${sec % 60}秒` : `${sec}秒`
+}
+
+function shortId(value?: string): string {
+  return value ? value.slice(0, 8) : '-'
 }
 
 export default function TaskDetail({ task, accountLabel, onCancel, onClose }: Props) {
@@ -147,6 +157,53 @@ export default function TaskDetail({ task, accountLabel, onCancel, onClose }: Pr
             }}
           >
             {task.error_message}
+          </div>
+        </>
+      )}
+
+      {task.attempts && task.attempts.length > 0 && (
+        <>
+          <div style={sectionTitle}>尝试记录</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {task.attempts.map((attempt) => (
+              <div
+                key={attempt.id}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '52px minmax(84px, 110px) minmax(72px, 1fr)',
+                  gap: 8,
+                  alignItems: 'center',
+                  fontSize: 12,
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <span>第 {attempt.attempt_index} 次</span>
+                <KtBadge variant={attempt.status === 'success' ? 'success' : 'warning'}>
+                  {attemptStatusLabel[attempt.status] ?? attempt.status}
+                </KtBadge>
+                <span
+                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
+                  {attemptActionLabel[attempt.action] ?? attempt.action} · 账号{' '}
+                  {shortId(attempt.account_id)}
+                </span>
+                {attempt.error_message && (
+                  <span
+                    style={{
+                      gridColumn: '1 / -1',
+                      color: 'var(--color-error)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={attempt.error_message}
+                  >
+                    {attempt.error_code ? `${attempt.error_code}: ` : ''}
+                    {attempt.error_message}
+                  </span>
+                )}
+              </div>
+            ))}
           </div>
         </>
       )}

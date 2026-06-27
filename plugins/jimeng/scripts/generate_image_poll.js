@@ -139,6 +139,7 @@
       error_code: 'rate_limit_exceeded',
       message: bodyText.replace(/\s+/g, ' ').trim().slice(0, 500),
       retryable: true,
+      usage_consumed: false,
     })
   }
 
@@ -152,6 +153,7 @@
       // 兼容账号管理器已有的“额度耗尽”分类规则，避免插件侧权益不足被当作普通流程失败。
       message: `额度耗尽: ${bodyText.replace(/\s+/g, ' ').trim()}`.slice(0, 500),
       retryable: false,
+      usage_consumed: false,
     })
   }
 
@@ -161,6 +163,7 @@
       error_code: 'jimeng_wrong_page_after_submit',
       message: `提交后页面离开生成页，可能点击到了作品详情: ${location.href}`,
       retryable: true,
+      usage_consumed: false,
     })
   }
 
@@ -170,6 +173,7 @@
       error_code: state.error_code || '',
       message: state.message || '即梦生成失败',
       retryable: /频繁|rate|繁忙/.test(state.message || ''),
+      usage_consumed: false,
     })
   }
 
@@ -207,13 +211,21 @@
     if (bodyText.includes(phrase)) {
       return JSON.stringify({
         status: 'error',
+        error_code: 'content_policy_refusal',
         message: `内容审核拦截: ${phrase}`,
         retryable: false,
+        usage_consumed: false,
       })
     }
   }
   if (elapsed > 600000) {
-    return JSON.stringify({ status: 'error', message: '生成超时（10min）' })
+    return JSON.stringify({
+      status: 'error',
+      error_code: 'generation_timeout',
+      message: '生成超时（10min）',
+      retryable: true,
+      usage_consumed: false,
+    })
   }
 
   return JSON.stringify({

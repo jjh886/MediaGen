@@ -1,3 +1,4 @@
+mod failure_counters;
 pub(crate) mod helpers;
 mod logs;
 mod tasks;
@@ -58,6 +59,28 @@ CREATE TABLE IF NOT EXISTS tasks (
     error_message   TEXT,
     created_at      TEXT NOT NULL,
     completed_at    TEXT
+);
+CREATE TABLE IF NOT EXISTS task_attempts (
+    id              TEXT PRIMARY KEY,
+    task_id         TEXT NOT NULL,
+    attempt_index   INTEGER NOT NULL,
+    account_id      TEXT,
+    action          TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    error_code      TEXT,
+    error_message   TEXT,
+    usage_consumed  INTEGER,
+    started_at      TEXT NOT NULL,
+    completed_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_task_attempts_task ON task_attempts(task_id, attempt_index);
+CREATE TABLE IF NOT EXISTS account_failure_counters (
+    account_id        TEXT NOT NULL,
+    fingerprint       TEXT NOT NULL,
+    count             INTEGER NOT NULL,
+    window_started_at TEXT NOT NULL,
+    last_error_at     TEXT NOT NULL,
+    PRIMARY KEY(account_id, fingerprint)
 );
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
@@ -253,9 +276,10 @@ impl Storage {
     pub fn recover_expired_cooldowns(&self) -> Result<u64, AppError> {
         let now = dt_to_str(&Utc::now());
         let changed = self.conn.execute(
-            "UPDATE accounts SET login_state='available', login_state_reason='冷却已过期，自动恢复',
+            "UPDATE accounts SET login_state='available', login_state_reason='临时限制已过期，自动恢复',
              login_state_updated_at=?1, cooldown_until=NULL
-             WHERE login_state='cooldown' AND cooldown_until IS NOT NULL AND cooldown_until < ?1",
+             WHERE login_state IN ('cooldown', 'daily_quota_exhausted')
+               AND cooldown_until IS NOT NULL AND cooldown_until < ?1",
             params![now],
         )?;
         Ok(changed as u64)
@@ -393,4 +417,33 @@ fn run_schema_migrations(conn: &Connection) {
         "ALTER TABLE accounts ADD COLUMN task_interval_seconds INTEGER NOT NULL DEFAULT 0;",
     );
     let _ = conn.execute_batch("ALTER TABLE tasks ADD COLUMN result_data TEXT;");
+    let _ = conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS task_attempts (
+            id              TEXT PRIMARY KEY,
+            task_id         TEXT NOT NULL,
+            attempt_index   INTEGER NOT NULL,
+            account_id      TEXT,
+            action          TEXT NOT NULL,
+            status          TEXT NOT NULL,
+            error_code      TEXT,
+            error_message   TEXT,
+            usage_consumed  INTEGER,
+            started_at      TEXT NOT NULL,
+            completed_at    TEXT
+        );",
+    );
+    let _ = conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_task_attempts_task
+         ON task_attempts(task_id, attempt_index);",
+    );
+    let _ = conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS account_failure_counters (
+            account_id        TEXT NOT NULL,
+            fingerprint       TEXT NOT NULL,
+            count             INTEGER NOT NULL,
+            window_started_at TEXT NOT NULL,
+            last_error_at     TEXT NOT NULL,
+            PRIMARY KEY(account_id, fingerprint)
+        );",
+    );
 }

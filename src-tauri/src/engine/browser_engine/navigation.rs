@@ -2,14 +2,10 @@ use serde_json::json;
 use tracing::{debug, info};
 
 use super::evaluate_poll_condition;
+use crate::engine::retry::{is_transient_network_error, sleep_blocking, RetryConfig};
 use crate::error::AppError;
 use crate::types::StepResult;
 
-// 系统代理或节点偶发断流时，Chromium 首次导航可能直接返回 net::ERR_*。
-// 只做少量重试吸收瞬时抖动，持续不可用时仍会快速暴露真实错误。
-const MAX_NAVIGATION_ATTEMPTS: usize = 3;
-
-/// 生成简单的伪随机 jitter（基于时间戳，无需额外依赖）
 fn jitter_ms(base_ms: u64, pct: u64) -> u64 {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -23,21 +19,6 @@ fn jitter_ms(base_ms: u64, pct: u64) -> u64 {
     // base_ms ± pct%
     let result = base_ms + offset - range;
     result.max(500)
-}
-
-fn is_transient_navigation_error(error: &str) -> bool {
-    // 只重试网络链路类错误；URL、权限或页面逻辑错误不能被重试掩盖。
-    [
-        "ERR_CONNECTION_CLOSED",
-        "ERR_CONNECTION_RESET",
-        "ERR_NETWORK_CHANGED",
-        "ERR_INTERNET_DISCONNECTED",
-        "ERR_TIMED_OUT",
-        "ERR_PROXY_CONNECTION_FAILED",
-        "ERR_TUNNEL_CONNECTION_FAILED",
-    ]
-    .iter()
-    .any(|marker| error.contains(marker))
 }
 
 impl super::BrowserEngine {
@@ -61,22 +42,21 @@ impl super::BrowserEngine {
             .as_str()
             .ok_or_else(|| AppError::BrowserError("browser.navigate 缺少 session_id".into()))?;
         let wait_ms = params["wait_ms"].as_u64().unwrap_or(5000);
+        let retry = RetryConfig::from_params(params, 3, &[2_000, 5_000, 10_000]);
 
         let tab = self.get_tab(session_id)?;
         let url_clone = url.clone();
 
         let title = tokio::task::spawn_blocking(move || {
-            for attempt in 1..=MAX_NAVIGATION_ATTEMPTS {
+            for attempt in 1..=retry.attempts() {
                 match tab.navigate_to(&url_clone) {
                     Ok(_) => break,
                     Err(e) => {
                         let error = e.to_string();
-                        if attempt == MAX_NAVIGATION_ATTEMPTS
-                            || !is_transient_navigation_error(&error)
-                        {
+                        if attempt == retry.attempts() || !is_transient_network_error(&error) {
                             return Err(AppError::BrowserError(format!("导航失败: {error}")));
                         }
-                        std::thread::sleep(std::time::Duration::from_millis(500 * attempt as u64));
+                        sleep_blocking(&retry, attempt);
                     }
                 }
             }
@@ -331,21 +311,21 @@ impl super::BrowserEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::is_transient_navigation_error;
+    use crate::engine::retry::is_transient_network_error;
 
     #[test]
     fn recognizes_transient_navigation_errors_from_proxy_disconnects() {
-        assert!(is_transient_navigation_error(
+        assert!(is_transient_network_error(
             "Navigate failed: net::ERR_CONNECTION_CLOSED"
         ));
-        assert!(is_transient_navigation_error(
+        assert!(is_transient_network_error(
             "Navigate failed: net::ERR_TUNNEL_CONNECTION_FAILED"
         ));
     }
 
     #[test]
     fn does_not_retry_non_network_navigation_errors() {
-        assert!(!is_transient_navigation_error(
+        assert!(!is_transient_network_error(
             "Cannot navigate to invalid URL"
         ));
     }

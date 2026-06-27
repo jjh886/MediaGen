@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -50,7 +50,7 @@ struct AccountWaitSlot {
 }
 
 impl ActiveAccountLease {
-    fn new(scheduler: Arc<Mutex<Scheduler>>, account_id: String) -> Self {
+    pub(crate) fn new(scheduler: Arc<Mutex<Scheduler>>, account_id: String) -> Self {
         Self {
             scheduler,
             account_id,
@@ -117,6 +117,23 @@ pub(crate) async fn allocate_account_when_available(
     request_id: &str,
     reporter: Option<AccountQueueReporter>,
 ) -> Result<(String, String, String, ActiveAccountLease), PrepareError> {
+    allocate_account_when_available_excluding(
+        state,
+        platform,
+        request_id,
+        reporter,
+        &HashSet::new(),
+    )
+    .await
+}
+
+pub(crate) async fn allocate_account_when_available_excluding(
+    state: &web::Data<AppState>,
+    platform: &str,
+    request_id: &str,
+    reporter: Option<AccountQueueReporter>,
+    excluded_account_ids: &HashSet<String>,
+) -> Result<(String, String, String, ActiveAccountLease), PrepareError> {
     let mut logged_wait = false;
     let mut next_report_at = Instant::now();
     let mut wait_slot: Option<AccountWaitSlot> = None;
@@ -129,7 +146,10 @@ pub(crate) async fn allocate_account_when_available(
             }
             let accounts = storage
                 .list_accounts_by_platform(platform)
-                .map_err(|e| (500u16, "storage_error", e.to_string()))?;
+                .map_err(|e| (500u16, "storage_error", e.to_string()))?
+                .into_iter()
+                .filter(|account| !excluded_account_ids.contains(&account.id))
+                .collect::<Vec<_>>();
             let mut scheduler = state.scheduler.lock_recover();
 
             // 前面已经有人在等同一平台账号时，新请求先进入等待队列，避免后来者抢先拿走刚释放的账号。

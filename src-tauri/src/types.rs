@@ -106,7 +106,24 @@ pub struct TaskRecord {
     pub error_message: Option<String>,
     /// 完整响应数据（JSON 格式，包含 url/width/height/source 等）
     pub result_data: Option<String>,
+    #[serde(default)]
+    pub attempts: Vec<TaskAttemptRecord>,
     pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskAttemptRecord {
+    pub id: String,
+    pub task_id: String,
+    pub attempt_index: i32,
+    pub account_id: Option<String>,
+    pub action: String,
+    pub status: String,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub usage_consumed: Option<bool>,
+    pub started_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
 }
 
@@ -167,6 +184,9 @@ pub struct PluginManifest {
     /// 任务失败后的账号状态策略。平台文案差异放在 manifest，不写进账号管理层。
     #[serde(default)]
     pub failure_policy: Vec<FailurePolicyRule>,
+    /// 通用失败处理策略。Rust 负责执行动作，插件只声明平台错误码和文案差异。
+    #[serde(default)]
+    pub failure_strategy: Vec<FailureStrategyRule>,
     /// 人工验证策略。没有配置时表示该插件不启用自动有头验证兜底。
     #[serde(default)]
     pub verification: Option<VerificationPolicy>,
@@ -213,6 +233,57 @@ pub struct FailurePolicyRule {
     pub cooldown_from_message: bool,
     #[serde(default)]
     pub cooldown_seconds: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FailureStrategyRule {
+    #[serde(default)]
+    pub contains_any: Vec<String>,
+    #[serde(default)]
+    pub error_codes: Vec<String>,
+    #[serde(default)]
+    pub category: FailureCategory,
+    #[serde(default)]
+    pub retry_action: FailureRetryAction,
+    #[serde(default)]
+    pub account_state: Option<LoginState>,
+    #[serde(default)]
+    pub cooldown_from_message: bool,
+    #[serde(default)]
+    pub cooldown_seconds: Option<i64>,
+    #[serde(default)]
+    pub usage_consumed: Option<bool>,
+    #[serde(default)]
+    pub same_error_threshold: Option<i32>,
+    #[serde(default)]
+    pub threshold_cooldown_seconds: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureCategory {
+    ContentPolicy,
+    InvalidRequest,
+    TransientNetwork,
+    BrowserTransient,
+    AccountRateLimited,
+    QuotaExhausted,
+    LoginExpired,
+    VerificationRequired,
+    PlatformBusy,
+    #[default]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureRetryAction {
+    #[default]
+    None,
+    StepRetry,
+    SameAccountRetry,
+    Failover,
+    Fail,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -52,6 +52,60 @@
       "state": "disabled"
     }
   ],
+  "failure_strategy": [
+    {
+      "contains_any": [
+        "safety_violations",
+        "safety system",
+        "invalid",
+        "bad request",
+        "unsupported"
+      ],
+      "category": "invalid_request",
+      "retry_action": "fail",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["LOGIN_EXPIRED", "http 401", "http 403", "request_forbidden"],
+      "category": "login_expired",
+      "retry_action": "failover",
+      "account_state": "login_expired",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["AUTH_INCONCLUSIVE", "retryable error", "timeout", "connection reset"],
+      "category": "transient_network",
+      "retry_action": "same_account_retry",
+      "same_error_threshold": 3,
+      "threshold_cooldown_seconds": 600,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": [
+        "rate_limit_exceeded",
+        "you're generating images too quickly",
+        "you’re generating images too quickly",
+        "please wait for",
+        "rate limited",
+        "rate limit",
+        "http 429"
+      ],
+      "category": "account_rate_limited",
+      "retry_action": "failover",
+      "account_state": "cooldown",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["free plan limit", "image generations requests", "limit resets in"],
+      "category": "quota_exhausted",
+      "retry_action": "failover",
+      "account_state": "daily_quota_exhausted",
+      "cooldown_from_message": true,
+      "usage_consumed": false
+    }
+  ],
   "verification": {
     "trigger_contains_any": [],
     "ignore_contains_any": [],

@@ -107,7 +107,13 @@
   const fatalPhrases = ['无法生成', '违反', '不符合', '内容政策', '尝试输入其他']
   for (const phrase of fatalPhrases) {
     if (bodyText.includes(phrase)) {
-      return JSON.stringify({ status: 'error', message: `内容违规: "${phrase}"`, retryable: false })
+      return JSON.stringify({
+        status: 'error',
+        error_code: 'content_policy_refusal',
+        message: `内容违规: "${phrase}"`,
+        retryable: false,
+        usage_consumed: false,
+      })
     }
   }
 
@@ -118,8 +124,10 @@
       if (bodyText.includes(phrase)) {
         return JSON.stringify({
           status: 'error',
+          error_code: phrase.includes('请求频繁') ? 'rate_limit_exceeded' : 'platform_busy',
           message: `平台受限: "${phrase}"`,
           retryable: true,
+          usage_consumed: false,
         })
       }
     }
@@ -127,7 +135,13 @@
 
   // 超时（10 分钟）
   if (elapsed > 600000) {
-    return JSON.stringify({ status: 'error', message: '生成超时（10min）' })
+    return JSON.stringify({
+      status: 'error',
+      error_code: 'generation_timeout',
+      message: '生成超时（10min）',
+      retryable: true,
+      usage_consumed: false,
+    })
   }
 
   // 轮询中间状态

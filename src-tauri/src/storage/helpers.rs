@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use rusqlite::types::Type;
 
-use crate::types::{PlatformAccount, TaskRecord};
+use crate::types::{PlatformAccount, TaskAttemptRecord, TaskRecord};
 
 pub(super) fn dt_to_str(dt: &DateTime<Utc>) -> String {
     dt.to_rfc3339()
@@ -83,7 +83,24 @@ pub(super) fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<TaskRecord> {
         storage_key: row.get("storage_key")?,
         error_message: row.get("error_message")?,
         result_data: row.get("result_data")?,
+        attempts: Vec::new(),
         created_at: str_to_dt(&row.get::<_, String>("created_at")?)?,
+        completed_at: str_to_opt_dt(row.get("completed_at")?)?,
+    })
+}
+
+pub(super) fn row_to_task_attempt(row: &rusqlite::Row) -> rusqlite::Result<TaskAttemptRecord> {
+    Ok(TaskAttemptRecord {
+        id: row.get("id")?,
+        task_id: row.get("task_id")?,
+        attempt_index: row.get("attempt_index")?,
+        account_id: row.get("account_id")?,
+        action: row.get("action")?,
+        status: row.get("status")?,
+        error_code: row.get("error_code")?,
+        error_message: row.get("error_message")?,
+        usage_consumed: row.get::<_, Option<i32>>("usage_consumed")?.map(|v| v != 0),
+        started_at: str_to_dt(&row.get::<_, String>("started_at")?)?,
         completed_at: str_to_opt_dt(row.get("completed_at")?)?,
     })
 }

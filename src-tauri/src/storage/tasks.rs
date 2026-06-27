@@ -1,7 +1,7 @@
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
 
-use super::helpers::{dt_to_str, enum_to_str, row_to_task};
+use super::helpers::{dt_to_str, enum_to_str, row_to_task, row_to_task_attempt};
 use super::Storage;
 use crate::error::AppError;
 use crate::types::*;
@@ -36,12 +36,18 @@ impl Storage {
     }
 
     pub fn get_task(&self, id: &str) -> Result<Option<TaskRecord>, AppError> {
-        self.conn
+        let task = self
+            .conn
             .query_row("SELECT * FROM tasks WHERE id=?1", params![id], |row| {
                 row_to_task(row)
             })
             .optional()
-            .map_err(AppError::from)
+            .map_err(AppError::from)?;
+        task.map(|mut t| {
+            t.attempts = self.list_task_attempts(&t.id)?;
+            Ok(t)
+        })
+        .transpose()
     }
 
     pub fn list_tasks(
@@ -68,9 +74,19 @@ impl Storage {
         let rows = stmt.query_map(params_refs.as_slice(), |row| row_to_task(row))?;
         let mut out = Vec::new();
         for r in rows {
-            out.push(r?);
+            let mut task = r?;
+            task.attempts = self.list_task_attempts(&task.id)?;
+            out.push(task);
         }
         Ok(out)
+    }
+
+    pub fn update_task_account(&self, id: &str, account_id: Option<&str>) -> Result<(), AppError> {
+        self.conn.execute(
+            "UPDATE tasks SET account_id=?1 WHERE id=?2",
+            params![account_id, id],
+        )?;
+        Ok(())
     }
 
     pub fn update_task_status(
@@ -99,5 +115,71 @@ impl Storage {
             params![result_data, id],
         )?;
         Ok(())
+    }
+
+    pub fn insert_task_attempt(&self, t: &TaskAttemptRecord) -> Result<(), AppError> {
+        self.conn.execute(
+            "INSERT INTO task_attempts (
+                id, task_id, attempt_index, account_id, action, status, error_code,
+                error_message, usage_consumed, started_at, completed_at
+            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            params![
+                t.id,
+                t.task_id,
+                t.attempt_index,
+                t.account_id,
+                t.action,
+                t.status,
+                t.error_code,
+                t.error_message,
+                t.usage_consumed.map(bool_to_i32),
+                dt_to_str(&t.started_at),
+                t.completed_at.map(|d| dt_to_str(&d)),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn finish_task_attempt(
+        &self,
+        id: &str,
+        status: &str,
+        error_code: Option<&str>,
+        error_message: Option<&str>,
+        usage_consumed: Option<bool>,
+    ) -> Result<(), AppError> {
+        self.conn.execute(
+            "UPDATE task_attempts SET status=?1, error_code=?2, error_message=?3,
+             usage_consumed=?4, completed_at=?5 WHERE id=?6",
+            params![
+                status,
+                error_code,
+                error_message,
+                usage_consumed.map(bool_to_i32),
+                dt_to_str(&Utc::now()),
+                id,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_task_attempts(&self, task_id: &str) -> Result<Vec<TaskAttemptRecord>, AppError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM task_attempts WHERE task_id=?1 ORDER BY attempt_index ASC")?;
+        let rows = stmt.query_map(params![task_id], row_to_task_attempt)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+}
+
+fn bool_to_i32(value: bool) -> i32 {
+    if value {
+        1
+    } else {
+        0
     }
 }

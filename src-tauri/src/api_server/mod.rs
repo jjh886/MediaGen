@@ -1,6 +1,7 @@
 mod browser_lifecycle;
 mod image;
 mod image_account;
+mod image_attempt;
 mod image_capabilities;
 mod image_events;
 mod image_handler;

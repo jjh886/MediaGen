@@ -154,7 +154,7 @@ fn classify_failure(error_msg: &str) -> Option<(LoginState, i64)> {
     None
 }
 
-fn extract_cooldown_duration_hint(error_msg: &str) -> Option<i64> {
+pub(crate) fn extract_cooldown_duration_hint(error_msg: &str) -> Option<i64> {
     let msg = error_msg.to_lowercase();
     let parse_after = |text: &str, marker: &str, unit_hint: &str| -> Option<i64> {
         let start = text.find(marker)? + marker.len();
@@ -173,10 +173,18 @@ fn extract_cooldown_duration_hint(error_msg: &str) -> Option<i64> {
         {
             return Some((value * 60).max(60));
         }
+        if unit_window.contains("hour") || unit_window.contains("小时") || unit_hint == "hour" {
+            return Some((value * 3600).max(3600));
+        }
+        if unit_window.contains("day") || unit_window.contains("天") || unit_hint == "day" {
+            return Some((value * 86_400).max(86_400));
+        }
         Some(value.max(1))
     };
 
     let parsed = parse_after(&msg, "please wait for ", "minute")
+        .or_else(|| parse_after(&msg, "limit resets in ", "minute"))
+        .or_else(|| parse_after(&msg, "resets in ", "minute"))
         .or_else(|| parse_after(&msg, "请等待", "minute"))
         .or_else(|| parse_after(&msg, "请稍等", "minute"))
         .or_else(|| parse_after(&msg, "等待", "minute"));
@@ -189,6 +197,10 @@ fn classify_manifest_failure(
     error_msg: &str,
 ) -> Option<(LoginState, i64)> {
     let manifest = plugin_loader.get_plugin(platform)?;
+    if let Some(state) = crate::failure_strategy::classify_account_state(Some(manifest), error_msg)
+    {
+        return Some(state);
+    }
     let msg = error_msg.to_lowercase();
     manifest.failure_policy.iter().find_map(|rule| {
         if rule.contains_any.is_empty() {

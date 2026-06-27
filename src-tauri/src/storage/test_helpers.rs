@@ -59,6 +59,7 @@ pub(super) fn sample_task(id: &str) -> TaskRecord {
         storage_key: None,
         error_message: None,
         result_data: None,
+        attempts: Vec::new(),
         created_at: Utc::now(),
         completed_at: None,
     }

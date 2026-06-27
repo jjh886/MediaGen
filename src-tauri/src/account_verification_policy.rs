@@ -82,6 +82,7 @@ mod tests {
             browser_lifecycle: crate::types::BrowserLifecycle::PerTask,
             image_capabilities: crate::types::ImageCapabilities::default(),
             failure_policy: Vec::new(),
+            failure_strategy: Vec::new(),
             verification: Some(VerificationPolicy {
                 trigger_contains_any: vec!["rate limited".to_string(), "需要验证".to_string()],
                 ignore_contains_any: vec![

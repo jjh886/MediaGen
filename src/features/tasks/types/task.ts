@@ -22,7 +22,22 @@ export interface Task {
   storage_key?: string
   error_message?: string
   result_data?: string
+  attempts?: TaskAttempt[]
   created_at: string
+  completed_at?: string
+}
+
+export interface TaskAttempt {
+  id: string
+  task_id: string
+  attempt_index: number
+  account_id?: string
+  action: string
+  status: string
+  error_code?: string
+  error_message?: string
+  usage_consumed?: boolean
+  started_at: string
   completed_at?: string
 }
 
@@ -37,6 +52,18 @@ export const statusLabel: Record<TaskStatus, string> = {
   pending: '等待中',
   processing: '生成中',
   completed: '已完成',
+  failed: '失败',
+}
+
+export const attemptActionLabel: Record<string, string> = {
+  initial: '首次执行',
+  same_account_retry: '同账号重试',
+  failover: '换账号重试',
+}
+
+export const attemptStatusLabel: Record<string, string> = {
+  running: '执行中',
+  success: '成功',
   failed: '失败',
 }
 

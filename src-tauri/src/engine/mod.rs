@@ -7,6 +7,7 @@ pub mod file_engine;
 pub mod http_engine;
 pub mod image_engine;
 pub mod process_engine;
+pub(crate) mod retry;
 pub mod watermark_engine;
 
 use async_trait::async_trait;

@@ -47,6 +47,41 @@
       "state": "verification_required"
     }
   ],
+  "failure_strategy": [
+    {
+      "error_codes": ["content_policy_refusal"],
+      "contains_any": ["内容违规", "无法生成", "内容政策"],
+      "category": "content_policy",
+      "retry_action": "fail",
+      "usage_consumed": false
+    },
+    {
+      "error_codes": ["rate_limit_exceeded"],
+      "contains_any": ["rate limited", "rate limit", "请求过于频繁", "生成过于频繁"],
+      "category": "account_rate_limited",
+      "retry_action": "failover",
+      "account_state": "cooldown",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["需要验证"],
+      "category": "verification_required",
+      "retry_action": "failover",
+      "account_state": "verification_required",
+      "usage_consumed": false
+    },
+    {
+      "error_codes": ["platform_busy", "generation_timeout"],
+      "contains_any": ["有点热闹", "稍后再试", "服务繁忙", "处理这个任务"],
+      "category": "platform_busy",
+      "retry_action": "same_account_retry",
+      "same_error_threshold": 3,
+      "threshold_cooldown_seconds": 600,
+      "usage_consumed": false
+    }
+  ],
   "verification": {
     "trigger_contains_any": ["rate limited", "rate limit", "需要验证"],
     "ignore_contains_any": [

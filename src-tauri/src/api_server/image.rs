@@ -1,18 +1,14 @@
 use actix_web::{web, HttpResponse};
 
-use super::browser_lifecycle::{force_close_browser, force_close_browser_session};
 use super::image_account::{
     allocate_account_when_available, AccountQueueReporter, ActiveAccountLease, PrepareError,
 };
 use super::image_capabilities::validate_image_capabilities;
-use super::image_output::process_poll_images;
-use super::image_partials::{collect_partial_images, format_partial_sse_event, PartialImageEvent};
+use super::image_partials::{format_partial_sse_event, PartialImageEvent};
 use super::image_refs::fetch_ref_images_as_data_urls;
 use super::{error_response, ImageEndpoint, ImageGenContext, OpenAiImageRequest};
-use crate::account_manager::handle_task_failure;
-use crate::orchestrator::Orchestrator;
 use crate::sync_ext::MutexExt;
-use crate::types::{TaskKind, TaskRecord, TaskStatus};
+use crate::types::{StepResult, TaskKind, TaskRecord, TaskStatus};
 use crate::AppState;
 
 pub(crate) struct ImageApiResponse {
@@ -234,83 +230,7 @@ pub(crate) async fn generate_image_response(
     ctx: ImageGenContext,
     account_lease: ActiveAccountLease,
 ) -> Result<ImageApiResponse, PrepareError> {
-    insert_processing_task(&state, &ctx);
-
-    let result = Orchestrator::execute_flow(
-        &ctx.flow,
-        &state.engine_registry,
-        ctx.initial_context.clone(),
-    )
-    .await;
-
-    cleanup_reference_files(&ctx);
-    release_account_and_update_usage(&state, &ctx, account_lease, &result);
-
-    force_close_browser(
-        &state.engine_registry,
-        &state.plugin_loader,
-        &ctx.platform,
-        &ctx.profile_dir,
-    )
-    .await;
-
-    match result {
-        Ok(results) => {
-            let poll_data = find_poll_data(&results);
-            let image_results = process_poll_images(poll_data, &ctx, &results).await;
-            if image_results.is_empty() {
-                mark_task_failed(&state, &ctx, "生成完成但没有拿到图片结果");
-                return Err((
-                    500,
-                    "generation_failed",
-                    "生成完成但没有拿到图片结果".to_string(),
-                ));
-            }
-
-            let first = image_results.first();
-            let partial_images = collect_partial_images(poll_data, &ctx.output_format);
-            let task_json = serde_json::json!({
-                "width": first.map(|r| r.width).unwrap_or(0),
-                "height": first.map(|r| r.height).unwrap_or(0),
-                "imageCount": image_results.len(),
-                "partialImageCount": partial_images.len(),
-                "source": poll_data.and_then(|d| d["source"].as_str()).unwrap_or("unknown"),
-            });
-            mark_task_completed(&state, &ctx, &task_json);
-
-            let images: Vec<String> = image_results
-                .into_iter()
-                .map(|item| item.b64_json)
-                .collect();
-
-            Ok(ImageApiResponse {
-                created: chrono::Utc::now().timestamp(),
-                images,
-                partial_images,
-                output_format: ctx.output_format,
-                quality: ctx.quality,
-                size: ctx.size,
-                background: ctx.background,
-            })
-        }
-        Err(e) => {
-            tracing::error!(error = %e, platform = %ctx.platform, "图片生成失败");
-            force_close_browser_session(&state.engine_registry, &ctx.browser_session_id).await;
-            mark_task_failed(&state, &ctx, &e.to_string());
-            {
-                let storage = state.storage.lock_recover();
-                handle_task_failure(&storage, &state.plugin_loader, &ctx.account_id, &e, &[]);
-            }
-            if crate::account_verification::error_suggests_verification(
-                state.plugin_loader.get_plugin(&ctx.platform),
-                &e.to_string(),
-            ) && !crate::account_verification::is_verification_task(&ctx)
-            {
-                crate::account_verification::spawn(state.clone().into_inner(), ctx.clone());
-            }
-            Err((500, "generation_failed", e.to_string()))
-        }
-    }
+    super::image_attempt::generate_image_response_with_attempts(state, ctx, account_lease).await
 }
 
 async fn fetch_mask_image_data_url(mask_image_url: Option<&str>) -> String {
@@ -341,7 +261,7 @@ fn ensure_workspace_dir(
     fallback
 }
 
-fn insert_processing_task(state: &web::Data<AppState>, ctx: &ImageGenContext) {
+pub(crate) fn insert_processing_task(state: &web::Data<AppState>, ctx: &ImageGenContext) {
     let storage = state.storage.lock_recover();
     let task = TaskRecord {
         id: ctx.request_id.clone(),
@@ -355,6 +275,7 @@ fn insert_processing_task(state: &web::Data<AppState>, ctx: &ImageGenContext) {
         storage_key: None,
         error_message: None,
         result_data: None,
+        attempts: Vec::new(),
         created_at: chrono::Utc::now(),
         completed_at: None,
     };
@@ -363,7 +284,7 @@ fn insert_processing_task(state: &web::Data<AppState>, ctx: &ImageGenContext) {
     }
 }
 
-fn cleanup_reference_files(ctx: &ImageGenContext) {
+pub(crate) fn cleanup_reference_files(ctx: &ImageGenContext) {
     for p in std::iter::once(ctx.ref_image_local.as_str())
         .chain(ctx.ref_image_locals.iter().map(String::as_str))
     {
@@ -376,11 +297,12 @@ fn cleanup_reference_files(ctx: &ImageGenContext) {
     }
 }
 
-fn release_account_and_update_usage(
+pub(crate) fn release_account_and_update_usage(
     state: &web::Data<AppState>,
     ctx: &ImageGenContext,
     mut account_lease: ActiveAccountLease,
-    result: &Result<Vec<crate::types::StepResult>, crate::error::AppError>,
+    results: Option<&[StepResult]>,
+    usage_consumed: bool,
 ) {
     {
         let storage = state.storage.lock_recover();
@@ -389,10 +311,12 @@ fn release_account_and_update_usage(
             tracing::warn!(error = %e, "刷新账号今日用量失败");
         }
         if let Ok(Some(mut acc)) = storage.get_account(&ctx.account_id) {
-            acc.used_today += 1;
-            acc.used_total += 1;
+            if usage_consumed {
+                acc.used_today += 1;
+                acc.used_total += 1;
+            }
             acc.last_used_at = Some(chrono::Utc::now());
-            if let Ok(results) = result {
+            if let Some(results) = results {
                 if let Some(close_result) = results
                     .iter()
                     .rev()
@@ -413,7 +337,7 @@ fn release_account_and_update_usage(
     account_lease.release();
 }
 
-fn find_poll_data(results: &[crate::types::StepResult]) -> Option<&serde_json::Value> {
+pub(crate) fn find_poll_data(results: &[StepResult]) -> Option<&serde_json::Value> {
     results
         .iter()
         .rev()
@@ -426,7 +350,7 @@ fn find_poll_data(results: &[crate::types::StepResult]) -> Option<&serde_json::V
         .map(|r| &r.data)
 }
 
-fn mark_task_completed(
+pub(crate) fn mark_task_completed(
     state: &web::Data<AppState>,
     ctx: &ImageGenContext,
     result_json: &serde_json::Value,
@@ -436,7 +360,7 @@ fn mark_task_completed(
     let _ = storage.update_task_result_data(&ctx.request_id, &result_json.to_string());
 }
 
-fn mark_task_failed(state: &web::Data<AppState>, ctx: &ImageGenContext, message: &str) {
+pub(crate) fn mark_task_failed(state: &web::Data<AppState>, ctx: &ImageGenContext, message: &str) {
     let storage = state.storage.lock_recover();
     let _ = storage.update_task_status(&ctx.request_id, TaskStatus::Failed, None, Some(message));
 }

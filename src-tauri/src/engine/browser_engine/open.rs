@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use headless_chrome::Browser;
 use serde_json::json;
@@ -7,6 +8,7 @@ use tracing::info;
 use super::cookie::{inject_cookies_via_cdp, prepare_user_data_dir, write_cookies_to_profile};
 use super::open_process::spawn_chrome_process;
 use super::{inject_stealth, kill_chrome_by_profile, BrowserSession, SharedBrowser};
+use crate::engine::retry::RetryConfig;
 use crate::error::AppError;
 use crate::sync_ext::MutexExt;
 use crate::types::StepResult;
@@ -31,6 +33,7 @@ impl super::BrowserEngine {
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let cookies_json = params["cookies_json"].as_str().unwrap_or("");
         let restore_url = params["restore_url"].as_str().unwrap_or("");
+        let retry = RetryConfig::from_params(params, 2, &[3_000, 8_000]);
 
         let profile_dir_str = profile_dir.to_string();
 
@@ -77,6 +80,7 @@ impl super::BrowserEngine {
                 chrome_path,
                 cookies_json,
                 restore_url,
+                retry,
             )
             .await;
 
@@ -90,101 +94,103 @@ impl super::BrowserEngine {
         profile_dir_str: &str,
         headless: bool,
     ) -> Option<Result<StepResult, AppError>> {
-        // 阶段 1：检查同 session_id 的已有 session
-        {
-            let mut sessions = self.sessions.lock_recover();
-            if let Some(session) = sessions.get_mut(session_id) {
-                let alive = session.tab.evaluate("1+1", false).is_ok();
-                info!(session_id = %session_id, alive, in_use = session.in_use, "检测已有 session");
-                if alive {
-                    session.in_use = true;
-                    return Some(Ok(StepResult {
-                        success: true,
-                        data: json!({ "session_id": session_id, "headless": headless, "reused": true, "cookies_restored": 0 }),
-                        error: None,
-                    }));
-                } else {
-                    let profile = session.profile_dir.clone();
-                    sessions.remove(session_id);
-                    let browsers = self.browsers.lock_recover();
-                    if let Some(sb) = browsers.get(&profile) {
-                        match sb.browser.new_tab() {
-                            Ok(new_tab) => {
-                                inject_stealth(&new_tab, profile_dir_str);
-                                drop(browsers);
-                                sessions.insert(
-                                    session_id.to_string(),
-                                    BrowserSession {
-                                        tab: new_tab,
-                                        profile_dir: profile,
-                                        in_use: true,
-                                    },
-                                );
-                                return Some(Ok(StepResult {
-                                    success: true,
-                                    data: json!({ "session_id": session_id, "headless": headless, "reused": true, "new_tab": true, "cookies_restored": 0 }),
-                                    error: None,
-                                }));
-                            }
-                            Err(e) => {
-                                info!(error = %e, "browser 也已失效，需要重新启动");
-                                drop(browsers);
-                                let mut browsers = self.browsers.lock_recover();
-                                browsers.remove(&profile);
-                                drop(browsers);
-                                kill_chrome_by_profile(&profile);
-                            }
-                        }
-                    }
-                }
-            }
+        self.try_reuse_existing_session(session_id, profile_dir_str, headless)
+            .or_else(|| self.try_reuse_profile_browser(session_id, profile_dir_str, headless))
+    }
+
+    fn try_reuse_existing_session(
+        &self,
+        session_id: &str,
+        profile_dir_str: &str,
+        headless: bool,
+    ) -> Option<Result<StepResult, AppError>> {
+        let mut sessions = self.sessions.lock_recover();
+        let session = sessions.get_mut(session_id)?;
+        let alive = session.tab.evaluate("1+1", false).is_ok();
+        info!(session_id = %session_id, alive, in_use = session.in_use, "检测已有 session");
+
+        if alive {
+            session.in_use = true;
+            return Some(Ok(reused_open_result(session_id, headless, false)));
         }
 
-        // 阶段 2：检查同 profile_dir 是否有别的 session 创建的 browser
-        {
-            let browsers = self.browsers.lock_recover();
-            if !profile_dir_str.is_empty() {
-                if let Some(sb) = browsers.get(profile_dir_str) {
-                    match sb.browser.new_tab() {
-                        Ok(new_tab) => {
-                            inject_stealth(&new_tab, profile_dir_str);
-                            info!(session_id = %session_id, profile_dir = %profile_dir_str, "复用已有 Chrome 实例，新建 tab");
-                            drop(browsers);
-                            {
-                                let mut browsers = self.browsers.lock_recover();
-                                if let Some(sb) = browsers.get_mut(profile_dir_str) {
-                                    sb.ref_count += 1;
-                                }
-                            }
-                            let mut sessions = self.sessions.lock_recover();
-                            sessions.insert(
-                                session_id.to_string(),
-                                BrowserSession {
-                                    tab: new_tab,
-                                    profile_dir: profile_dir_str.to_string(),
-                                    in_use: true,
-                                },
-                            );
-                            return Some(Ok(StepResult {
-                                success: true,
-                                data: json!({ "session_id": session_id, "headless": headless, "reused": true, "new_tab": true, "cookies_restored": 0 }),
-                                error: None,
-                            }));
-                        }
-                        Err(e) => {
-                            info!(error = %e, "browser 已失效，清理后重启");
-                            drop(browsers);
-                            let mut browsers = self.browsers.lock_recover();
-                            browsers.remove(profile_dir_str);
-                            drop(browsers);
-                            kill_chrome_by_profile(profile_dir_str);
-                        }
-                    }
+        let profile = session.profile_dir.clone();
+        sessions.remove(session_id);
+        drop(sessions);
+        self.try_open_tab_from_browser(session_id, &profile, profile_dir_str, headless, false)
+    }
+
+    fn try_reuse_profile_browser(
+        &self,
+        session_id: &str,
+        profile_dir_str: &str,
+        headless: bool,
+    ) -> Option<Result<StepResult, AppError>> {
+        if profile_dir_str.is_empty() {
+            return None;
+        }
+        self.try_open_tab_from_browser(session_id, profile_dir_str, profile_dir_str, headless, true)
+    }
+
+    fn try_open_tab_from_browser(
+        &self,
+        session_id: &str,
+        profile_key: &str,
+        stealth_profile: &str,
+        headless: bool,
+        increment_ref: bool,
+    ) -> Option<Result<StepResult, AppError>> {
+        let browsers = self.browsers.lock_recover();
+        let browser = browsers.get(profile_key)?;
+        match browser.browser.new_tab() {
+            Ok(new_tab) => {
+                inject_stealth(&new_tab, stealth_profile);
+                drop(browsers);
+                self.register_reused_tab(session_id, profile_key, new_tab);
+                if increment_ref {
+                    self.increment_browser_ref(profile_key);
                 }
+                Some(Ok(reused_open_result(session_id, headless, true)))
+            }
+            Err(e) => {
+                info!(error = %e, "browser 已失效，清理后重启");
+                drop(browsers);
+                self.remove_stale_browser(profile_key);
+                None
             }
         }
+    }
 
-        None
+    fn register_reused_tab(
+        &self,
+        session_id: &str,
+        profile_key: &str,
+        tab: Arc<headless_chrome::Tab>,
+    ) {
+        // 复用 Chrome 时只新建 tab，不重启浏览器，避免不必要的登录态丢失。
+        let mut sessions = self.sessions.lock_recover();
+        sessions.insert(
+            session_id.to_string(),
+            BrowserSession {
+                tab,
+                profile_dir: profile_key.to_string(),
+                in_use: true,
+            },
+        );
+    }
+
+    fn increment_browser_ref(&self, profile_key: &str) {
+        let mut browsers = self.browsers.lock_recover();
+        if let Some(browser) = browsers.get_mut(profile_key) {
+            browser.ref_count += 1;
+        }
+    }
+
+    fn remove_stale_browser(&self, profile_key: &str) {
+        let mut browsers = self.browsers.lock_recover();
+        browsers.remove(profile_key);
+        drop(browsers);
+        kill_chrome_by_profile(profile_key);
     }
 
     async fn wait_concurrent_launch(
@@ -254,6 +260,7 @@ impl super::BrowserEngine {
         chrome_path: Option<&str>,
         cookies_json: &str,
         _restore_url: &str,
+        retry: RetryConfig,
     ) -> Result<StepResult, AppError> {
         let user_data_dir = prepare_user_data_dir(profile_dir_str);
 
@@ -280,6 +287,7 @@ impl super::BrowserEngine {
             headless,
             offscreen,
             profile_dir_str,
+            retry,
         )
         .await?;
 
@@ -394,6 +402,19 @@ impl super::BrowserEngine {
             cleared_sessions = session_ids.len(),
             "force_release_profile 完成"
         );
+    }
+}
+
+fn reused_open_result(session_id: &str, headless: bool, new_tab: bool) -> StepResult {
+    let data = if new_tab {
+        json!({ "session_id": session_id, "headless": headless, "reused": true, "new_tab": true, "cookies_restored": 0 })
+    } else {
+        json!({ "session_id": session_id, "headless": headless, "reused": true, "cookies_restored": 0 })
+    };
+    StepResult {
+        success: true,
+        data,
+        error: None,
     }
 }
 

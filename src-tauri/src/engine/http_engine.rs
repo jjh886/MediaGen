@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -9,6 +10,9 @@ use tokio::io::AsyncWriteExt;
 use tracing::debug;
 
 use crate::engine::condition::evaluate_condition as evaluate_value_condition;
+use crate::engine::retry::{
+    is_retryable_http_status, is_transient_network_error, sleep_async, RetryConfig,
+};
 use crate::engine::AtomExecutor;
 use crate::error::AppError;
 use crate::types::StepResult;
@@ -32,6 +36,18 @@ struct RequestConfig {
     headers: HeaderMap,
 }
 
+struct DownloadConfig {
+    url: String,
+    output_dir: PathBuf,
+    headers: HeaderMap,
+}
+
+enum DownloadAttempt {
+    Complete(StepResult),
+    Retry,
+    RetryAfterError(AppError),
+}
+
 impl HttpEngine {
     pub fn new() -> Self {
         let client = reqwest::Client::builder()
@@ -45,15 +61,33 @@ impl HttpEngine {
     async fn do_request(&self, params: &Value) -> Result<StepResult, AppError> {
         let config = parse_request_config(params)?;
         let client = client_for_request(&self.client, &config.url, params)?;
-        let req = build_request(&client, &config, params)?;
-        debug!(url = %config.url, method = %config.method_label, "发送 HTTP 请求");
-        let resp = req.send().await?;
-        let result = response_to_step_result(resp).await?;
-        debug!(
-            status = result.data["status"].as_u64().unwrap_or_default(),
-            "收到 HTTP 响应"
-        );
-        Ok(result)
+        let retry = RetryConfig::from_params(params, 2, &[2_000, 5_000]);
+        let mut last_error: Option<AppError> = None;
+        for attempt in 1..=retry.attempts() {
+            let req = build_request(&client, &config, params)?;
+            debug!(url = %config.url, method = %config.method_label, attempt, "发送 HTTP 请求");
+            match req.send().await {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let result = response_to_step_result(resp).await?;
+                    debug!(status, "收到 HTTP 响应");
+                    if attempt < retry.attempts() && is_retryable_http_status(status) {
+                        sleep_async(&retry, attempt).await;
+                        continue;
+                    }
+                    return Ok(result);
+                }
+                Err(e)
+                    if attempt < retry.attempts() && is_transient_network_error(&e.to_string()) =>
+                {
+                    last_error = Some(AppError::Http(e));
+                    sleep_async(&retry, attempt).await;
+                }
+                Err(e) => return Err(AppError::Http(e)),
+            }
+        }
+        Err(last_error
+            .unwrap_or_else(|| AppError::PlatformError(format!("HTTP 请求失败: {}", config.url))))
     }
 
     async fn do_poll(&self, params: &Value) -> Result<StepResult, AppError> {
@@ -90,59 +124,62 @@ impl HttpEngine {
     }
 
     async fn do_download(&self, params: &Value) -> Result<StepResult, AppError> {
-        let url = params["url"]
-            .as_str()
-            .ok_or_else(|| AppError::PlatformError("http.download 缺少 url 参数".into()))?;
+        let config = parse_download_config(params)?;
+        let retry = RetryConfig::from_params(params, 2, &[2_000, 5_000]);
+        let mut last_error: Option<AppError> = None;
 
-        let output_dir = params["output_dir"]
-            .as_str()
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir);
-
-        let mut headers = build_headers(&params["headers"]);
-        if let Some(cookies) = params["cookies"].as_str() {
-            if !cookies.is_empty() {
-                headers.insert(
-                    reqwest::header::COOKIE,
-                    HeaderValue::from_str(cookies)
-                        .map_err(|e| AppError::PlatformError(format!("cookie 格式错误: {e}")))?,
-                );
+        for attempt in 1..=retry.attempts() {
+            match self
+                .try_download_attempt(&config, attempt < retry.attempts())
+                .await?
+            {
+                DownloadAttempt::Complete(result) => return Ok(result),
+                DownloadAttempt::Retry => sleep_async(&retry, attempt).await,
+                DownloadAttempt::RetryAfterError(error) => {
+                    last_error = Some(error);
+                    sleep_async(&retry, attempt).await;
+                }
             }
         }
+        Err(last_error
+            .unwrap_or_else(|| AppError::PlatformError(format!("下载失败: {}", config.url))))
+    }
 
-        debug!(url = url, "开始下载文件");
+    async fn try_download_attempt(
+        &self,
+        config: &DownloadConfig,
+        can_retry: bool,
+    ) -> Result<DownloadAttempt, AppError> {
+        let resp = match self.send_download_request(config).await {
+            Ok(resp) => resp,
+            Err(error) if can_retry && is_transient_network_error(&error.to_string()) => {
+                return Ok(DownloadAttempt::RetryAfterError(error));
+            }
+            Err(error) => return Err(error),
+        };
 
-        let resp = self.client.get(url).headers(headers).send().await?;
-
-        if !resp.status().is_success() {
-            return Ok(StepResult {
-                success: false,
-                data: json!({}),
-                error: Some(format!("下载失败: HTTP {}", resp.status().as_u16())),
-            });
+        let status = resp.status().as_u16();
+        if can_retry && is_retryable_http_status(status) {
+            return Ok(DownloadAttempt::Retry);
         }
+        if !resp.status().is_success() {
+            return Ok(DownloadAttempt::Complete(download_status_failure(status)));
+        }
+        save_download_response(&config.url, &config.output_dir, resp)
+            .await
+            .map(DownloadAttempt::Complete)
+    }
 
-        // 从 URL 或 Content-Disposition 推断文件名
-        let filename = extract_filename(url, resp.headers());
-        let file_path = output_dir.join(&filename);
-
-        let bytes = resp.bytes().await?;
-        let size = bytes.len() as u64;
-
-        let mut file = tokio::fs::File::create(&file_path).await?;
-        file.write_all(&bytes).await?;
-        file.flush().await?;
-
-        debug!(path = %file_path.display(), size = size, "文件下载完成");
-
-        Ok(StepResult {
-            success: true,
-            data: json!({
-                "path": file_path.to_string_lossy(),
-                "size": size,
-            }),
-            error: None,
-        })
+    async fn send_download_request(
+        &self,
+        config: &DownloadConfig,
+    ) -> Result<reqwest::Response, AppError> {
+        self.client
+            .get(&config.url)
+            .headers(config.headers.clone())
+            .send()
+            .await
+            .map_err(AppError::Http)
     }
 }
 
@@ -183,6 +220,22 @@ fn parse_request_config(params: &Value) -> Result<RequestConfig, AppError> {
         method_label,
         url,
         timeout_ms: params["timeout_ms"].as_u64().unwrap_or(30_000),
+        headers: build_request_headers(params)?,
+    })
+}
+
+fn parse_download_config(params: &Value) -> Result<DownloadConfig, AppError> {
+    let url = params["url"]
+        .as_str()
+        .ok_or_else(|| AppError::PlatformError("http.download 缺少 url 参数".into()))?
+        .to_string();
+    let output_dir = params["output_dir"]
+        .as_str()
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    Ok(DownloadConfig {
+        url,
+        output_dir,
         headers: build_request_headers(params)?,
     })
 }
@@ -285,6 +338,40 @@ fn http_result_error(success: bool, status: u16, body_text: &str) -> Option<Stri
         None
     } else {
         Some(http_error_message(status, body_text))
+    }
+}
+
+async fn save_download_response(
+    url: &str,
+    output_dir: &Path,
+    resp: reqwest::Response,
+) -> Result<StepResult, AppError> {
+    // 先根据响应头或 URL 推断文件名，再读取 body，避免 response 被提前消费。
+    let filename = extract_filename(url, resp.headers());
+    let file_path = output_dir.join(&filename);
+    let bytes = resp.bytes().await?;
+    let size = bytes.len() as u64;
+
+    let mut file = tokio::fs::File::create(&file_path).await?;
+    file.write_all(&bytes).await?;
+    file.flush().await?;
+
+    debug!(path = %file_path.display(), size = size, "文件下载完成");
+    Ok(StepResult {
+        success: true,
+        data: json!({
+            "path": file_path.to_string_lossy(),
+            "size": size,
+        }),
+        error: None,
+    })
+}
+
+fn download_status_failure(status: u16) -> StepResult {
+    StepResult {
+        success: false,
+        data: json!({}),
+        error: Some(format!("下载失败: HTTP {status}")),
     }
 }
 

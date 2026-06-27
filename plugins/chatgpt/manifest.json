@@ -60,6 +60,50 @@
       "state": "disabled"
     }
   ],
+  "failure_strategy": [
+    {
+      "error_codes": ["content_policy_refusal"],
+      "contains_any": ["内容违规", "拒绝生成"],
+      "category": "content_policy",
+      "retry_action": "fail",
+      "usage_consumed": false
+    },
+    {
+      "error_codes": ["rate_limit_exceeded"],
+      "contains_any": [
+        "you're generating images too quickly",
+        "you’re generating images too quickly",
+        "please wait for",
+        "请求过于频繁",
+        "生成过于频繁",
+        "http 429"
+      ],
+      "category": "account_rate_limited",
+      "retry_action": "failover",
+      "account_state": "cooldown",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1,
+      "usage_consumed": false
+    },
+    {
+      "error_codes": ["quota_exhausted"],
+      "contains_any": ["free plan limit", "image generations requests", "limit resets in"],
+      "category": "quota_exhausted",
+      "retry_action": "failover",
+      "account_state": "daily_quota_exhausted",
+      "cooldown_from_message": true,
+      "usage_consumed": false
+    },
+    {
+      "error_codes": ["platform_busy", "generation_timeout"],
+      "contains_any": ["Something went wrong", "出了点问题", "稍后重试"],
+      "category": "platform_busy",
+      "retry_action": "same_account_retry",
+      "same_error_threshold": 3,
+      "threshold_cooldown_seconds": 600,
+      "usage_consumed": false
+    }
+  ],
   "verification": {
     "trigger_contains_any": [],
     "ignore_contains_any": [],
