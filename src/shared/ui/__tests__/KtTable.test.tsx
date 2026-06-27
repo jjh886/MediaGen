@@ -74,4 +74,32 @@ describe('KtTable', () => {
       right: '0px',
     })
   })
+
+  it('uses opaque backgrounds for sticky right cells', () => {
+    render(
+      <KtTable<DemoRow>
+        columns={[
+          ...columns,
+          {
+            key: 'actions',
+            title: '操作',
+            width: 120,
+            sticky: 'right',
+            render: () => '配置',
+          },
+        ]}
+        data={rows}
+        rowKey="id"
+        selectedRowKey="1"
+      />
+    )
+
+    const stickyHeader = screen.getByText('操作').closest('th')
+    const selectedStickyCell = screen.getAllByText('配置')[0].closest('td')
+    const normalStickyCell = screen.getAllByText('配置')[1].closest('td')
+
+    expect(stickyHeader?.getAttribute('style')).toContain('background: var(--bg-card)')
+    expect(selectedStickyCell?.getAttribute('style')).toContain('background: rgb(19, 23, 30)')
+    expect(normalStickyCell?.getAttribute('style')).toContain('background: var(--bg-primary)')
+  })
 })

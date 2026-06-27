@@ -32,6 +32,10 @@ interface MeasuredColumn<T> extends Column<T> {
 const DEFAULT_COLUMN_WIDTH = 160
 const DEFAULT_MIN_WIDTH = 72
 const DEFAULT_MAX_WIDTH = 900
+const TABLE_BODY_BACKGROUND = 'var(--bg-primary)'
+const TABLE_HEADER_BACKGROUND = 'var(--bg-card)'
+const TABLE_ROW_HOVER_BACKGROUND = 'rgb(22, 22, 25)'
+const TABLE_ROW_SELECTED_BACKGROUND = 'rgb(19, 23, 30)'
 
 const styles = {
   wrapper: {
@@ -45,7 +49,7 @@ const styles = {
     tableLayout: 'fixed' as const,
   },
   headerCell: {
-    background: 'rgba(31,31,31,0.5)',
+    background: TABLE_HEADER_BACKGROUND,
     color: 'rgba(255,255,255,0.6)',
     fontSize: 13,
     fontWeight: 500 as const,
@@ -141,8 +145,8 @@ function getCellText<T>(record: T, key: string): string {
 }
 
 function getRowBackground(isSelected: boolean, isHovered: boolean): string {
-  if (isSelected) return 'rgba(90,176,254,0.05)'
-  if (isHovered) return 'rgba(255,255,255,0.03)'
+  if (isSelected) return TABLE_ROW_SELECTED_BACKGROUND
+  if (isHovered) return TABLE_ROW_HOVER_BACKGROUND
   return 'transparent'
 }
 
@@ -159,7 +163,7 @@ function getStickyColumnStyle<T>(column: MeasuredColumn<T>, background: string) 
 }
 
 function getBodyCellBackground(rowBackground: string): string {
-  return rowBackground === 'transparent' ? 'var(--bg-primary)' : rowBackground
+  return rowBackground === 'transparent' ? TABLE_BODY_BACKGROUND : rowBackground
 }
 
 function startColumnResize<T>(
