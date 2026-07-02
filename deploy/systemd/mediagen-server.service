@@ -1,0 +1,17 @@
+[Unit]
+Description=MediaGen Server
+After=network.target
+
+[Service]
+Type=simple
+User=mediagen
+Group=mediagen
+EnvironmentFile=-/etc/mediagen/mediagen.env
+ExecStart=/usr/bin/mediagen-server
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/var/lib/mediagen
+ReadWritePaths=/var/lib/mediagen /var/log/mediagen
+
+[Install]
+WantedBy=multi-user.target

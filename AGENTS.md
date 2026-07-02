@@ -2,12 +2,12 @@
 
 ## Project Structure & Module Organization
 
-MediaGen 是一个独立的 Tauri 桌面应用，仓库根目录就是应用根目录。`src/` 保存 React
-前端代码，按 `app/`、`features/`、`shared/` 三层组织；`src-tauri/src/` 保存 Rust
-运行时、本地 API、调度器、插件执行引擎和存储逻辑；`plugins/` 保存各平台插件
-`manifest.json` 与浏览器脚本；`docs/api/` 保存 OpenAI 兼容接口资料；`scripts/` 保存格式、
-质量门禁和仓库自动化脚本。测试文件与被测代码同目录，命名为 `*.test.ts(x)`，Rust 测试放在
-同文件 `tests` 模块或相邻测试文件中。
+MediaGen 当前只保留新架构：`apps/console/` 保存 React Web Console，按 `app/`、`features/`、
+`shared/` 三层组织；`apps/server/` 保存 Rust 服务端、本地 API、调度器、插件执行入口和存储逻辑；
+`apps/local-launcher/` 保存 Windows、macOS、Linux 本机图标启动器；`crates/` 保存通用 Rust 原子能力；
+`plugins/` 保存各平台插件 `manifest.json` 与浏览器脚本；`docs/api/` 保存 OpenAI 兼容接口资料；
+`scripts/` 保存格式、质量门禁、启动脚本和安装包自动化脚本。测试文件与被测代码同目录，命名为
+`*.test.ts(x)`，Rust 测试放在同文件 `tests` 模块或相邻测试文件中。
 
 ## 架构硬边界
 
@@ -16,12 +16,14 @@ rust只提供原子能力，不处理任何特定平台的规则，所有的特�
 ## Build, Test, and Development Commands
 
 - `make help`：查看根目录可用命令。
-- `make dev` / `npm run tauri:dev`：启动 MediaGen Studio 桌面开发环境。
-- `make build` / `npm run tauri:build`：构建桌面端安装包。
+- `make dev` / `npm run dev:console`：启动 Web Console 开发环境。
+- `make start-local`：用本机启动脚本启动服务并打开 Web Console。
+- `make build` / `npm run build`：构建 Web Console、Rust 服务端和本机启动器。
+- `make package-installers`：打包 Windows、macOS、Linux 本机安装产物。
 - `make check`：运行 TypeScript 类型检查、lint、Vitest 和 Rust 编译检查。
 - `make preflight`：提交前完整门禁，包含格式、前端检查、覆盖率、构建和 Rust 检查。
 - `npm run format:check`：根目录 Prettier 全量格式检查。
-  依赖安装优先使用 `npm ci`；Rust 依赖变更后运行 `cargo check --manifest-path src-tauri/Cargo.toml`。
+  依赖安装优先使用 `npm ci`；Rust 依赖变更后运行 `cargo check --workspace`。
 
 ## Coding Style & Naming Conventions
 
@@ -32,10 +34,10 @@ TypeScript 使用 2 空格缩进、单引号、无分号、`printWidth: 100`，�
 
 ## Architecture Boundaries
 
-React 组件禁止直接调 Tauri command，必须通过 `src/shared/services` 或功能模块 service 层。
-`src/shared` 不能反向依赖 `src/features` 或 `src/app`，不同 feature 之间不要互相 import。
-Rust 的 `engine/` 只保留原子能力，平台差异优先放在 `plugins/{platform}/manifest.json` 和脚本里，
-不要把平台流程硬编码进调度器或通用引擎。
+React 组件禁止直接调用服务端接口，必须通过 `apps/console/src/shared/services` 或功能模块 service
+层。`apps/console/src/shared` 不能反向依赖 `features` 或 `app`，不同 feature 之间不要互相 import。
+Rust 只保留通用原子能力、服务编排和公共协议适配，平台差异优先放在 `plugins/{platform}/manifest.json`
+和脚本里，不要把平台流程硬编码进通用 Rust 模块。
 
 ## Testing Guidelines
 

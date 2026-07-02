@@ -1,0 +1,16 @@
+[package]
+name = "mediagen-local-launcher"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+build = "build.rs"
+
+[dependencies]
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+tao = "0.35.3"
+tray-icon = "0.24.1"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

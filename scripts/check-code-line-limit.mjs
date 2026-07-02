@@ -3,7 +3,7 @@
 /**
  * 仓库级代码行数守卫。
  *
- * MediaGen 现在是独立桌面应用，代码主要分布在 React、Tauri Rust 和插件脚本中。
+ * MediaGen 当前代码主要分布在 Web Console、Rust 服务端、通用 crates、插件和脚本中。
  * 失败时直接阻断启动、构建和检查链路，避免单文件继续膨胀。
  */
 
@@ -16,7 +16,14 @@ const REPO_ROOT = path.resolve(path.dirname(CURRENT_FILE), '..')
 const DEFAULT_MAX_LINES = 500
 
 const SOURCE_SCOPES = {
-  app: ['src', 'src-tauri/src', 'plugins', 'scripts'],
+  app: [
+    'apps/console/src',
+    'apps/server/src',
+    'apps/local-launcher/src',
+    'crates',
+    'plugins',
+    'scripts',
+  ],
 }
 
 const SUPPORTED_EXTENSIONS = new Set([

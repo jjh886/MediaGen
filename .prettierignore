@@ -7,10 +7,6 @@ target
 vendor
 out
 
-# Tauri 构建产物
-src-tauri/target
-src-tauri/gen
-
 # 缓存
 .turbo
 .vite

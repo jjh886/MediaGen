@@ -133,7 +133,6 @@
           "action": "browser.open",
           "session_id": "{{browser_session_id}}",
           "profile_dir": "{{profile_dir}}",
-          "chrome_path": "{{chrome_path}}",
           "headless": true,
           "cookies_json": "{{account_cookies}}",
           "restore_url": "https://chatgpt.com/",

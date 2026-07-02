@@ -2,7 +2,7 @@
 # Claude Code Stop hook：质量门禁自动检查
 #
 # 在 Claude 每次完成回复后，自动检测哪些模块有改动，并执行该模块对应的门禁检查。
-# MediaGen 是独立桌面应用，检查范围集中在 src、src-tauri、plugins 和 scripts。
+# MediaGen 当前检查范围集中在 apps、crates、plugins、packages 和 scripts。
 #
 # 如果门禁失败（非零退出），Claude 会自动看到错误输出并尝试修复。
 # 跳过方式：export SKIP_CLAUDE_QUALITY_GATE=1
@@ -49,13 +49,13 @@ if [ "$USE_SESSION_TRACKING" = "1" ]; then
 fi
 
 has_app_changes() {
-  local pattern='^(src|src-tauri|plugins|scripts)/'
+  local pattern='^(apps|crates|plugins|packages|scripts)/'
   if [ "$USE_SESSION_TRACKING" = "1" ]; then
     echo "$SESSION_FILES" | grep -Eq "$pattern" 2>/dev/null
   else
     local tracked untracked
-    tracked=$(git diff --name-only HEAD -- src src-tauri plugins scripts 2>/dev/null || true)
-    untracked=$(git ls-files --others --exclude-standard -- src src-tauri plugins scripts 2>/dev/null || true)
+    tracked=$(git diff --name-only HEAD -- apps crates plugins packages scripts 2>/dev/null || true)
+    untracked=$(git ls-files --others --exclude-standard -- apps crates plugins packages scripts 2>/dev/null || true)
     [ -n "$tracked" ] || [ -n "$untracked" ]
   fi
 }

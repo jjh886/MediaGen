@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MediaGen
+Comment=Start MediaGen Web Console
+Exec=/opt/mediagen-local/start-mediagen.sh
+Icon=/opt/mediagen-local/icons/mediagen.png
+Terminal=false
+Categories=Graphics;Utility;

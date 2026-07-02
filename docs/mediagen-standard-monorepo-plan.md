@@ -172,46 +172,7 @@ BrowserSession 同一时间只允许一个操作者 claim
 API Key 只保存 hash
 ```
 
-## 8. 当前项目
-
-当前目录：
-
-```text
-MediaGen/
-  package.json
-  package-lock.json
-  Makefile
-  src/
-  src-tauri/
-  plugins/
-  docs/
-  scripts/
-  demo/headless-cdp-login/
-```
-
-当前模块迁移表：
-
-```text
-src/                                  -> apps/console/src/
-src/shared/ui/                        -> packages/ui/src/
-src/features/accounts/                -> apps/console/src/features/accounts/
-src/features/tasks/                   -> apps/console/src/features/tasks/
-src/features/settings/                -> apps/console/src/features/settings/
-
-src-tauri/src/types.rs                -> crates/mediagen-core/src/
-src-tauri/src/plugin_loader.rs        -> crates/mediagen-plugin-runtime/src/
-src-tauri/src/orchestrator.rs         -> crates/mediagen-plugin-runtime/src/
-src-tauri/src/plugin_runtime.rs       -> crates/mediagen-plugin-runtime/src/
-src-tauri/src/engine/                 -> crates/mediagen-engine/src/
-src-tauri/src/engine/browser_engine/  -> crates/mediagen-browser-engine/src/
-src-tauri/src/api_server/             -> crates/mediagen-openai-api/src/
-src-tauri/src/storage/                -> crates/mediagen-storage/src/
-
-plugins/                              -> plugins/
-demo/headless-cdp-login/              -> crates/mediagen-browser-gateway 的实现参考
-```
-
-## 9. 目标目录
+## 8. 当前项目结构
 
 ```text
 MediaGen/
@@ -219,8 +180,6 @@ MediaGen/
   package-lock.json
   Cargo.toml
   Makefile
-  tsconfig.base.json
-  .prettierrc
   AGENTS.md
 
   apps/
@@ -229,22 +188,16 @@ MediaGen/
     local-launcher/
 
   crates/
-    mediagen-core/
-    mediagen-contracts/
-    mediagen-plugin-runtime/
-    mediagen-engine/
-    mediagen-browser-engine/
     mediagen-browser-gateway/
-    mediagen-storage/
-    mediagen-openai-api/
+    mediagen-core/
+    mediagen-plugin-runtime/
 
   packages/
     contracts/
-    ui/
     feature-kits/
+    ui/
 
   plugins/
-    plugins.index.json
     _shared/
     chatgpt/
     codex/
@@ -258,23 +211,35 @@ MediaGen/
     apt/
     yum/
     docker/
-    nginx/
-    caddy/
 
   scripts/
     start/
-    check-workspace-boundaries.mjs
+    check-code-line-limit.mjs
     check-import-boundaries.mjs
     check-rust-platform-boundaries.mjs
-    generate-contracts.mjs
-    package-local-launcher.mjs
+    package-local-installers.mjs
     package-local-release.mjs
 
   docs/
     mediagen-standard-monorepo-plan.md
-    plugin-runtime-contract.md
-    api-contract.md
-    deployment-guide.md
+    api/
+```
+
+## 9. 目录职责
+
+```text
+apps/console                         Web Console，唯一业务界面
+apps/server                          Rust 服务端，提供管理 API、OpenAI 兼容 API 和插件调度
+apps/local-launcher                  本机图标启动器，只负责拉起 server 并打开 Console
+crates/mediagen-core                 通用类型和共享数据结构
+crates/mediagen-plugin-runtime       插件加载和 JS flow 执行能力
+crates/mediagen-browser-gateway      CloakBrowser 启动、CDP 会话、画面和输入原子能力
+packages/contracts                   前后端共享契约
+packages/feature-kits                前端功能组合能力
+packages/ui                          通用 UI 能力
+plugins                              平台 manifest、页面脚本和平台专属逻辑
+deploy                               apt、yum、docker、systemd、本机安装相关部署资源
+scripts                              启动、打包、质量门禁和仓库自动化脚本
 ```
 
 ## 10. 技术栈
@@ -928,7 +893,7 @@ browser_runtime
 os_profile
 workspace_dir
 browser_session_id
-chrome_path
+browser_executable_path
 ```
 
 规则：

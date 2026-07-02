@@ -3,7 +3,7 @@
 /**
  * 测试覆盖率门禁。
  *
- * app：vitest --coverage + istanbul 检查 UI 核心层，cargo-llvm-cov 检查 Rust 核心层。
+ * app：在 Web Console 内执行 vitest 覆盖率，在 Rust workspace 内执行 cargo-llvm-cov。
  *
  * 用法：
  *   node scripts/gates/check-coverage-gate.mjs         # app UI + Rust
@@ -20,10 +20,8 @@ import { fileURLToPath } from 'node:url'
 
 const CURRENT_FILE = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(CURRENT_FILE), '..', '..')
-const APP_DIR = REPO_ROOT
-const DESKTOP_DIR = APP_DIR
-const TAURI_DIR = path.join(DESKTOP_DIR, 'src-tauri')
-const RUST_COVERAGE_JSON_PATH = path.join(TAURI_DIR, 'target', 'llvm-cov-summary.json')
+const APP_DIR = path.join(REPO_ROOT, 'apps', 'console')
+const RUST_COVERAGE_JSON_PATH = path.join(REPO_ROOT, 'target', 'llvm-cov-summary.json')
 
 // ─── 阈值配置 ───
 const APP_FRONTEND_THRESHOLD = 75
@@ -43,19 +41,16 @@ const APP_FRONTEND_INCLUDE = [
 
 const FRONTEND_EXCLUDE = ['**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx']
 
-// ─── Rust 覆盖范围：可单元测试的纯逻辑模块 ───
-// 排除需要 Tauri runtime / 浏览器 / 网络的模块（api_server, commands, browser_engine）
+// ─── Rust 覆盖范围：可稳定单元测试的纯逻辑模块 ───
+// 浏览器/CDP/HTTP 路由编排依赖外部进程或网络，这里只统计能用单元测试稳定覆盖的核心逻辑。
 const RUST_INCLUDE_REGEX = [
-  'src/storage/',
-  'src/orchestrator\\.rs',
-  'src/scheduler\\.rs',
-  'src/account_manager\\.rs',
-  'src/plugin_loader\\.rs',
-  'src/login_checker\\.rs',
-  'src/engine/mod\\.rs',
-  'src/engine/image_engine\\.rs',
-  'src/types\\.rs',
-  'src/error\\.rs',
+  'apps/server/src/access_control\\.rs$',
+  'apps/server/src/image_request\\.rs$',
+  'apps/server/src/net_client\\.rs$',
+  'apps/server/src/store\\.rs$',
+  'apps/server/src/value_utils\\.rs$',
+  'crates/mediagen-browser-gateway/src/types\\.rs$',
+  'crates/mediagen-core/src/plugin_manifest\\.rs$',
 ].join('|')
 
 function parseArgs(argv) {
@@ -192,7 +187,7 @@ function parseLlvmCovJson(output) {
 }
 
 function runAppFrontendCoverage() {
-  const coverageDir = coverageReportDir(DESKTOP_DIR, 'app')
+  const coverageDir = coverageReportDir(APP_DIR, 'console')
 
   const args = [
     'vitest',
@@ -208,7 +203,7 @@ function runAppFrontendCoverage() {
   console.log(`[coverage-gate] App UI 覆盖率检查，阈值 ${APP_FRONTEND_THRESHOLD}%`)
 
   const total = runVitestCoverage(
-    DESKTOP_DIR,
+    APP_DIR,
     args,
     coverageDir,
     '[coverage-gate] vitest --coverage 执行失败'
@@ -229,7 +224,7 @@ function runAppFrontendCoverage() {
 function runRustCoverage() {
   // 检查 cargo-llvm-cov 是否可用
   const checkResult = spawnSync('cargo', ['llvm-cov', '--version'], {
-    cwd: TAURI_DIR,
+    cwd: REPO_ROOT,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -244,9 +239,16 @@ function runRustCoverage() {
 
   const result = spawnSync(
     'cargo',
-    ['llvm-cov', '--lib', '--json', '--summary-only', '--output-path', RUST_COVERAGE_JSON_PATH],
+    [
+      'llvm-cov',
+      '--workspace',
+      '--json',
+      '--summary-only',
+      '--output-path',
+      RUST_COVERAGE_JSON_PATH,
+    ],
     {
-      cwd: TAURI_DIR,
+      cwd: REPO_ROOT,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       env: process.env,

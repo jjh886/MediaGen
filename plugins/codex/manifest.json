@@ -111,6 +111,22 @@
     "ignore_contains_any": [],
     "captcha_selectors": []
   },
+  "login_oauth_pkce": {
+    "auth_url": "https://auth.openai.com/oauth/authorize",
+    "token_url": "https://auth.openai.com/oauth/token",
+    "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+    "scope": "openid profile email offline_access api.connectors.read api.connectors.invoke",
+    "token_script_file": "finish_oauth_login.js",
+    "auth_params": {
+      "id_token_add_organizations": "true",
+      "codex_cli_simplified_flow": "true",
+      "originator": "codex_vscode"
+    }
+  },
+  "login_detection": {
+    "method": "plugin_script",
+    "script_file": "finish_oauth_login.js"
+  },
   "watermark": {
     "has_watermark": false,
     "removal_strategy": "none"

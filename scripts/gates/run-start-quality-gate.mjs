@@ -20,7 +20,7 @@ const SUPPORTED_MODULES = ['app']
 const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.go', '.rs'])
 const CHANGED_FILES_ENV_KEY = 'MEDIAGEN_CHANGED_FILES_JSON'
 const MODULE_PREFIXES = {
-  app: ['src/', 'src-tauri/', 'plugins/', 'scripts/'],
+  app: ['apps/console/', 'apps/server/', 'apps/local-launcher/', 'crates/', 'plugins/', 'scripts/'],
 }
 
 function parseArgs(argv) {

@@ -1,24 +1,26 @@
 ## 1. 产品上下文
 
-MediaGen Studio 是一个独立桌面应用，用本地 OpenAI 兼容 API 和浏览器/API 插件驱动图片与视频生成平台。
-图片接口直接返回 OpenAI 风格的 base64 JSON，不依赖外部业务系统上传或回写链路。
+MediaGen 是一个插件化的多平台生成任务调度系统，对外提供 OpenAI 兼容图片接口，对内通过
+CloakBrowser 和平台插件完成网页侧生成、下载、登录授权和人机验证接管。
 
-**核心架构**：React 桌面界面 + Tauri Rust 运行时 + 本地 HTTP API + 薄插件。新平台优先通过
-`plugins/{platform}/manifest.json` 和可选 `scripts/` 接入，尽量不改 App 核心代码。
+当前项目只保留新架构：一套 Web Console、一套 Rust Server、一个本机图标启动器。Windows、macOS
+和 Linux 本机用户点击图标后由 `apps/local-launcher` 启动服务并打开网页；服务器用户直接访问
+`apps/server` 提供的 Console 地址。
 
 ## 2. 架构硬边界
 
-- rust只提供原子能力，不处理任何特定平台的规则，所有的特台特有的特性全部放在插件中完成。如果需要功能当前的原子能力不满足，可以新增或扩展当前的原子能力（有限扩展），但是所有的原子能力一定要考虑通用性，不要和任何平台绑定。
-- 禁止在 `engine/`、`orchestrator.rs`、`scheduler.rs` 中写平台特定流程。
-- 前端组件禁止直接调 Tauri command，必须通过 service 层。
+- Rust 只提供通用原子能力、服务编排和公共协议适配，不写平台专属流程。
+- 平台页面规则、DOM 识别、网络轮询、结果解析必须放在 `plugins/{platform}/manifest.json` 和脚本中。
+- React 组件不能直接调用 HTTP API，必须通过 `apps/console/src/shared/services` 或 feature service 层。
 - OpenAI 兼容接口的请求/响应结构以 `docs/api/openai-api.md` 为参考。
 
-| 层             | 允许做                       | 禁止做                  |
-| -------------- | ---------------------------- | ----------------------- |
-| Rust Engine    | 执行原子操作                 | 写平台特定逻辑          |
-| Orchestrator   | 读 manifest、按步骤调 engine | 硬编码平台流程          |
-| Scheduler      | 账号轮询、并发、配额         | 直接操作浏览器或发请求  |
-| React Frontend | UI 展示、调 service 层       | 直接 invoke、写业务逻辑 |
+| 层              | 允许做                                | 禁止做                 |
+| --------------- | ------------------------------------- | ---------------------- |
+| Browser Gateway | CloakBrowser、CDP、画面、输入原子能力 | 写平台登录和生成规则   |
+| Server          | 管理 API、调度、账号、任务、插件执行  | 硬编码平台网页流程     |
+| Plugin Runtime  | 读取 manifest、执行脚本               | 把通用能力复制到插件内 |
+| Web Console     | UI 展示、调用 service 层              | 直接写平台或后端细节   |
+| Local Launcher  | 启动服务、打开网页                    | 处理账号和插件业务     |
 
 ## 3. 代码风格
 
@@ -42,31 +44,29 @@ UPPER_SNAKE、Rust snake_case。
 ## 5. 前端三层架构
 
 ```text
-src/
+apps/console/src/
 ├── app/          # 壳层：路由、布局、Provider
 ├── features/     # 功能模块（components/ hooks/ services/ types/）
 ├── shared/       # 共享层（ui/ hooks/ services/ stores/ types/ utils/）
 └── styles/       # 全局样式和设计 token
 ```
 
-**导入边界**：app → features/shared ✓ | features → shared ✓ | 跨 feature ✗ | shared → app/features ✗
+导入边界：app -> features/shared，features -> shared；禁止跨 feature 互相 import；禁止 shared 反向依赖
+app/features。
 
 ## 6. Rust 与插件结构
 
 ```text
-src-tauri/src/
-├── api_server/       # 本地 HTTP API，后续承载 OpenAI 兼容接口
-├── engine/           # 原子能力引擎（http/browser/account/email/file/watermark/image）
-├── orchestrator.rs   # 流程编排（读 manifest steps → 调 engine）
-├── scheduler.rs      # 账号调度、并发和队列
-├── plugin_loader.rs  # 加载 plugins 下的平台能力
-├── storage/          # SQLite 存储
-├── types.rs          # 共享类型
-└── error.rs          # thiserror AppError
+apps/server/                       # 管理 API、OpenAI 兼容 API、调度和插件执行入口
+apps/local-launcher/               # 本机图标启动器
+crates/mediagen-browser-gateway/   # CloakBrowser + CDP 通用原子能力
+crates/mediagen-core/              # 通用类型
+crates/mediagen-plugin-runtime/    # 插件加载和 JS flow 执行
 
 plugins/
-├── codex/
+├── _shared/
 ├── chatgpt/
+├── codex/
 ├── doubao/
 ├── flow/
 └── jimeng/
@@ -76,33 +76,35 @@ plugins/
 
 - **API 兼容**：新接口优先对齐 `docs/api/openai-api.md`，图片生成结果返回 base64。
 - **插件薄化**：平台差异尽量放 manifest 和脚本，不把平台判断散落进 Rust 核心。
+- **账号登录**：添加账号、重新登录、人机验证统一使用 Browser Session 和 Console 内网页渲染。
 - **状态管理**：Zustand store 按 feature 划分，组件不直接调底层 API。
 - **错误处理**：Rust 用 thiserror + tracing；前端给用户明确可理解的提示。
-- **COMPAT 注释**：`// COMPAT(yyyy-MM-dd): 说明`，最长 6 个月。
 - **Git**：不自动 commit，等用户 review 后再决定。
 
 ## 8. 验证命令
 
 ```bash
-# 前端
 npm run type-check
 npm run lint
 npm run test
 npm run build
-
-# Rust
 npm run cargo-check
 npm run cargo-test
-
-# 全局门禁
+npm run format:check
 make preflight
-
-# 项目启动
-npm run tauri:dev
 ```
 
-## 9. 文档索引
+## 9. 启动命令
 
-| 文档                | 路径                     | 内容                        |
-| ------------------- | ------------------------ | --------------------------- |
-| OpenAI 图片接口参考 | `docs/api/openai-api.md` | 标准接口、base64 响应等参考 |
+```bash
+make dev          # Web Console 开发环境
+make dev-server   # Rust 服务端
+make start-local  # 本机脚本启动服务并打开 Console
+```
+
+## 10. 文档索引
+
+| 文档                | 路径                                      | 内容                        |
+| ------------------- | ----------------------------------------- | --------------------------- |
+| OpenAI 图片接口参考 | `docs/api/openai-api.md`                  | 标准接口、base64 响应等参考 |
+| 服务端化开发规格    | `docs/mediagen-standard-monorepo-plan.md` | 当前项目结构和运行逻辑      |

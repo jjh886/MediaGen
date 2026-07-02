@@ -6,14 +6,16 @@ vendor/
 
 # Build outputs
 dist/
+dist-local/
 build/
 target/
 bin/
 tmp/
 out/
 coverage/
-src-tauri/target/
-src-tauri/gen/
+/data/
+/logs/
+/profiles/
 
 # Caches
 .vite/

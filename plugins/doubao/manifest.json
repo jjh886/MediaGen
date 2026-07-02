@@ -121,7 +121,6 @@
           "_comment": "1. 打开浏览器 + cookie 恢复",
           "action": "browser.open",
           "profile_dir": "{{profile_dir}}",
-          "chrome_path": "{{chrome_path}}",
           "headless": true,
           "cookies_json": "{{account_cookies}}",
           "restore_url": "https://www.doubao.com/",
@@ -271,7 +270,7 @@
           "save_as": "poll"
         },
         {
-          "_comment": "18. 并发安全关闭：session_id 定位当前 tab，profile_dir 驱动'最后一个才关 Chrome'——并发多 tab 时只关自己，Chrome 保留给其他任务",
+          "_comment": "18. 并发安全关闭：session_id 定位当前 tab，profile_dir 驱动'最后一个才关浏览器'——并发多 tab 时只关自己，浏览器保留给其他任务",
           "action": "browser.close",
           "session_id": "{{browser.session_id}}",
           "profile_dir": "{{profile_dir}}"

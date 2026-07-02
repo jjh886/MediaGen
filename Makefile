@@ -4,14 +4,16 @@ SHELL := /bin/bash
 
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: help install dev build lint typecheck test cargo-check cargo-test check \
+.PHONY: help install dev dev-console dev-server dev-launcher start-local build build-console \
+	build-server build-launcher package-local package-installers package-apt package-yum lint typecheck test cargo-check cargo-test check \
 	preflight preflight-format preflight-app preflight-docs format-check check-compat
 
 help: ## 显示帮助信息
 	@echo 'MediaGen 根目录命令入口'
 	@echo ''
 	@echo '常用示例:'
-	@echo '  make dev                启动桌面端开发'
+	@echo '  make start-local        启动本机服务并打开 Web Console'
+	@echo '  make dev                启动 Web Console 开发'
 	@echo '  make check              运行常用检查'
 	@echo '  make preflight          提交前完整门禁'
 	@echo ''
@@ -24,11 +26,43 @@ install: ## 安装依赖
 
 # ─── App ──────────────────────────────────────────────────────────
 
-dev: ## 启动 MediaGen Studio 开发环境
-	cd $(ROOT_DIR) && npm run tauri:dev
+dev: ## 启动 Web Console 开发环境
+	cd $(ROOT_DIR) && npm run dev:console
 
-build: ## 构建桌面端安装包
-	cd $(ROOT_DIR) && npm run tauri:build
+dev-console: ## 启动 Web Console 开发环境
+	cd $(ROOT_DIR) && npm run dev:console
+
+dev-server: ## 启动 Rust 服务端
+	cd $(ROOT_DIR) && npm run dev:server
+
+dev-launcher: ## 启动本机图标启动器开发版
+	cd $(ROOT_DIR) && npm run dev:launcher
+
+start-local: ## 使用备用脚本启动本机 Web Console
+	cd $(ROOT_DIR) && bash scripts/start/start-mediagen.sh
+
+build: build-console build-server build-launcher ## 构建 Web Console、Rust 服务端和本机启动器
+
+build-console: ## 构建 Web Console
+	cd $(ROOT_DIR) && npm run build:console
+
+build-server: ## 构建 Rust 服务端
+	cd $(ROOT_DIR) && npm run build:server
+
+build-launcher: ## 构建本机图标启动器
+	cd $(ROOT_DIR) && npm run build:launcher
+
+package-local: build-console build-server build-launcher ## 打包本机发行目录
+	cd $(ROOT_DIR) && npm run package:local
+
+package-installers: ## 打包本机和服务器安装产物
+	cd $(ROOT_DIR) && npm run package:installers
+
+package-apt: package-installers ## 生成 apt/deb 安装包
+	test -f $(ROOT_DIR)/dist-local/installers/mediagen_0.1.0_amd64.deb
+
+package-yum: package-installers ## 生成 yum/rpm 安装包
+	ls $(ROOT_DIR)/dist-local/installers/*.rpm >/dev/null
 
 lint: ## 运行 TypeScript lint、行数和导入边界检查
 	cd $(ROOT_DIR) && npm run lint

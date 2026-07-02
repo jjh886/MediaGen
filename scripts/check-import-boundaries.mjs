@@ -3,7 +3,7 @@
 /**
  * 前端分层导入边界检查。
  *
- * 扫描 src 三层架构：
+ * 扫描 apps/console/src 三层架构：
  *   app -> features -> shared
  * shared 不能反向依赖 features / app，features 不能反向依赖 app，
  * 同一层级下 feature 之间不得互相 import。
@@ -15,7 +15,13 @@ import { fileURLToPath } from 'node:url'
 
 const CURRENT_FILE = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(CURRENT_FILE), '..')
-const SRC_ROOTS = [{ label: 'app', root: path.join(REPO_ROOT, 'src'), checkCrossFeature: true }]
+const SRC_ROOTS = [
+  {
+    label: 'console',
+    root: path.join(REPO_ROOT, 'apps', 'console', 'src'),
+    checkCrossFeature: true,
+  },
+]
 const IMPORT_PATTERN = /from\s+['"]([^'"]+)['"]/g
 
 const SUPPORTED_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx'])

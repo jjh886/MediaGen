@@ -105,7 +105,6 @@
           "_comment": "1. 启动/复用浏览器（persistent + headless=new：登录态由 profile SQLite 恢复，任务阶段窗口对用户不可见）",
           "action": "browser.open",
           "profile_dir": "{{profile_dir}}",
-          "chrome_path": "{{chrome_path}}",
           "headless": true,
           "restore_url": "https://labs.google/fx/zh/tools/flow/",
           "save_as": "browser"
@@ -231,7 +230,7 @@
           "save_as": "cleanup"
         },
         {
-          "_comment": "19. 释放 session 占用但保留 Chrome 常驻（persistent 模式）",
+          "_comment": "19. 释放 session 占用但保留浏览器常驻（persistent 模式）",
           "action": "browser.close",
           "session_id": "{{browser.session_id}}"
         }

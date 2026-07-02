@@ -1,0 +1,25 @@
+[package]
+name = "mediagen-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+actix-files = { workspace = true }
+actix-multipart = { workspace = true }
+actix-web = { workspace = true }
+async-trait = { workspace = true }
+base64 = "0.22"
+bytes = { workspace = true }
+chrono = { workspace = true }
+futures-util = { workspace = true }
+mediagen-browser-gateway = { path = "../../crates/mediagen-browser-gateway" }
+mediagen-core = { path = "../../crates/mediagen-core" }
+mediagen-plugin-runtime = { path = "../../crates/mediagen-plugin-runtime" }
+rand = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }

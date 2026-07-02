@@ -1,0 +1,14 @@
+services:
+  mediagen:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - '18080:18080'
+    volumes:
+      - mediagen-data:/var/lib/mediagen
+      - mediagen-logs:/var/log/mediagen
+
+volumes:
+  mediagen-data:
+  mediagen-logs:

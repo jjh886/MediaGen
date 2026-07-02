@@ -1,0 +1,9 @@
+Package: mediagen
+Version: 0.1.0
+Section: graphics
+Priority: optional
+Architecture: amd64
+Maintainer: MediaGen Team
+Description: MediaGen Web Console server
+ MediaGen provides a Web Console, OpenAI-compatible image APIs,
+ plugin execution, browser sessions, and account management.

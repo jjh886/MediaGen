@@ -1,0 +1,20 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl fonts-noto fonts-noto-cjk \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/mediagen
+COPY mediagen-server /usr/bin/mediagen-server
+COPY console /usr/share/mediagen/console
+COPY plugins /opt/mediagen/plugins
+
+ENV MEDIAGEN_HOST=0.0.0.0
+ENV MEDIAGEN_PORT=18080
+ENV MEDIAGEN_CONSOLE_DIR=/usr/share/mediagen/console
+ENV MEDIAGEN_PLUGINS_DIR=/opt/mediagen/plugins
+ENV MEDIAGEN_DATA_DIR=/var/lib/mediagen
+ENV MEDIAGEN_LOGS_DIR=/var/log/mediagen
+
+EXPOSE 18080
+CMD ["/usr/bin/mediagen-server"]

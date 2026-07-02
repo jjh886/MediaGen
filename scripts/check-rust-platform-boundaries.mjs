@@ -3,9 +3,8 @@
 /**
  * Rust 平台边界检查。
  *
- * src-tauri/src 只能实现通用原子能力和公共协议适配，不允许把具体插件名、
- * 站点域名或供应商上传细节写进生产代码。平台差异必须放到插件 manifest
- * 或插件脚本中。
+ * Rust 生产代码只能实现通用原子能力、服务编排和公共协议适配，不允许把具体插件名、
+ * 站点域名或供应商上传细节写进通用模块。平台差异必须放到插件 manifest 或插件脚本中。
  */
 
 import { promises as fs } from 'node:fs'
@@ -14,7 +13,11 @@ import { fileURLToPath } from 'node:url'
 
 const CURRENT_FILE = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(CURRENT_FILE), '..')
-const RUST_ROOT = path.join(REPO_ROOT, 'src-tauri', 'src')
+const RUST_ROOTS = [
+  path.join(REPO_ROOT, 'apps', 'server', 'src'),
+  path.join(REPO_ROOT, 'apps', 'local-launcher', 'src'),
+  path.join(REPO_ROOT, 'crates'),
+]
 
 const BANNED_PATTERNS = [
   { label: 'chatgpt platform id', pattern: /\bchatgpt\b/i },
@@ -79,7 +82,7 @@ function findViolations(filePath, content) {
 }
 
 async function main() {
-  const files = await walk(RUST_ROOT)
+  const files = (await Promise.all(RUST_ROOTS.map((root) => walk(root)))).flat()
   const violations = []
   for (const filePath of files) {
     if (isStandaloneTestFile(filePath)) continue

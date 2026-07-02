@@ -19,7 +19,7 @@ const WINDOW_SIZE = 10
 const MAX_REPORTS = 12
 
 const SCOPE_ROOTS = {
-  app: ['src', 'src-tauri/src', 'plugins'],
+  app: ['apps/console/src', 'apps/server/src', 'apps/local-launcher/src', 'crates', 'plugins'],
 }
 
 const SUPPORTED_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.go', '.rs'])
