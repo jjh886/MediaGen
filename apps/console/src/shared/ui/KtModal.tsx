@@ -1,4 +1,12 @@
-import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
+import {
+  useEffect,
+  useId,
+  useRef,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react'
 import { createPortal } from 'react-dom'
 
 interface KtModalProps {
@@ -15,44 +23,117 @@ interface KtModalProps {
   closeOnOverlayClick?: boolean
 }
 
+const headerStyle: CSSProperties = {
+  height: 56,
+  background: '#1E1F21',
+  borderBottom: '1px solid rgba(255,255,255,0.05)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  padding: '0 24px',
+}
+
+const titleRowStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  minWidth: 0,
+}
+
+const titleStyle: CSSProperties = {
+  fontWeight: 600,
+  fontSize: 16,
+  lineHeight: '24px',
+  color: '#fff',
+}
+
+const closeButtonStyle: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  color: '#fff',
+  fontSize: 24,
+  cursor: 'pointer',
+  padding: 0,
+  lineHeight: 1,
+}
+
+const footerStyle: CSSProperties = {
+  height: 64,
+  background: '#1E1F21',
+  borderTop: '1px solid rgba(255,255,255,0.05)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'flex-end',
+  gap: 8,
+  padding: '0 24px',
+}
+
+const overlayStyle: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 9999,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'rgba(0,0,0,0.6)',
+}
+
+function panelStyle(
+  width: number | string,
+  height: number | string | undefined,
+  resizable = false
+) {
+  return {
+    width,
+    height,
+    maxWidth: '96vw',
+    maxHeight: '92vh',
+    borderRadius: 16,
+    overflow: 'hidden',
+    boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
+    animation: 'kt-modal-in 300ms ease-out',
+    display: 'flex',
+    flexDirection: 'column',
+    resize: resizable ? 'both' : undefined,
+    minWidth: resizable ? 'min(720px, calc(100vw - 32px))' : undefined,
+    minHeight: resizable ? 'min(520px, calc(100vh - 32px))' : undefined,
+  } satisfies CSSProperties
+}
+
+function modalBodyStyle(height: number | string | undefined, bodyStyle?: CSSProperties) {
+  return {
+    background: '#141414',
+    flex: height ? 1 : undefined,
+    minHeight: 0,
+    maxHeight: height ? undefined : '60vh',
+    overflowY: 'auto',
+    padding: 24,
+    ...bodyStyle,
+  } satisfies CSSProperties
+}
+
 function ModalHeader({
   title,
+  titleId,
   titleExtra,
   onClose,
 }: {
   title: string
+  titleId: string
   titleExtra?: ReactNode
   onClose: () => void
 }) {
   return (
-    <div
-      style={{
-        height: 56,
-        background: '#1E1F21',
-        borderBottom: '1px solid rgba(255,255,255,0.05)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 24px',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-        <span style={{ fontWeight: 600, fontSize: 16, lineHeight: '24px', color: '#fff' }}>
+    <div style={headerStyle}>
+      <div style={titleRowStyle}>
+        <span id={titleId} style={titleStyle}>
           {title}
         </span>
         {titleExtra}
       </div>
       <button
         onClick={onClose}
-        style={{
-          background: 'none',
-          border: 'none',
-          color: '#fff',
-          fontSize: 24,
-          cursor: 'pointer',
-          padding: 0,
-          lineHeight: 1,
-        }}
+        style={closeButtonStyle}
         onMouseEnter={(e) => {
           e.currentTarget.style.opacity = '0.8'
         }}
@@ -68,25 +149,9 @@ function ModalHeader({
 }
 
 function ModalFooter({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        height: 64,
-        background: '#1E1F21',
-        borderTop: '1px solid rgba(255,255,255,0.05)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        gap: 8,
-        padding: '0 24px',
-      }}
-    >
-      {children}
-    </div>
-  )
+  return <div style={footerStyle}>{children}</div>
 }
 
-// useModalEscape 监听 Esc 关闭弹窗；open=false 时不挂载监听
 function useModalEscape(open: boolean, onClose: () => void) {
   useEffect(() => {
     if (!open) return
@@ -98,7 +163,6 @@ function useModalEscape(open: boolean, onClose: () => void) {
   }, [open, onClose])
 }
 
-// useBodyScrollLock 弹窗打开期间锁住 body 滚动，关闭时还原
 function useBodyScrollLock(open: boolean) {
   useEffect(() => {
     if (!open) return
@@ -110,9 +174,18 @@ function useBodyScrollLock(open: boolean) {
   }, [open])
 }
 
-// ModalPanel 弹窗内容面板（头 + 主体 + 可选 footer）
+function useModalFocus(open: boolean, panelRef: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    if (!open) return
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    window.setTimeout(() => panelRef.current?.focus(), 0)
+    return () => previous?.focus()
+  }, [open, panelRef])
+}
+
 function ModalPanel({
   title,
+  titleId,
   onClose,
   children,
   footer,
@@ -121,39 +194,23 @@ function ModalPanel({
   height,
   bodyStyle,
   resizable,
-}: Omit<KtModalProps, 'open'> & { width: number | string }) {
+  panelRef,
+}: Omit<KtModalProps, 'open'> & {
+  width: number | string
+  titleId: string
+  panelRef: RefObject<HTMLDivElement | null>
+}) {
   return (
     <div
-      style={{
-        width,
-        height,
-        maxWidth: '96vw',
-        maxHeight: '92vh',
-        borderRadius: 16,
-        overflow: 'hidden',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
-        animation: 'kt-modal-in 300ms ease-out',
-        display: 'flex',
-        flexDirection: 'column',
-        resize: resizable ? 'both' : undefined,
-        minWidth: resizable ? 720 : undefined,
-        minHeight: resizable ? 520 : undefined,
-      }}
+      ref={panelRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      tabIndex={-1}
+      style={panelStyle(width, height, resizable)}
     >
-      <ModalHeader title={title} titleExtra={titleExtra} onClose={onClose} />
-      <div
-        style={{
-          background: '#141414',
-          flex: height ? 1 : undefined,
-          minHeight: 0,
-          maxHeight: height ? undefined : '60vh',
-          overflowY: 'auto',
-          padding: 24,
-          ...bodyStyle,
-        }}
-      >
-        {children}
-      </div>
+      <ModalHeader title={title} titleId={titleId} titleExtra={titleExtra} onClose={onClose} />
+      <div style={modalBodyStyle(height, bodyStyle)}>{children}</div>
       {footer && <ModalFooter>{footer}</ModalFooter>}
     </div>
   )
@@ -164,24 +221,12 @@ function ModalOverlay({
   onOverlayClick,
   children,
 }: {
-  overlayRef: React.RefObject<HTMLDivElement | null>
-  onOverlayClick: (event: React.MouseEvent) => void
+  overlayRef: RefObject<HTMLDivElement | null>
+  onOverlayClick: (event: MouseEvent) => void
   children: ReactNode
 }) {
   return (
-    <div
-      ref={overlayRef}
-      onClick={onOverlayClick}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0,0,0,0.6)',
-      }}
-    >
+    <div ref={overlayRef} onClick={onOverlayClick} style={overlayStyle}>
       {children}
       <style>{`
         @keyframes kt-modal-in {
@@ -207,12 +252,15 @@ export function KtModal({
   closeOnOverlayClick = true,
 }: KtModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
   useModalEscape(open, onClose)
   useBodyScrollLock(open)
+  useModalFocus(open, panelRef)
 
   if (!open) return null
 
-  const handleOverlayClick = (e: React.MouseEvent) => {
+  const handleOverlayClick = (e: MouseEvent) => {
     if (closeOnOverlayClick && e.target === overlayRef.current) onClose()
   }
 
@@ -220,6 +268,7 @@ export function KtModal({
     <ModalOverlay overlayRef={overlayRef} onOverlayClick={handleOverlayClick}>
       <ModalPanel
         title={title}
+        titleId={titleId}
         onClose={onClose}
         footer={footer}
         titleExtra={titleExtra}
@@ -227,6 +276,7 @@ export function KtModal({
         height={height}
         bodyStyle={bodyStyle}
         resizable={resizable}
+        panelRef={panelRef}
       >
         {children}
       </ModalPanel>

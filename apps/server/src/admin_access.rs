@@ -1,0 +1,94 @@
+use actix_web::{dev::ServiceRequest, http::header, HttpResponse};
+use serde_json::json;
+
+const ADMIN_TOKEN_ENV: &str = "MEDIAGEN_ADMIN_TOKEN";
+const ADMIN_TOKEN_HEADER: &str = "x-mediagen-admin-token";
+
+pub(crate) fn request_allowed(request: &ServiceRequest) -> bool {
+    !requires_admin_access(request.path())
+        || loopback_request(request)
+        || token_matches(request, admin_token().as_deref())
+}
+
+pub(crate) fn unauthorized_response() -> HttpResponse {
+    HttpResponse::Unauthorized().json(json!({
+        "error": "远程管理访问需要配置 MEDIAGEN_ADMIN_TOKEN，并在请求中携带管理令牌"
+    }))
+}
+
+fn requires_admin_access(path: &str) -> bool {
+    path.starts_with("/api/") && path != "/api/oauth/callback"
+}
+
+fn loopback_request(request: &ServiceRequest) -> bool {
+    request
+        .peer_addr()
+        .is_some_and(|address| address.ip().is_loopback())
+}
+
+fn token_matches(request: &ServiceRequest, expected: Option<&str>) -> bool {
+    let Some(expected) = expected.map(str::trim).filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    header_token(request)
+        .or_else(|| bearer_token(request))
+        .is_some_and(|token| token == expected)
+}
+
+fn header_token(request: &ServiceRequest) -> Option<&str> {
+    request
+        .headers()
+        .get(ADMIN_TOKEN_HEADER)?
+        .to_str()
+        .ok()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn bearer_token(request: &ServiceRequest) -> Option<&str> {
+    request
+        .headers()
+        .get(header::AUTHORIZATION)?
+        .to_str()
+        .ok()?
+        .strip_prefix("Bearer ")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn admin_token() -> Option<String> {
+    std::env::var(ADMIN_TOKEN_ENV).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{requires_admin_access, token_matches};
+    use actix_web::test as actix_test;
+
+    #[test]
+    fn admin_access_only_wraps_management_api() {
+        assert!(requires_admin_access("/api/accounts"));
+        assert!(requires_admin_access("/api/browser-sessions"));
+        assert!(!requires_admin_access("/health"));
+        assert!(!requires_admin_access("/v1/images/generations"));
+        assert!(!requires_admin_access("/api/oauth/callback"));
+    }
+
+    #[test]
+    fn token_can_use_header_or_bearer_auth() {
+        let header = actix_test::TestRequest::default()
+            .insert_header(("x-mediagen-admin-token", "secret"))
+            .to_srv_request();
+        let bearer = actix_test::TestRequest::default()
+            .insert_header(("authorization", "Bearer secret"))
+            .to_srv_request();
+        let wrong = actix_test::TestRequest::default()
+            .insert_header(("x-mediagen-admin-token", "bad"))
+            .to_srv_request();
+
+        assert!(token_matches(&header, Some("secret")));
+        assert!(token_matches(&bearer, Some("secret")));
+        assert!(!token_matches(&wrong, Some("secret")));
+        assert!(!token_matches(&header, None));
+    }
+}

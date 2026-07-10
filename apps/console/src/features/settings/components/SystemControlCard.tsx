@@ -35,7 +35,7 @@ export function SystemControlMenu() {
     setMessage('')
     try {
       await exitMediaGen()
-      setMessage('MediaGen 正在退出，可以关闭这个页面。下次点击图标会重新启动。')
+      setMessage('MediaGen 正在退出，可以关闭这个页面。')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '退出失败，请稍后再试')
       setExiting(false)
@@ -47,9 +47,7 @@ export function SystemControlMenu() {
   return (
     <div className="sidebar__system-control">
       <div className="sidebar__system-title">应用控制</div>
-      <p className="sidebar__system-text">
-        退出会停止本机后台服务。需要继续使用时，再点击 MediaGen 图标即可。
-      </p>
+      <p className="sidebar__system-text">退出会停止本机后台服务。</p>
       <KtButton
         variant="danger"
         size="sm"

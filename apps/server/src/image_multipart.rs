@@ -138,7 +138,7 @@ fn apply_text_field(request: &mut OpenAiImageRequest, name: &str, value: &str) {
     }
 }
 
-fn field_name(field: &Field) -> String {
+pub(crate) fn field_name(field: &Field) -> String {
     field
         .content_disposition()
         .and_then(|value| value.get_name())
@@ -146,7 +146,7 @@ fn field_name(field: &Field) -> String {
         .to_string()
 }
 
-fn field_filename(field: &Field) -> Option<String> {
+pub(crate) fn field_filename(field: &Field) -> Option<String> {
     field
         .content_disposition()
         .and_then(|value| value.get_filename())

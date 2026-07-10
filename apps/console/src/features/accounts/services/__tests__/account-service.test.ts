@@ -25,8 +25,9 @@ const account: Account = {
   total_limit: 1000,
   concurrency_limit: 1,
   task_interval_seconds: 0,
-  group_name: 'default',
   proxy_url: 'socks5://127.0.0.1:1080',
+  browser_os: 'windows',
+  browser_version: '126',
   api_key: 'user-key',
   profile_dir: '/profiles/acc-1',
   created_at: '2026-06-29T00:00:00Z',
@@ -76,8 +77,9 @@ describe('account-service', () => {
       daily_limit: 200,
       total_limit: 2000,
       task_interval_seconds: 15,
-      group_name: 'vip',
       proxy_url: 'socks5://proxy.example:1080',
+      browser_os: 'macos',
+      browser_version: '127',
       api_key: 'key-2',
     })
 
@@ -95,8 +97,9 @@ describe('account-service', () => {
       daily_limit: 200,
       total_limit: 2000,
       task_interval_seconds: 15,
-      group_name: 'vip',
       proxy_url: 'socks5://proxy.example:1080',
+      browser_os: 'macos',
+      browser_version: '127',
       api_key: 'key-2',
     })
   })
@@ -160,7 +163,39 @@ describe('account-service', () => {
     })
   })
 
-  it('重新登录会话会复用账号 profile_dir 并带上代理信息', async () => {
+  it('创建添加账号会话时选择保存代理只传 proxy_id', async () => {
+    const session = { id: 'session-1', platform: 'codex', status: 'active' }
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: [{ platform_id: 'codex' }] }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, session }))
+
+    await startAccountLoginSession('codex', undefined, '', 'proxy-1')
+
+    expect(parseBody(1)).toMatchObject({
+      purpose: 'add_account',
+      proxy_id: 'proxy-1',
+    })
+    expect(parseBody(1)).not.toHaveProperty('metadata.proxy_server')
+  })
+
+  it('创建添加账号会话时可以带浏览器环境', async () => {
+    const session = { id: 'session-1', platform: 'codex', status: 'active' }
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: [{ platform_id: 'codex' }] }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, session }))
+
+    await startAccountLoginSession('codex', undefined, '', undefined, {
+      browser_os: 'macos',
+      browser_version: '127',
+    })
+
+    expect(parseBody(1)).toMatchObject({
+      purpose: 'add_account',
+      metadata: { browser_os: 'macos', browser_version: '127' },
+    })
+  })
+
+  it('重新登录会话会复用账号 profile_dir 并让后端兜底账号代理', async () => {
     const session = { id: 'session-2', platform: 'codex', status: 'active' }
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ data: [{ platform_id: 'codex' }] }))
@@ -174,8 +209,50 @@ describe('account-service', () => {
       platform: 'codex',
       account_id: 'acc-1',
       profile_dir: '/profiles/acc-1',
-      metadata: { proxy_server: 'socks5://127.0.0.1:1080' },
+      metadata: {
+        browser_os: 'windows',
+        browser_version: '126',
+      },
     })
+  })
+
+  it('重新登录会话会默认带上保存代理 id', async () => {
+    const session = { id: 'session-2', platform: 'codex', status: 'active' }
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: [{ platform_id: 'codex' }] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [{ ...account, proxy_id: 'proxy-1' }] }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, session }))
+
+    await startAccountLoginSession('codex', 'acc-1')
+
+    expect(parseBody(2)).toMatchObject({
+      purpose: 'relogin_account',
+      account_id: 'acc-1',
+      proxy_id: 'proxy-1',
+    })
+    expect(parseBody(2).metadata).not.toHaveProperty('proxy_server')
+  })
+
+  it('重新登录选择本次直连时会显式阻止后端补回旧代理', async () => {
+    const session = { id: 'session-direct', platform: 'codex', status: 'active' }
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: [{ platform_id: 'codex' }] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ ...account, proxy_id: 'proxy-1', proxy_url: 'socks5h://proxy.example:1080' }],
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ ok: true, session }))
+
+    await startAccountLoginSession('codex', 'acc-1', '', '', undefined, 'direct')
+
+    expect(parseBody(2)).toMatchObject({
+      purpose: 'relogin_account',
+      account_id: 'acc-1',
+      proxy_id: null,
+      metadata: { proxy_mode: 'direct' },
+    })
+    expect(parseBody(2).metadata).not.toHaveProperty('proxy_server')
   })
 
   it('添加账号、检查登录态和批量注册都只调用服务端', async () => {

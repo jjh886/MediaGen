@@ -36,12 +36,13 @@ describe('log-service', () => {
       module: 'engine',
       level: 'info',
       keyword: 'ok',
+      task_id: 'task-1',
       limit: 50,
       offset: 10,
     })
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/logs?module=engine&level=info&keyword=ok&limit=50&offset=10',
+      '/api/logs?module=engine&level=info&keyword=ok&task_id=task-1&limit=50&offset=10',
       { headers: { Accept: 'application/json' } }
     )
     expect(result).toEqual(logs)

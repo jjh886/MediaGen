@@ -20,6 +20,13 @@ const columns: Column<LogEntry>[] = [
     minWidth: 90,
     render: (r) => <KtBadge variant={LEVEL_VARIANT[r.level]}>{r.level}</KtBadge>,
   },
+  {
+    key: 'task_id',
+    title: '任务',
+    width: 140,
+    minWidth: 100,
+    render: (r) => r.task_id?.slice(0, 8) || '-',
+  },
   { key: 'summary', title: '摘要', width: 520, minWidth: 240, maxWidth: 900 },
 ]
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { KtTable, KtBadge, KtTabs, KtButton } from '@/shared/ui'
+import { KtTable, KtBadge, KtTabs, KtButton, KtConfirmDialog, KtAsyncState } from '@/shared/ui'
 import type { Column } from '@/shared/ui'
 import { fetchPlugins, type PluginInfo } from '@/shared/services/plugin-service'
 import { fetchAccounts } from '@/shared/services/account-service'
@@ -26,12 +26,19 @@ function formatTime(iso: string): string {
   return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-export default function TaskList() {
+export default function TaskList({
+  onOpenVerification,
+  onOpenTaskLogs,
+}: {
+  onOpenVerification?: (taskId: string) => void
+  onOpenTaskLogs?: (taskId: string) => void
+}) {
   const {
     tasks,
     selectedTaskId,
     activePlatform,
     loading,
+    error,
     fetch,
     setActivePlatform,
     selectTask,
@@ -41,6 +48,8 @@ export default function TaskList() {
 
   const [plugins, setPlugins] = useState<PluginInfo[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [cancelTarget, setCancelTarget] = useState<Task | null>(null)
+  const [pluginError, setPluginError] = useState('')
 
   const accountMap = useMemo(
     () => new Map(accounts.map((a) => [a.id, a.name || a.email])),
@@ -48,26 +57,32 @@ export default function TaskList() {
   )
 
   useEffect(() => {
-    fetchPlugins().then((list) => {
-      setPlugins(list)
-      if (list.length > 0 && !activePlatform) {
-        setActivePlatform(list[0].platform_id)
-      } else {
-        fetch()
-      }
-    })
+    fetchPlugins()
+      .then((list) => {
+        setPlugins(list)
+        if (list.length > 0 && !activePlatform) {
+          setActivePlatform(list[0].platform_id)
+        } else {
+          void fetch().catch(() => undefined)
+        }
+      })
+      .catch((error) => setPluginError(error instanceof Error ? error.message : '平台加载失败。'))
   }, [])
 
   useEffect(() => {
     if (activePlatform) {
-      fetchAccounts(activePlatform).then(setAccounts)
+      fetchAccounts(activePlatform)
+        .then(setAccounts)
+        .catch(() => setAccounts([]))
     }
   }, [activePlatform])
 
   const platformTabs = plugins.map((p) => ({ key: p.platform_id, label: p.display_name }))
 
-  const handleCancel = async (task: Task) => {
-    await cancel(task.id)
+  const confirmCancel = async () => {
+    if (!cancelTarget) return
+    await cancel(cancelTarget.id)
+    setCancelTarget(null)
   }
 
   const columns: Column<Task>[] = [
@@ -161,16 +176,27 @@ export default function TaskList() {
       width: 90,
       minWidth: 70,
       render: (r) =>
-        r.status === 'pending' || r.status === 'processing' ? (
+        r.status === 'pending' || r.status === 'queued' || r.status === 'processing' ? (
           <KtButton
             variant="default"
             size="sm"
             onClick={(e) => {
               e.stopPropagation()
-              handleCancel(r)
+              setCancelTarget(r)
             }}
           >
             取消
+          </KtButton>
+        ) : r.status === 'verification_required' ? (
+          <KtButton
+            variant="primary"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenVerification?.(r.id)
+            }}
+          >
+            去处理
           </KtButton>
         ) : null,
     },
@@ -186,15 +212,14 @@ export default function TaskList() {
       </div>
 
       <div style={{ flex: 1, overflow: 'auto' }}>
-        {loading ? (
-          <div style={{ color: 'var(--text-secondary)', padding: 32, textAlign: 'center' }}>
-            加载中...
-          </div>
-        ) : tasks.length === 0 ? (
-          <div style={{ color: 'var(--text-secondary)', padding: 32, textAlign: 'center' }}>
-            暂无任务记录
-          </div>
-        ) : (
+        <KtAsyncState
+          loading={loading}
+          error={pluginError || error}
+          empty={!loading && tasks.length === 0}
+          emptyText="暂无任务记录"
+          onRetry={() => fetch()}
+        />
+        {!loading && !pluginError && !error && tasks.length > 0 && (
           <KtTable<Task>
             columns={columns}
             data={tasks}
@@ -209,10 +234,21 @@ export default function TaskList() {
         <TaskDetail
           task={selectedTask}
           accountLabel={accountMap.get(selectedTask.account_id ?? '')}
-          onCancel={handleCancel}
+          onCancel={setCancelTarget}
+          onOpenVerification={onOpenVerification}
+          onOpenTaskLogs={onOpenTaskLogs}
           onClose={() => selectTask(null)}
         />
       )}
+      <KtConfirmDialog
+        open={Boolean(cancelTarget)}
+        title="取消任务"
+        message={`确定取消任务 ${cancelTarget?.id.slice(0, 8) || ''} 吗？取消后任务状态会变成已取消。`}
+        confirmText="取消任务"
+        danger
+        onCancel={() => setCancelTarget(null)}
+        onConfirm={confirmCancel}
+      />
     </div>
   )
 }

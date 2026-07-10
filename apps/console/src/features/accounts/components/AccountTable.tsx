@@ -22,6 +22,12 @@ const stateLabel: Record<LoginState, string> = {
   disabled: '已停用',
 }
 
+const browserOsLabel: Record<string, string> = {
+  windows: 'Windows',
+  macos: 'macOS',
+  linux: 'Linux',
+}
+
 interface AccountTableProps {
   accounts: Account[]
   onConfigure: (account: Account) => void
@@ -85,13 +91,6 @@ export default function AccountTable({
     },
     { key: 'email', title: '邮箱/手机', width: 260, minWidth: 180, maxWidth: 420 },
     {
-      key: 'group_name',
-      title: '分组',
-      width: 130,
-      minWidth: 100,
-      render: (r) => r.group_name || '默认分组',
-    },
-    {
       key: 'tier',
       title: '等级',
       width: 100,
@@ -127,6 +126,16 @@ export default function AccountTable({
       width: 120,
       minWidth: 100,
       render: (r) => (r.task_interval_seconds > 0 ? `${r.task_interval_seconds}秒` : '不等待'),
+    },
+    {
+      key: 'browser_version',
+      title: '浏览器环境',
+      width: 150,
+      minWidth: 130,
+      render: (r) =>
+        r.browser_os && r.browser_version
+          ? `${browserOsLabel[r.browser_os] ?? r.browser_os} / Chrome ${r.browser_version}`
+          : '默认',
     },
     {
       key: 'actions',

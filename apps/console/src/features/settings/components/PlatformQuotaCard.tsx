@@ -1,11 +1,8 @@
+import { useEffect, useState } from 'react'
 import { KtInput } from '@/shared/ui'
 import type { AppSettings } from '@/shared/services/settings-service'
+import { fetchPluginQuotas, type PluginQuotaInfo } from '@/shared/services/plugin-service'
 import { cardStyle, titleStyle } from './settings-shared'
-import flowManifest from '../../../../../../plugins/flow/manifest.json'
-import doubaoManifest from '../../../../../../plugins/doubao/manifest.json'
-import chatgptManifest from '../../../../../../plugins/chatgpt/manifest.json'
-import codexManifest from '../../../../../../plugins/codex/manifest.json'
-import jimengManifest from '../../../../../../plugins/jimeng/manifest.json'
 
 type TierOverride = {
   daily_limit?: number
@@ -23,27 +20,29 @@ type TierDefaults = {
 
 type TierField = keyof TierOverride
 
-type PluginQuotaManifest = {
-  platform_id: string
-  display_name: string
-  tiers: {
-    free: TierDefaults
-  }
+function quotaRows(plugins: PluginQuotaInfo[]) {
+  return plugins.flatMap((plugin) =>
+    Object.entries(plugin.tiers).map(([tier, defaults]) => ({
+      label: `${plugin.display_name} ${tierLabel(tier)}`,
+      tierKey: `${plugin.platform_id}_${tier}`,
+      defaults: normalizeDefaults(defaults),
+    }))
+  )
 }
 
-const PLATFORM_QUOTA_ROWS = (
-  [
-    flowManifest,
-    doubaoManifest,
-    chatgptManifest,
-    codexManifest,
-    jimengManifest,
-  ] as PluginQuotaManifest[]
-).map((manifest) => ({
-  label: `${manifest.display_name} 免费`,
-  tierKey: `${manifest.platform_id}_free`,
-  defaults: manifest.tiers.free,
-}))
+function tierLabel(tier: string): string {
+  const labels: Record<string, string> = { free: '免费', plus: 'Plus', pro: 'Pro' }
+  return labels[tier] ?? tier
+}
+
+function normalizeDefaults(defaults: Partial<TierDefaults>): TierDefaults {
+  return {
+    daily_limit: defaults.daily_limit ?? 0,
+    total_limit: defaults.total_limit ?? 0,
+    concurrency_limit: defaults.concurrency_limit ?? 1,
+    task_interval_seconds: defaults.task_interval_seconds ?? 0,
+  }
+}
 
 function parseTierOverrides(overrides: string): Record<string, TierOverride> {
   try {
@@ -155,6 +154,13 @@ export function PlatformQuotaCard({
   update: <K extends keyof AppSettings>(k: K, v: AppSettings[K]) => void
 }) {
   const handleChange = (v: string) => update('platform_tier_overrides', v)
+  const [plugins, setPlugins] = useState<PluginQuotaInfo[]>([])
+
+  useEffect(() => {
+    fetchPluginQuotas()
+      .then(setPlugins)
+      .catch(() => setPlugins([]))
+  }, [])
 
   return (
     <div style={cardStyle}>
@@ -162,7 +168,7 @@ export function PlatformQuotaCard({
       <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
         新增账号和同档位已有账号会使用这里的值；任务间隔用于避免同一账号连续开启新任务。
       </div>
-      {PLATFORM_QUOTA_ROWS.map((row) => (
+      {quotaRows(plugins).map((row) => (
         <PlatformQuotaRow
           key={row.tierKey}
           label={row.label}

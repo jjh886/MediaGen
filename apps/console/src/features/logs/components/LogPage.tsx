@@ -1,6 +1,6 @@
-import { useEffect, useCallback } from 'react'
-import { KtSelect, KtInput } from '@/shared/ui'
-import { useLogStore } from '../hooks/useLogStore'
+import { useEffect, useCallback, type KeyboardEvent } from 'react'
+import { KtAsyncState, KtSelect, KtInput } from '@/shared/ui'
+import { useLogStore, type LogState } from '../hooks/useLogStore'
 import { LogTable } from './LogTable'
 
 const MODULE_OPTIONS = [
@@ -20,35 +20,26 @@ const LEVEL_OPTIONS = [
   { value: 'error', label: 'Error' },
 ]
 
-export function LogPage() {
-  const {
-    logs,
-    loading,
-    moduleFilter,
-    levelFilter,
-    keyword,
-    setModuleFilter,
-    setLevelFilter,
-    setKeyword,
-    expandedId,
-    toggleExpand,
-    load,
-  } = useLogStore()
+export function LogPage({ initialTaskId }: { initialTaskId?: string | null }) {
+  const store = useLogStore()
+  const load = store.load
+  const setTaskId = store.setTaskId
 
   useEffect(() => {
+    if (initialTaskId) setTaskId(initialTaskId)
     load()
     const timer = setInterval(() => {
       load()
     }, 3000)
     return () => clearInterval(timer)
-  }, [load])
+  }, [initialTaskId, load, setTaskId])
 
   const handleSearch = useCallback(() => {
     load()
   }, [load])
 
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
+    (e: KeyboardEvent) => {
       if (e.key === 'Enter') handleSearch()
     },
     [handleSearch]
@@ -56,21 +47,58 @@ export function LogPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        <KtSelect value={moduleFilter} onChange={setModuleFilter} options={MODULE_OPTIONS} />
-        <KtSelect value={levelFilter} onChange={setLevelFilter} options={LEVEL_OPTIONS} />
-        <KtInput
-          placeholder="搜索日志..."
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          onKeyDown={handleKeyDown}
-          style={{ maxWidth: 260 }}
-        />
-      </div>
+      <LogFilters store={store} onKeyDown={handleKeyDown} />
+      <LogContent store={store} />
+    </div>
+  )
+}
 
-      <div style={{ flex: 1, overflow: 'auto', borderRadius: 12, background: '#1E1F21' }}>
-        <LogTable logs={logs} loading={loading} expandedId={expandedId} onToggle={toggleExpand} />
-      </div>
+function LogFilters({
+  store,
+  onKeyDown,
+}: {
+  store: LogState
+  onKeyDown: (event: KeyboardEvent) => void
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+      <KtSelect
+        value={store.moduleFilter}
+        onChange={store.setModuleFilter}
+        options={MODULE_OPTIONS}
+      />
+      <KtSelect value={store.levelFilter} onChange={store.setLevelFilter} options={LEVEL_OPTIONS} />
+      <KtInput
+        placeholder="搜索日志..."
+        value={store.keyword}
+        onChange={(e) => store.setKeyword(e.target.value)}
+        onKeyDown={onKeyDown}
+        style={{ maxWidth: 260 }}
+      />
+      <KtInput
+        placeholder="任务 ID"
+        value={store.taskId}
+        onChange={(e) => store.setTaskId(e.target.value)}
+        onKeyDown={onKeyDown}
+        style={{ maxWidth: 220 }}
+      />
+    </div>
+  )
+}
+
+function LogContent({ store }: { store: LogState }) {
+  return (
+    <div style={{ flex: 1, overflow: 'auto', borderRadius: 12, background: '#1E1F21' }}>
+      {store.error ? (
+        <KtAsyncState error={store.error} onRetry={store.load} />
+      ) : (
+        <LogTable
+          logs={store.logs}
+          loading={store.loading}
+          expandedId={store.expandedId}
+          onToggle={store.toggleExpand}
+        />
+      )}
     </div>
   )
 }

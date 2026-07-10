@@ -1,17 +1,22 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
-use base64::Engine;
 use chrono::Utc;
 use mediagen_core::{AdapterMode, ModelDef, PluginManifest};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use crate::access_control::hash_secret;
+use crate::account_browser_profile::browser_metadata_from_account;
 use crate::flow_runner::FlowRunner;
+use crate::image_api_response::{new_image_task, openai_error, openai_image_stream};
+use crate::image_assets::{
+    cleanup_temp_files, collect_b64_images, fetch_optional_data_url, fetch_ref_images_as_data_urls,
+    fetch_ref_images_as_local_files,
+};
 use crate::image_multipart::parse_image_request;
 use crate::image_request::{ImageEndpoint, ImageFlowRequest, OpenAiImageRequest};
 use crate::js_flow_runner::JsFlowRunner;
-use crate::net_client::http_client;
 use crate::routes::{api_key_allowed, api_key_from_request};
-use crate::store::{AccountRecord, TaskRecord};
+use crate::store::AccountRecord;
 use crate::ServerState;
 
 pub async fn generate_image(
@@ -72,22 +77,29 @@ async fn handle_payload_image(
 
 async fn handle_image_request(
     state: web::Data<ServerState>,
-    body: OpenAiImageRequest,
+    mut body: OpenAiImageRequest,
     endpoint: ImageEndpoint,
     caller_key: Option<String>,
 ) -> HttpResponse {
+    let owner_hash = caller_key.as_deref().map(hash_secret).unwrap_or_default();
+    if let Err((status, code, message)) =
+        crate::image_file_refs::resolve_openai_file_refs(&state.file_root, &mut body, &owner_hash)
+            .await
+    {
+        return openai_error(status, code, &message);
+    }
     if let Err((status, code, message)) = body.validate(endpoint) {
         return openai_error(status, code, &message);
     }
-    if body.stream == Some(true) {
-        return openai_error(
-            400,
-            "unsupported_parameter",
-            "服务端 Web 版当前先返回 JSON 结果，stream=true 请后续再开启。",
-        );
-    }
+    let stream = body.stream == Some(true);
     match run_image_flow(state, body, endpoint, caller_key).await {
-        Ok(body) => HttpResponse::Ok().json(body),
+        Ok(response_body) => {
+            if stream {
+                openai_image_stream(response_body, endpoint)
+            } else {
+                HttpResponse::Ok().json(response_body)
+            }
+        }
         Err((status, code, message)) => openai_error(status, code, &message),
     }
 }
@@ -99,28 +111,213 @@ async fn run_image_flow(
     caller_key: Option<String>,
 ) -> Result<Value, (u16, &'static str, String)> {
     let context = resolve_image_flow_context(&state, &body, caller_key.as_deref())?;
-    state.store.insert_task(new_task(
+    let settings = state.store.settings();
+    let reservation = state
+        .image_task_queue
+        .reserve(&settings)
+        .map_err(|message| (429, "queue_full", message))?;
+    state.store.insert_task(new_image_task(
         &context.task_id,
         context.manifest,
         &context.model.model_id,
         &body,
         &context.account.id,
     ));
+    state
+        .store
+        .add_task_event(&context.task_id, "info", "任务进入队列".to_string());
+    let _permit = reservation.activate(&settings).await;
+    state.store.start_task(&context.task_id);
+    state
+        .store
+        .add_task_event(&context.task_id, "info", "任务开始执行".to_string());
+    run_image_attempts(&state, body, endpoint, caller_key, context).await
+}
 
-    let (flow_request, ref_image_locals) =
-        prepare_flow_request(&body, context.model, endpoint, &context.account.proxy_url).await;
-    let result = execute_image_flow(&state, context.manifest, &context.account, flow_request).await;
-    cleanup_temp_files(&ref_image_locals).await;
-
-    match result {
-        Ok(result) => {
-            complete_image_task(&state, &context.task_id, &context.account.proxy_url, result).await
-        }
-        Err(message) => {
-            state.store.fail_task(&context.task_id, message.clone());
-            Err((502, "plugin_execution_failed", message))
+async fn run_image_attempts(
+    state: &web::Data<ServerState>,
+    body: OpenAiImageRequest,
+    endpoint: ImageEndpoint,
+    caller_key: Option<String>,
+    mut context: ImageFlowContext<'_>,
+) -> Result<Value, (u16, &'static str, String)> {
+    let mut excluded = Vec::<String>::new();
+    let mut same_account_failures = 0u32;
+    loop {
+        state
+            .store
+            .set_task_account(&context.task_id, &context.account.id);
+        match run_single_image_attempt(state, &body, endpoint, &context).await {
+            Ok(result) => return complete_attempt_success(state, &context, result).await,
+            Err(message) => {
+                let decision = apply_failure_strategy(state, &context, &message);
+                if decision.verification_required() {
+                    return create_verification_session(state, &context, decision.original_message)
+                        .await;
+                }
+                record_attempt_failure(state, &context, &decision);
+                same_account_failures += 1;
+                if decision.should_retry_same_account(same_account_failures) {
+                    continue;
+                }
+                if decision.should_cooldown_after_retry_exhausted() {
+                    state.store.mark_account_state_for_seconds(
+                        &context.account.id,
+                        "cooldown",
+                        decision.threshold_cooldown_seconds,
+                    );
+                }
+                if decision.should_failover() {
+                    excluded.push(context.account.id.clone());
+                    if let Some(next) =
+                        next_failover_context(state, &context, caller_key.as_deref(), &excluded)?
+                    {
+                        context = next;
+                        same_account_failures = 0;
+                        continue;
+                    }
+                }
+                return fail_image_task(state, &context, decision.formatted_message());
+            }
         }
     }
+}
+
+async fn run_single_image_attempt(
+    state: &web::Data<ServerState>,
+    body: &OpenAiImageRequest,
+    endpoint: ImageEndpoint,
+    context: &ImageFlowContext<'_>,
+) -> Result<Value, String> {
+    let (flow_request, ref_image_locals) =
+        prepare_flow_request(body, context.model, endpoint, &context.account.proxy_url).await;
+    let result = execute_image_flow(state, context.manifest, &context.account, flow_request).await;
+    cleanup_temp_files(&ref_image_locals).await;
+    result
+}
+
+async fn complete_attempt_success(
+    state: &web::Data<ServerState>,
+    context: &ImageFlowContext<'_>,
+    result: Value,
+) -> Result<Value, (u16, &'static str, String)> {
+    state.store.mark_account_usage(&context.account.id);
+    state.store.add_audit_log(
+        "engine",
+        "info",
+        "图片任务完成".to_string(),
+        format!(
+            "task={}, platform={}",
+            context.task_id, context.manifest.platform_id
+        ),
+        Some(context.task_id.clone()),
+    );
+    complete_image_task(state, &context.task_id, &context.account.proxy_url, result).await
+}
+
+fn apply_failure_strategy(
+    state: &web::Data<ServerState>,
+    context: &ImageFlowContext<'_>,
+    message: &str,
+) -> crate::failure_strategy::FailureDecision {
+    let decision = if let Some(message) = message.strip_prefix("needs_verification:") {
+        crate::failure_strategy::FailureDecision {
+            category: "verification_required".to_string(),
+            retry_action: "failover".to_string(),
+            account_state: Some("verification_required".to_string()),
+            usage_consumed: false,
+            same_error_threshold: 1,
+            threshold_cooldown_seconds: 0,
+            cooldown_from_message: false,
+            cooldown_seconds: 0,
+            original_message: message.to_string(),
+        }
+    } else {
+        crate::failure_strategy::classify_failure(context.manifest, message)
+    };
+    apply_account_state_for_failure(state, context, &decision);
+    decision
+}
+
+fn apply_account_state_for_failure(
+    state: &web::Data<ServerState>,
+    context: &ImageFlowContext<'_>,
+    decision: &crate::failure_strategy::FailureDecision,
+) {
+    if let Some(account_state) = decision.account_state.as_deref() {
+        if account_state == "cooldown" {
+            let fallback = i64::from(state.store.settings().cooldown_default_seconds);
+            state.store.mark_account_state_for_seconds(
+                &context.account.id,
+                account_state,
+                decision.cooldown_seconds(&decision.original_message, fallback),
+            );
+        } else {
+            state
+                .store
+                .mark_account_state(&context.account.id, account_state);
+        }
+    }
+}
+
+fn record_attempt_failure(
+    state: &web::Data<ServerState>,
+    context: &ImageFlowContext<'_>,
+    decision: &crate::failure_strategy::FailureDecision,
+) {
+    if decision.usage_consumed {
+        state.store.mark_account_usage(&context.account.id);
+    }
+    let message = decision.formatted_message();
+    state
+        .store
+        .add_task_event(&context.task_id, "error", message.clone());
+    state.store.add_audit_log(
+        "engine",
+        "error",
+        "图片任务失败".to_string(),
+        message,
+        Some(context.task_id.clone()),
+    );
+}
+
+fn next_failover_context<'a>(
+    state: &'a web::Data<ServerState>,
+    current: &ImageFlowContext<'a>,
+    caller_key: Option<&str>,
+    excluded: &[String],
+) -> Result<Option<ImageFlowContext<'a>>, (u16, &'static str, String)> {
+    let Some(account) = state.store.first_available_account_for_key_excluding(
+        &current.manifest.platform_id,
+        caller_key,
+        excluded,
+    ) else {
+        return Ok(None);
+    };
+    let account = state
+        .store
+        .account_with_required_runtime_proxy(account)
+        .map_err(|message| (409, "proxy_unavailable", message))?;
+    state.store.add_task_event(
+        &current.task_id,
+        "info",
+        format!("切换账号继续执行: {}", account.id),
+    );
+    Ok(Some(ImageFlowContext {
+        manifest: current.manifest,
+        model: current.model,
+        account,
+        task_id: current.task_id.clone(),
+    }))
+}
+
+fn fail_image_task(
+    state: &web::Data<ServerState>,
+    context: &ImageFlowContext<'_>,
+    message: String,
+) -> Result<Value, (u16, &'static str, String)> {
+    state.store.fail_task(&context.task_id, message.clone());
+    Err((502, "plugin_execution_failed", message))
 }
 
 struct ImageFlowContext<'a> {
@@ -148,6 +345,9 @@ fn resolve_image_flow_context<'a>(
     let account = state
         .store
         .first_available_account_for_key(&manifest.platform_id, caller_key)
+        .map(|account| state.store.account_with_required_runtime_proxy(account))
+        .transpose()
+        .map_err(|message| (409, "proxy_unavailable", message))?
         .ok_or_else(|| {
             (
                 409,
@@ -209,6 +409,44 @@ async fn execute_image_flow(
     }
 }
 
+async fn create_verification_session(
+    state: &web::Data<ServerState>,
+    context: &ImageFlowContext<'_>,
+    message: String,
+) -> Result<Value, (u16, &'static str, String)> {
+    state
+        .store
+        .require_task_verification(&context.task_id, message.clone());
+    let request = mediagen_browser_gateway::BrowserSessionCreateRequest {
+        purpose: mediagen_browser_gateway::BrowserSessionPurpose::HumanVerification,
+        platform: context.manifest.platform_id.clone(),
+        account_id: Some(context.account.id.clone()),
+        task_id: Some(context.task_id.clone()),
+        start_url: context.manifest.workspace_url.clone(),
+        profile_dir: Some(context.account.profile_dir.clone()),
+        headless: Some(true),
+        metadata: browser_metadata_from_account(&context.account),
+        ..mediagen_browser_gateway::BrowserSessionCreateRequest::default()
+    };
+    let response = state
+        .browser_gateway
+        .create_session(request)
+        .await
+        .map_err(|err| (409, "verification_required", err.to_string()))?;
+    state.store.add_audit_log(
+        "account",
+        "warn",
+        "任务需要人工验证".to_string(),
+        message.clone(),
+        Some(context.task_id.clone()),
+    );
+    Err((
+        409,
+        "verification_required",
+        format!("需要人工接管浏览器会话: {}", response.session.id),
+    ))
+}
+
 async fn complete_image_task(
     state: &web::Data<ServerState>,
     task_id: &str,
@@ -225,186 +463,5 @@ async fn complete_image_task(
     Ok(json!({
         "created": Utc::now().timestamp(),
         "data": images.into_iter().map(|b64| json!({ "b64_json": b64 })).collect::<Vec<_>>(),
-    }))
-}
-
-fn new_task(
-    task_id: &str,
-    manifest: &mediagen_core::PluginManifest,
-    model_id: &str,
-    body: &OpenAiImageRequest,
-    account_id: &str,
-) -> TaskRecord {
-    TaskRecord {
-        id: task_id.to_string(),
-        platform: manifest.platform_id.clone(),
-        task_kind: "image".to_string(),
-        model_id: model_id.to_string(),
-        prompt: body.prompt_text(),
-        account_id: Some(account_id.to_string()),
-        status: "processing".to_string(),
-        result_url: None,
-        storage_key: None,
-        error_message: None,
-        result_data: None,
-        created_at: Utc::now().to_rfc3339(),
-        completed_at: None,
-    }
-}
-
-async fn collect_b64_images(result: &Value, proxy_url: &str) -> Result<Vec<String>, String> {
-    let mut images = Vec::new();
-    if let Some(items) = result.get("images").and_then(Value::as_array) {
-        for item in items {
-            if let Some(url) = item.get("url").and_then(Value::as_str) {
-                images.push(image_url_to_b64(url, proxy_url).await?);
-            }
-        }
-    }
-    if images.is_empty() {
-        if let Some(url) = result
-            .get("download_url")
-            .or_else(|| result.get("url"))
-            .and_then(Value::as_str)
-        {
-            images.push(image_url_to_b64(url, proxy_url).await?);
-        }
-    }
-    if images.is_empty() {
-        return Err("插件没有返回可下载图片".to_string());
-    }
-    Ok(images)
-}
-
-async fn fetch_ref_images_as_data_urls(urls: &[String], proxy_url: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for url in urls {
-        if url.starts_with("data:image/") {
-            out.push(url.clone());
-        } else if let Ok(data_url) = download_image_as_data_url(url, proxy_url).await {
-            out.push(data_url);
-        }
-    }
-    out
-}
-
-async fn fetch_ref_images_as_local_files(urls: &[String], proxy_url: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for url in urls {
-        match image_url_to_bytes(url, proxy_url).await {
-            Ok((bytes, ext)) => {
-                let path =
-                    std::env::temp_dir().join(format!("mediagen_ref_{}.{}", Uuid::new_v4(), ext));
-                if tokio::fs::write(&path, bytes).await.is_ok() {
-                    out.push(path.to_string_lossy().to_string());
-                }
-            }
-            Err(message) => {
-                eprintln!("[mediagen-server] 参考图写入临时文件失败: {message}");
-            }
-        }
-    }
-    out
-}
-
-async fn cleanup_temp_files(paths: &[String]) {
-    for path in paths {
-        let _ = tokio::fs::remove_file(path).await;
-    }
-}
-
-async fn fetch_optional_data_url(url: Option<&str>, proxy_url: &str) -> Option<String> {
-    let url = url?;
-    if url.starts_with("data:image/") {
-        return Some(url.to_string());
-    }
-    download_image_as_data_url(url, proxy_url).await.ok()
-}
-
-async fn download_image_as_data_url(url: &str, proxy_url: &str) -> Result<String, String> {
-    let (bytes, ext) = image_url_to_bytes(url, proxy_url).await?;
-    let mime = match ext.as_str() {
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        "gif" => "image/gif",
-        _ => "image/png",
-    };
-    Ok(format!(
-        "data:{mime};base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(bytes)
-    ))
-}
-
-async fn image_url_to_bytes(url: &str, proxy_url: &str) -> Result<(bytes::Bytes, String), String> {
-    if let Some((head, encoded)) = url.split_once(";base64,") {
-        if head.starts_with("data:image/") {
-            let ext = head
-                .trim_start_matches("data:image/")
-                .split(';')
-                .next()
-                .unwrap_or("png")
-                .replace("jpeg", "jpg");
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(encoded)
-                .map_err(|err| format!("data URL 图片解码失败: {err}"))?;
-            return Ok((bytes::Bytes::from(bytes), ext));
-        }
-    }
-    let response = http_client(proxy_url)?
-        .get(url)
-        .send()
-        .await
-        .map_err(|err| err.to_string())?;
-    if !response.status().is_success() {
-        return Err(format!("图片下载失败: HTTP {}", response.status()));
-    }
-    let ext = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(';').next())
-        .map(extension_from_mime)
-        .unwrap_or("png")
-        .to_string();
-    let bytes = response.bytes().await.map_err(|err| err.to_string())?;
-    Ok((bytes, ext))
-}
-
-fn extension_from_mime(mime: &str) -> &'static str {
-    match mime {
-        "image/jpeg" => "jpg",
-        "image/webp" => "webp",
-        "image/gif" => "gif",
-        _ => "png",
-    }
-}
-
-async fn image_url_to_b64(url: &str, proxy_url: &str) -> Result<String, String> {
-    if let Some((_, b64)) = url.split_once(";base64,") {
-        return Ok(b64.to_string());
-    }
-    let response = http_client(proxy_url)?
-        .get(url)
-        .send()
-        .await
-        .map_err(|err| err.to_string())?;
-    if !response.status().is_success() {
-        return Err(format!("图片下载失败: HTTP {}", response.status()));
-    }
-    let bytes = response.bytes().await.map_err(|err| err.to_string())?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
-}
-
-fn openai_error(status: u16, code: &'static str, message: &str) -> HttpResponse {
-    HttpResponse::build(
-        actix_web::http::StatusCode::from_u16(status)
-            .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR),
-    )
-    .json(json!({
-        "error": {
-            "message": message,
-            "type": code,
-            "code": code,
-        }
     }))
 }

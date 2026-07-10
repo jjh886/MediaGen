@@ -5,6 +5,7 @@ import {
 } from '@/shared/services/browser-session-service'
 import { apiDelete, apiGet, apiPost } from '@/shared/services/http-api-client'
 import type { Account } from '@/shared/types/account'
+import type { BrowserProfilePayload } from '../utils/browser-profile'
 
 export { fetchAccounts } from '@/shared/services/account-service'
 
@@ -22,8 +23,10 @@ export type AccountConfigUpdate = Partial<
     | 'daily_limit'
     | 'total_limit'
     | 'task_interval_seconds'
-    | 'group_name'
     | 'proxy_url'
+    | 'proxy_id'
+    | 'browser_os'
+    | 'browser_version'
     | 'api_key'
   >
 >
@@ -50,25 +53,68 @@ export async function reloginAccount(id: string): Promise<void> {
 export async function startAccountLoginSession(
   platform: string,
   accountId?: string | null,
-  proxyUrl?: string
+  proxyUrl?: string,
+  proxyId?: string,
+  browserProfile?: BrowserProfilePayload,
+  proxyMode?: 'direct'
 ): Promise<BrowserSession> {
   const plugin = await resolvePluginLoginInfo(platform)
   const account = accountId
     ? (await fetchSharedAccounts(platform)).find((item) => item.id === accountId)
     : null
-  const resolvedProxy = proxyUrl === undefined ? account?.proxy_url?.trim() || '' : proxyUrl.trim()
-  const metadata = resolvedProxy ? { proxy_server: resolvedProxy } : undefined
+  const resolvedProxyId =
+    proxyMode === 'direct'
+      ? ''
+      : proxyId === undefined && accountId
+        ? account?.proxy_id?.trim()
+        : proxyId
+  const resolvedProxy = resolvedProxyId
+    ? ''
+    : proxyMode === 'direct'
+      ? ''
+      : proxyUrl === undefined
+        ? account?.proxy_url?.trim() || ''
+        : proxyUrl.trim()
+  const resolvedBrowserOs =
+    browserProfile === undefined ? account?.browser_os?.trim() || '' : browserProfile.browser_os
+  const resolvedBrowserVersion =
+    browserProfile === undefined
+      ? account?.browser_version?.trim() || ''
+      : browserProfile.browser_version
+  const metadata = browserSessionMetadata(
+    resolvedProxy,
+    resolvedBrowserOs.trim(),
+    resolvedBrowserVersion.trim(),
+    proxyMode
+  )
   return createBrowserSession({
     purpose: accountId ? 'relogin_account' : 'add_account',
     platform,
     account_id: accountId || null,
     start_url: plugin.login_url || plugin.workspace_url || 'https://example.com',
     profile_dir: account?.profile_dir || null,
+    proxy_id: resolvedProxyId || null,
     metadata,
     width: 1365,
     height: 768,
     deviceScaleFactor: browserDeviceScaleFactor(),
   })
+}
+
+function browserSessionMetadata(
+  proxyUrl: string,
+  browserOs: string,
+  browserVersion: string,
+  proxyMode?: 'direct'
+) {
+  const metadata: Record<string, string> = {}
+  if (proxyMode === 'direct') metadata.proxy_mode = 'direct'
+  if (proxyUrl) metadata.proxy_server = proxyUrl
+  if (browserOs && browserVersion) {
+    metadata.browser_os = browserOs
+    metadata.browser_version = browserVersion
+  }
+  return Object.keys(metadata).length > 0 ? metadata : undefined
 }
 
 function browserDeviceScaleFactor(): number {

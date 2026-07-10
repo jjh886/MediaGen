@@ -5,10 +5,15 @@ import AccountAddDialog from '../AccountAddDialog'
 const mocks = vi.hoisted(() => ({
   startAccountLoginSession: vi.fn(),
   cancelBrowserSession: vi.fn(),
+  fetchProxies: vi.fn(),
 }))
 
 vi.mock('../../services/account-service', () => ({
   startAccountLoginSession: (...args: unknown[]) => mocks.startAccountLoginSession(...args),
+}))
+
+vi.mock('@/shared/services/proxy-service', () => ({
+  fetchProxies: (...args: unknown[]) => mocks.fetchProxies(...args),
 }))
 
 vi.mock('@/shared/browser/RemoteBrowserPanel', () => ({
@@ -25,6 +30,8 @@ describe('AccountAddDialog', () => {
   beforeEach(() => {
     mocks.startAccountLoginSession.mockReset()
     mocks.cancelBrowserSession.mockReset()
+    mocks.fetchProxies.mockReset()
+    mocks.fetchProxies.mockResolvedValue([])
   })
 
   it('添加账号点击打开登录页后创建会话，失败时显示服务端错误', async () => {
@@ -38,7 +45,14 @@ describe('AccountAddDialog', () => {
     await waitFor(() => {
       expect(screen.getByText(/unsupported_country_region_territory/)).toBeInTheDocument()
     })
-    expect(mocks.startAccountLoginSession).toHaveBeenCalledWith('codex', undefined, '')
+    expect(mocks.startAccountLoginSession).toHaveBeenCalledWith(
+      'codex',
+      undefined,
+      '',
+      undefined,
+      undefined,
+      undefined
+    )
     expect(screen.queryByText('登录失败，请重试。')).not.toBeInTheDocument()
   })
 
@@ -51,10 +65,11 @@ describe('AccountAddDialog', () => {
     })
 
     render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
-    fireEvent.click(screen.getByLabelText('为这个账号单独设置代理'))
-    fireEvent.change(screen.getByPlaceholderText('127.0.0.1 或 proxy.example.com'), {
-      target: { value: 'proxy.example.com' },
-    })
+    fireEvent.change(screen.getByLabelText('账号代理'), { target: { value: 'manual' } })
+    fireEvent.change(
+      screen.getByPlaceholderText('127.0.0.1、proxy.example.com 或完整 socks5h:// 地址'),
+      { target: { value: 'proxy.example.com' } }
+    )
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '1080' } })
     fireEvent.click(screen.getByText('打开登录页'))
 
@@ -62,7 +77,71 @@ describe('AccountAddDialog', () => {
       expect(mocks.startAccountLoginSession).toHaveBeenCalledWith(
         'codex',
         undefined,
-        'socks5h://proxy.example.com:1080'
+        'socks5h://proxy.example.com:1080',
+        undefined,
+        undefined,
+        undefined
+      )
+    })
+  })
+
+  it('添加账号时可以选择已保存代理并传递 proxy_id', async () => {
+    mocks.fetchProxies.mockResolvedValue([
+      {
+        id: 'proxy-1',
+        name: '住宅代理',
+        server: 'socks5h://proxy.example:1080',
+        username: 'user',
+        enabled: true,
+        created_at: '2026-06-29T00:00:00Z',
+      },
+    ])
+    mocks.startAccountLoginSession.mockResolvedValue({
+      id: 'session-1',
+      platform: 'codex',
+      status: 'active',
+      viewport: { width: 1365, height: 768 },
+    })
+
+    render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    fireEvent.change(await screen.findByLabelText('账号代理'), {
+      target: { value: 'saved:proxy-1' },
+    })
+    fireEvent.click(screen.getByText('打开登录页'))
+
+    await waitFor(() => {
+      expect(mocks.startAccountLoginSession).toHaveBeenCalledWith(
+        'codex',
+        undefined,
+        '',
+        'proxy-1',
+        undefined,
+        undefined
+      )
+    })
+  })
+
+  it('添加账号时会把浏览器环境传给服务端会话', async () => {
+    mocks.startAccountLoginSession.mockResolvedValue({
+      id: 'session-1',
+      platform: 'codex',
+      status: 'active',
+      viewport: { width: 1365, height: 768 },
+    })
+
+    render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    fireEvent.click(screen.getByLabelText('模拟这个账号的系统和浏览器版本'))
+    fireEvent.change(screen.getByPlaceholderText('126'), { target: { value: '127' } })
+    fireEvent.click(screen.getByText('打开登录页'))
+
+    await waitFor(() => {
+      expect(mocks.startAccountLoginSession).toHaveBeenCalledWith(
+        'codex',
+        undefined,
+        '',
+        undefined,
+        { browser_os: 'windows', browser_version: '127' },
+        undefined
       )
     })
   })

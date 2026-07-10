@@ -11,7 +11,7 @@
       "model_id": "ChatGPT",
       "display_name": "ChatGPT",
       "task_kind": "image",
-      "aliases": ["gpt-image-2"],
+      "aliases": ["gpt-image-1"],
       "alias_priority": 30
     }
   ],

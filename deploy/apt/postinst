@@ -2,7 +2,8 @@
 set -euo pipefail
 
 id mediagen >/dev/null 2>&1 || useradd --system --home /var/lib/mediagen --shell /usr/sbin/nologin mediagen
-mkdir -p /etc/mediagen /var/lib/mediagen/profiles /var/lib/mediagen/workspace /var/lib/mediagen/results /var/log/mediagen
+mkdir -p /etc/mediagen /var/lib/mediagen/profiles /var/lib/mediagen/.cloakbrowser /var/lib/mediagen/workspace /var/lib/mediagen/results /var/log/mediagen
 chown -R mediagen:mediagen /var/lib/mediagen /var/log/mediagen
 systemctl daemon-reload || true
 systemctl enable mediagen-server.service || true
+systemctl start mediagen-server.service || true

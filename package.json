@@ -5,10 +5,7 @@
   "description": "OpenAI-compatible media generation service with a local web console.",
   "type": "module",
   "workspaces": [
-    "apps/console",
-    "packages/contracts",
-    "packages/ui",
-    "packages/feature-kits"
+    "apps/console"
   ],
   "scripts": {
     "prepare": "husky",
@@ -22,14 +19,18 @@
     "build:launcher": "cargo build -p mediagen-local-launcher --release",
     "package:local": "node scripts/package-local-release.mjs",
     "package:installers": "node scripts/package-local-installers.mjs",
+    "package:apt": "MEDIAGEN_PACKAGE_TARGET=apt node scripts/package-local-installers.mjs",
+    "package:yum": "MEDIAGEN_PACKAGE_TARGET=yum node scripts/package-local-installers.mjs",
     "type-check": "npm --workspace @mediagen/console run type-check",
     "lint": "node scripts/check-code-line-limit.mjs --scope app --max 500 && node scripts/check-import-boundaries.mjs && node scripts/check-rust-platform-boundaries.mjs && npm --workspace @mediagen/console run lint",
     "test": "npm --workspace @mediagen/console run test",
     "test:watch": "npm --workspace @mediagen/console run test -- --watch",
     "coverage:gate": "node scripts/gates/check-coverage-gate.mjs --app",
-    "check": "npm run type-check && npm run lint && npm run test && npm run build && npm run cargo-check",
+    "check": "npm run format:check && npm run type-check && npm run lint && npm run test && npm run coverage:gate && npm run build && npm run cargo-fmt && npm run cargo-clippy && npm run cargo-test && npm run cargo-check && npm run check:compat-expiry",
     "cargo-check": "cargo check --workspace",
     "cargo-test": "cargo test --workspace",
+    "cargo-fmt": "cargo fmt --check --all",
+    "cargo-clippy": "cargo clippy --workspace --all-targets",
     "format:check": "node scripts/check-prettier-format.mjs --all",
     "quality:start": "node scripts/gates/run-start-quality-gate.mjs",
     "quality:semgrep": "node scripts/run-semgrep-local.mjs",

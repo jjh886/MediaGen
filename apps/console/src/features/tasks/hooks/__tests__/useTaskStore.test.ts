@@ -41,6 +41,7 @@ beforeEach(() => {
     selectedTaskId: null,
     activePlatform: '',
     loading: false,
+    error: '',
   })
 })
 
@@ -52,6 +53,7 @@ describe('useTaskStore', () => {
       expect(state.selectedTaskId).toBeNull()
       expect(state.activePlatform).toBe('')
       expect(state.loading).toBe(false)
+      expect(state.error).toBe('')
     })
   })
 
@@ -171,7 +173,7 @@ describe('useTaskStore', () => {
   })
 
   describe('cancel', () => {
-    it('取消任务后状态变为 failed 并附带错误信息', async () => {
+    it('取消任务后状态变为 cancelled 并附带错误信息', async () => {
       mockCancelTask.mockResolvedValue(undefined)
       useTaskStore.setState({ tasks: SAMPLE_TASKS })
 
@@ -180,7 +182,7 @@ describe('useTaskStore', () => {
       })
 
       const task = useTaskStore.getState().tasks.find((t) => t.id === 'task-001')
-      expect(task?.status).toBe('failed')
+      expect(task?.status).toBe('cancelled')
       expect(task?.error_message).toBe('用户取消')
     })
 

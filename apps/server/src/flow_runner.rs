@@ -3,15 +3,17 @@ use std::time::Duration;
 
 use mediagen_browser_gateway::{
     BrowserClipboardRequest, BrowserGateway, BrowserHistoryRequest, BrowserInputRequest,
-    BrowserResizeRequest, BrowserSessionCreateRequest, BrowserSessionPurpose,
+    BrowserResizeRequest, BrowserScreenshotRequest, BrowserSessionCreateRequest,
+    BrowserSessionPurpose,
 };
 use mediagen_core::PluginManifest;
 use mediagen_plugin_runtime::PluginLoader;
 use serde_json::{json, Value};
 
+use crate::account_browser_profile::browser_metadata_from_account;
 use crate::flow_runtime::{
-    build_image_flow_context, find_image_result, generate_image_flow, prepare_flow_step,
-    record_flow_result,
+    build_image_flow_context, find_image_result, flow_result_is_error, flow_result_message,
+    generate_image_flow, prepare_flow_step, record_flow_result,
 };
 use crate::image_request::ImageFlowRequest;
 use crate::net_client::http_client;
@@ -37,7 +39,7 @@ impl FlowRunner {
         account: &AccountRecord,
         input: ImageFlowRequest,
     ) -> Result<Value, String> {
-        if manifest.adapter_mode != mediagen_core::AdapterMode::Browser {
+        if manifest.adapter_mode == mediagen_core::AdapterMode::Api {
             return Err(format!(
                 "{} 当前需要 API 插件执行器，服务端浏览器 flow 不适用",
                 manifest.platform_id
@@ -54,8 +56,8 @@ impl FlowRunner {
             let result = self
                 .execute_action(&prepared.action, &prepared.params, manifest, account)
                 .await?;
-            if is_error_result(&result) {
-                return Err(result_message(&result));
+            if flow_result_is_error(&result) {
+                return Err(flow_result_message(&result));
             }
             record_flow_result(&mut context, &mut results, &prepared.params, result);
         }
@@ -75,6 +77,7 @@ impl FlowRunner {
             "browser.navigate" => self.navigate(params).await,
             "browser.history" => self.history(params).await,
             "browser.resize" => self.resize(params).await,
+            "browser.screenshot" => self.screenshot(params).await,
             "browser.input" => self.input(params).await,
             "browser.clipboard" => self.clipboard(params).await,
             "browser.cdp" => self.cdp(params).await,
@@ -85,7 +88,7 @@ impl FlowRunner {
             "browser.type_text" => self.type_text(params).await,
             "browser.set_file" => self.set_file(params).await,
             "browser.download" => self.browser_download(params).await,
-            "browser.close" => self.close_browser(params).await,
+            "browser.close" => self.close_browser(params, manifest).await,
             "http.download" => http_download(params, &account.proxy_url).await,
             other => Err(format!("服务端暂不支持 flow action: {other}")),
         }
@@ -102,13 +105,6 @@ impl FlowRunner {
             .unwrap_or_else(|| manifest.workspace_url.clone());
         let profile_dir =
             str_param(params, "profile_dir").unwrap_or_else(|| account.profile_dir.clone());
-        let mut metadata = std::collections::HashMap::new();
-        if !account.proxy_url.trim().is_empty() {
-            metadata.insert(
-                "proxy_server".to_string(),
-                Value::String(account.proxy_url.clone()),
-            );
-        }
         let response = self
             .browser_gateway
             .create_session(BrowserSessionCreateRequest {
@@ -117,7 +113,7 @@ impl FlowRunner {
                 start_url,
                 profile_dir: Some(profile_dir),
                 headless: Some(bool_param(params, "headless").unwrap_or(true)),
-                metadata,
+                metadata: browser_metadata_from_account(account),
                 ..BrowserSessionCreateRequest::default()
             })
             .await
@@ -164,6 +160,17 @@ impl FlowRunner {
         let response = self
             .browser_gateway
             .resize_session(&session_id, request)
+            .await
+            .map_err(|err| err.to_string())?;
+        serde_json::to_value(response).map_err(|err| err.to_string())
+    }
+
+    async fn screenshot(&self, params: &Value) -> Result<Value, String> {
+        let session_id = required_str(params, "session_id")?;
+        let request = screenshot_request_from_params(params)?;
+        let response = self
+            .browser_gateway
+            .screenshot_session(&session_id, request)
             .await
             .map_err(|err| err.to_string())?;
         serde_json::to_value(response).map_err(|err| err.to_string())
@@ -235,8 +242,8 @@ impl FlowRunner {
             if result.get("status").and_then(Value::as_str) == Some("done") {
                 return Ok(result);
             }
-            if is_error_result(&result) {
-                return Err(result_message(&result));
+            if flow_result_is_error(&result) {
+                return Err(flow_result_message(&result));
             }
             if std::time::Instant::now() >= deadline {
                 return Err("插件轮询超时".to_string());
@@ -304,8 +311,20 @@ impl FlowRunner {
             .map_err(|err| err.to_string())
     }
 
-    async fn close_browser(&self, params: &Value) -> Result<Value, String> {
+    async fn close_browser(
+        &self,
+        params: &Value,
+        manifest: &PluginManifest,
+    ) -> Result<Value, String> {
         let session_id = required_str(params, "session_id")?;
+        if manifest
+            .extra
+            .get("browser_lifecycle")
+            .and_then(Value::as_str)
+            == Some("persistent")
+        {
+            return Ok(json!({ "closed": false, "kept_alive": true }));
+        }
         let _ = self.browser_gateway.complete_session(&session_id).await;
         Ok(json!({ "closed": true }))
     }
@@ -329,22 +348,6 @@ async fn http_download(params: &Value, proxy_url: &str) -> Result<Value, String>
     Ok(json!({ "status": "done", "images": [{ "url": format!("data:{mime};base64,{b64}") }] }))
 }
 
-fn is_error_result(value: &Value) -> bool {
-    matches!(
-        value.get("status").and_then(Value::as_str),
-        Some("error" | "needs_verification")
-    )
-}
-
-fn result_message(value: &Value) -> String {
-    value
-        .get("message")
-        .or_else(|| value.get("error"))
-        .and_then(Value::as_str)
-        .unwrap_or("插件执行失败")
-        .to_string()
-}
-
 fn required_str(params: &Value, key: &str) -> Result<String, String> {
     str_param(params, key).ok_or_else(|| format!("flow action 缺少 {key}"))
 }
@@ -360,8 +363,38 @@ fn bool_param(params: &Value, key: &str) -> Option<bool> {
     params.get(key).and_then(Value::as_bool)
 }
 
+fn screenshot_request_from_params(params: &Value) -> Result<BrowserScreenshotRequest, String> {
+    serde_json::from_value(params.clone()).map_err(|err| err.to_string())
+}
+
 async fn sleep_ms(ms: Option<u64>) {
     if let Some(ms) = ms.filter(|value| *value > 0) {
         actix_web::rt::time::sleep(Duration::from_millis(ms)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::screenshot_request_from_params;
+    use serde_json::json;
+
+    #[test]
+    fn screenshot_request_accepts_flow_params_and_defaults() {
+        let default = screenshot_request_from_params(&json!({ "session_id": "browser-1" }))
+            .expect("default screenshot params");
+        assert_eq!(default.format, "jpeg");
+        assert_eq!(default.quality, None);
+        assert!(!default.full_page);
+
+        let custom = screenshot_request_from_params(&json!({
+            "session_id": "browser-1",
+            "format": "png",
+            "quality": 80,
+            "full_page": true
+        }))
+        .expect("custom screenshot params");
+        assert_eq!(custom.format, "png");
+        assert_eq!(custom.quality, Some(80));
+        assert!(custom.full_page);
     }
 }

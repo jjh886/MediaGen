@@ -1,3 +1,7 @@
+use sha2::{Digest, Sha256};
+
+const SECRET_HASH_PREFIX: &str = "sha256:";
+
 pub fn normalize_lines(value: &str) -> String {
     value
         .lines()
@@ -21,30 +25,73 @@ pub fn settings_key_allowed(settings_keys: &str, key: &str) -> bool {
     setting_key_specs(settings_keys).any(|spec| spec.key == key)
 }
 
-pub fn groups_for_key(settings_keys: &str, key: &str) -> Vec<String> {
-    setting_key_specs(settings_keys)
-        .filter(|spec| spec.key == key)
-        .flat_map(|spec| spec.groups)
-        .collect()
-}
-
-pub fn key_grants(settings_keys: &str) -> Vec<(String, Vec<String>)> {
-    setting_key_specs(settings_keys)
-        .map(|spec| (spec.key.to_string(), spec.groups))
-        .collect()
-}
-
 pub fn account_key_allowed(account_keys: &str, key: &str) -> bool {
+    let hashed = hash_secret_token(key);
     account_keys
         .lines()
         .flat_map(|line| line.split(','))
         .map(str::trim)
-        .any(|configured| !configured.is_empty() && configured == key)
+        .any(|configured| !configured.is_empty() && (configured == key || configured == hashed))
+}
+
+pub fn hash_account_keys(value: &str) -> String {
+    normalize_lines(value)
+        .lines()
+        .map(hash_account_key_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn mask_account_keys(value: &str) -> String {
+    value
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(mask_account_key_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn hash_secret(value: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn hash_secret_token(value: &str) -> String {
+    format!("{SECRET_HASH_PREFIX}{}", hash_secret(value))
+}
+
+fn hash_account_key_line(value: &str) -> String {
+    if value.starts_with(SECRET_HASH_PREFIX) {
+        value.to_string()
+    } else {
+        hash_secret_token(value)
+    }
+}
+
+fn mask_account_key_line(value: &str) -> String {
+    if value.starts_with(SECRET_HASH_PREFIX) {
+        return "已保存".to_string();
+    }
+    let prefix = value.chars().take(4).collect::<String>();
+    let suffix = last_chars(value, 4);
+    format!("{prefix}****{suffix}")
+}
+
+fn last_chars(value: &str, count: usize) -> String {
+    value
+        .chars()
+        .rev()
+        .take(count)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect()
 }
 
 struct KeySpec<'a> {
     key: &'a str,
-    groups: Vec<String>,
 }
 
 fn setting_key_specs(value: &str) -> impl Iterator<Item = KeySpec<'_>> {
@@ -53,24 +100,12 @@ fn setting_key_specs(value: &str) -> impl Iterator<Item = KeySpec<'_>> {
         if text.is_empty() {
             return None;
         }
-        let (key, groups) = text
+        let (key, _) = text
             .split_once('=')
             .or_else(|| text.split_once('|'))
             .unwrap_or((text, ""));
-        Some(KeySpec {
-            key: key.trim(),
-            groups: split_groups(groups),
-        })
+        Some(KeySpec { key: key.trim() })
     })
-}
-
-fn split_groups(value: &str) -> Vec<String> {
-    value
-        .split(',')
-        .map(str::trim)
-        .filter(|group| !group.is_empty())
-        .map(ToOwned::to_owned)
-        .collect()
 }
 
 #[cfg(test)]
@@ -78,17 +113,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_global_api_key_groups() {
-        let settings = "key-a=默认分组,vip\nkey-b|team-b\nplain";
+    fn legacy_suffix_does_not_affect_global_api_key_auth() {
+        let settings = "key-a=legacy\nkey-b|team-b\nplain";
         assert!(settings_key_allowed(settings, "key-a"));
-        assert_eq!(groups_for_key(settings, "key-a"), vec!["默认分组", "vip"]);
-        assert_eq!(groups_for_key(settings, "key-b"), vec!["team-b"]);
-        assert!(groups_for_key(settings, "plain").is_empty());
+        assert!(settings_key_allowed(settings, "key-b"));
+        assert!(settings_key_allowed(settings, "plain"));
     }
 
     #[test]
     fn account_keys_are_strict() {
         assert!(account_key_allowed("key-a\nkey-b,key-c", "key-c"));
+        assert!(account_key_allowed(&hash_account_keys("key-a"), "key-a"));
         assert!(!account_key_allowed("", "key-a"));
         assert!(!account_key_allowed("key-a", "key-x"));
     }

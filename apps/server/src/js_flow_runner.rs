@@ -5,8 +5,8 @@ use mediagen_plugin_runtime::{run_js_step, PluginLoader};
 use serde_json::Value;
 
 use crate::flow_runtime::{
-    build_image_flow_context, find_image_result, generate_image_flow, prepare_flow_step,
-    record_flow_result,
+    build_image_flow_context, find_image_result, flow_result_is_error, flow_result_message,
+    generate_image_flow, prepare_flow_step, record_flow_result,
 };
 use crate::image_request::ImageFlowRequest;
 use crate::server_plugin_host::ServerPluginHost;
@@ -29,7 +29,7 @@ impl JsFlowRunner {
     ) -> Result<Value, String> {
         let flow = generate_image_flow(manifest)?;
         let mut context = build_image_flow_context(&self.plugin_loader, manifest, account, input)?;
-        let host = ServerPluginHost::new(account.proxy_url.clone());
+        let host = ServerPluginHost::new_for_account(account);
         let mut results = Vec::new();
 
         for step in &flow.steps {
@@ -49,6 +49,9 @@ impl JsFlowRunner {
                     prepared.action
                 ));
             };
+            if flow_result_is_error(&result) {
+                return Err(flow_result_message(&result));
+            }
             record_flow_result(&mut context, &mut results, &prepared.params, result);
         }
 

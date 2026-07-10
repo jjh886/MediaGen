@@ -120,21 +120,6 @@ impl OpenAiImageRequest {
             return request_error("图片编辑/变化接口至少需要一张参考图");
         }
         if self
-            .images
-            .iter()
-            .any(|item| item.file_id.as_ref().is_some_and(|value| !value.is_empty()))
-            || self
-                .mask
-                .as_ref()
-                .is_some_and(|item| item.file_id.as_ref().is_some_and(|value| !value.is_empty()))
-        {
-            return Err((
-                400,
-                "unsupported_parameter",
-                "服务端 Web 版当前请直接上传图片或传 image_url，暂不接收 file_id。".to_string(),
-            ));
-        }
-        if self
             .response_format
             .as_deref()
             .is_some_and(|v| v != "b64_json")
@@ -404,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn detects_file_id_and_size_aspect_ratio_defaults() {
+    fn keeps_file_id_until_api_layer_resolves_it() {
         let mut request = OpenAiImageRequest::empty();
         request.model = "gpt-image-1".to_string();
         request.prompt = Some(Value::String("draw".to_string()));
@@ -412,10 +397,7 @@ mod tests {
             file_id: Some("file-123".to_string()),
             image_url: None,
         });
-        assert_eq!(
-            request.validate(ImageEndpoint::Generation).unwrap_err().1,
-            "unsupported_parameter"
-        );
+        assert!(request.validate(ImageEndpoint::Generation).is_ok());
 
         request.images.clear();
         request.size = Some("1024x1536".to_string());

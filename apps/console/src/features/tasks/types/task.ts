@@ -1,4 +1,11 @@
-export type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed'
+export type TaskStatus =
+  | 'pending'
+  | 'queued'
+  | 'processing'
+  | 'verification_required'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
 export type TaskKind = 'image' | 'video'
 
 export interface TaskResultData {
@@ -43,16 +50,22 @@ export interface TaskAttempt {
 
 export const statusVariant: Record<TaskStatus, 'info' | 'warning' | 'success' | 'error'> = {
   pending: 'info',
+  queued: 'info',
   processing: 'warning',
+  verification_required: 'warning',
   completed: 'success',
   failed: 'error',
+  cancelled: 'error',
 }
 
 export const statusLabel: Record<TaskStatus, string> = {
   pending: '等待中',
+  queued: '排队中',
   processing: '生成中',
+  verification_required: '需要接管',
   completed: '已完成',
   failed: '失败',
+  cancelled: '已取消',
 }
 
 export const attemptActionLabel: Record<string, string> = {

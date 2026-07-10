@@ -2,18 +2,24 @@ use actix_web::{web, HttpResponse, Responder};
 use mediagen_browser_gateway::{
     BrowserCdpRequest, BrowserClipboardRequest, BrowserGatewayError, BrowserHistoryRequest,
     BrowserInputRequest, BrowserNavigateRequest, BrowserResizeRequest, BrowserScreenshotRequest,
-    BrowserSessionCreateRequest,
+    BrowserSessionCreateRequest, BrowserSessionPurpose,
 };
 use serde_json::{json, Value};
 
 use crate::account_login;
+use crate::browser_session_public::{
+    public_browser_response, public_browser_session, public_browser_sessions,
+};
+use crate::browser_session_setup::prepare_browser_session_create_request;
 use crate::oauth_login;
+use crate::routes::public_account;
 use crate::value_utils::file_paths_from_value;
 use crate::ServerState;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/browser-sessions")
+            .route("", web::get().to(list_browser_sessions))
             .route("", web::post().to(create_browser_session))
             .route("/{id}", web::get().to(get_browser_session))
             .route("/{id}/cancel", web::post().to(cancel_browser_session))
@@ -38,6 +44,15 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
                 web::get().to(crate::browser_session_events::browser_session_events),
             ),
     );
+}
+
+pub async fn list_browser_sessions(state: web::Data<ServerState>) -> impl Responder {
+    match state.browser_gateway.list_sessions() {
+        Ok(sessions) => {
+            HttpResponse::Ok().json(json!({ "data": public_browser_sessions(sessions) }))
+        }
+        Err(err) => gateway_error_response(err),
+    }
 }
 
 pub async fn navigate_browser_session(
@@ -75,13 +90,16 @@ pub async fn create_browser_session(
     request: web::Json<BrowserSessionCreateRequest>,
 ) -> impl Responder {
     let mut request = request.into_inner();
+    if let Err(response) = prepare_browser_session_create_request(&state, &mut request) {
+        return response;
+    }
     if let Some(manifest) = state.plugin_loader.get_plugin(&request.platform) {
         if let Err(message) = oauth_login::prepare_oauth_request(manifest, &mut request) {
             return HttpResponse::BadRequest().json(json!({ "ok": false, "error": message }));
         }
     }
     match state.browser_gateway.create_session(request).await {
-        Ok(response) => HttpResponse::Ok().json(response),
+        Ok(response) => HttpResponse::Ok().json(public_browser_response(response)),
         Err(err) => gateway_error_response(err),
     }
 }
@@ -93,7 +111,7 @@ pub async fn get_browser_session(
     match state.browser_gateway.get_session(&path.into_inner()) {
         Ok(session) => HttpResponse::Ok().json(serde_json::json!({
             "ok": true,
-            "session": session,
+            "session": public_browser_session(session),
         })),
         Err(err) => gateway_error_response(err),
     }
@@ -108,7 +126,7 @@ pub async fn cancel_browser_session(
         .cancel_session(&path.into_inner())
         .await
     {
-        Ok(response) => HttpResponse::Ok().json(response),
+        Ok(response) => HttpResponse::Ok().json(public_browser_response(response)),
         Err(err) => gateway_error_response(err),
     }
 }
@@ -122,9 +140,9 @@ pub async fn complete_browser_session(
         Ok(session) => session,
         Err(err) => return gateway_error_response(err),
     };
+    let verification_context = verification_completion_context(&current_session);
     let login_profile = match current_session.purpose {
-        mediagen_browser_gateway::BrowserSessionPurpose::AddAccount
-        | mediagen_browser_gateway::BrowserSessionPurpose::ReloginAccount => {
+        BrowserSessionPurpose::AddAccount | BrowserSessionPurpose::ReloginAccount => {
             match account_login::verify_browser_session_login(&state, &current_session).await {
                 Ok(profile) => Some(profile),
                 Err(message) => {
@@ -146,20 +164,67 @@ pub async fn complete_browser_session(
 
     match state.browser_gateway.complete_session(&session_id).await {
         Ok(response) => {
+            if let Some((task_id, account_id)) = verification_context {
+                finish_human_verification(&state, &task_id, &account_id);
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "ok": true,
+                    "session": public_browser_session(response.session),
+                    "account": account_id
+                        .and_then(|id| state.store.account_by_id(&id))
+                        .map(public_account),
+                }));
+            }
             let account = match (manifest.as_ref(), login_profile) {
                 (Some(manifest), Some(profile)) => state
                     .store
                     .upsert_from_browser_session_with_profile(&response.session, manifest, profile),
                 _ => state.store.upsert_from_browser_session(&response.session),
             };
+            let public_account = account.map(public_account);
             HttpResponse::Ok().json(serde_json::json!({
                 "ok": true,
-                "session": response.session,
-                "account": account,
+                "session": public_browser_session(response.session),
+                "account": public_account,
             }))
         }
         Err(err) => gateway_error_response(err),
     }
+}
+
+fn verification_completion_context(
+    session: &mediagen_browser_gateway::BrowserSession,
+) -> Option<(String, Option<String>)> {
+    if session.purpose != BrowserSessionPurpose::HumanVerification {
+        return None;
+    }
+    let task_id = session.task_id.as_deref()?.trim();
+    if task_id.is_empty() {
+        return None;
+    }
+    Some((task_id.to_string(), session.account_id.clone()))
+}
+
+fn finish_human_verification(state: &ServerState, task_id: &str, account_id: &Option<String>) {
+    if let Some(id) = account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        state.store.mark_account_state(id, "available");
+    }
+    state.store.resume_task_after_verification(task_id);
+    state.store.add_task_event(
+        task_id,
+        "info",
+        "人工验证已完成，任务已恢复为可重试状态".to_string(),
+    );
+    state.store.add_audit_log(
+        "account",
+        "info",
+        "人工验证完成".to_string(),
+        format!("task={task_id}"),
+        Some(task_id.to_string()),
+    );
 }
 
 pub async fn resize_browser_session(

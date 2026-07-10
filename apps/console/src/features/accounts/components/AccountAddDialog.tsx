@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, type CSSProperties } from 'react'
-import { ArrowLeft, ArrowRight, RotateCw } from 'lucide-react'
-import { KtModal, KtButton } from '@/shared/ui'
+import { useState, useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
+import BrowserHistoryControls from '@/shared/browser/BrowserHistoryControls'
+import RemoteBrowserPanel from '@/shared/browser/RemoteBrowserPanel'
+import { fetchProxies, type ProxyItem } from '@/shared/services/proxy-service'
+import { KtModal, KtButton, KtSelect } from '@/shared/ui'
 import {
   browserSessionHistory,
   cancelBrowserSession,
@@ -8,9 +10,15 @@ import {
   type BrowserHistoryAction,
   type BrowserSession,
 } from '@/shared/services/browser-session-service'
-import RemoteBrowserPanel from '@/shared/browser/RemoteBrowserPanel'
 import { startAccountLoginSession } from '../services/account-service'
+import AccountBrowserProfileFields from './AccountBrowserProfileFields'
 import AccountProxyFields from './AccountProxyFields'
+import {
+  buildBrowserProfilePayload,
+  emptyBrowserProfileForm,
+  type BrowserProfilePayload,
+  type BrowserProfileFormState,
+} from '../utils/browser-profile'
 import { buildProxyUrl, emptyProxyForm, type ProxyFormState } from '../utils/proxy-config'
 
 interface AccountAddDialogProps {
@@ -46,6 +54,10 @@ export default function AccountAddDialog({
   const [errorText, setErrorText] = useState('')
   const [browserSession, setBrowserSession] = useState<BrowserSession | null>(null)
   const [proxyForm, setProxyForm] = useState<ProxyFormState>(emptyProxyForm)
+  const [browserProfileForm, setBrowserProfileForm] =
+    useState<BrowserProfileFormState>(emptyBrowserProfileForm)
+  const [proxyMode, setProxyMode] = useState('none')
+  const [proxies, setProxies] = useState<ProxyItem[]>([])
   const completingRef = useRef(false)
   const cancelledRef = useRef(false)
 
@@ -58,16 +70,25 @@ export default function AccountAddDialog({
       completingRef.current = false
       setBrowserSession(null)
       setProxyForm(emptyProxyForm)
+      setBrowserProfileForm(emptyBrowserProfileForm)
+      setProxyMode(reloginAccountId ? 'keep' : 'none')
     } else {
       cancelledRef.current = false
       setErrorText('')
+      void fetchProxies()
+        .then(setProxies)
+        .catch(() => setProxies([]))
     }
   }, [open])
 
   const handleStart = async () => {
     let proxyUrl = ''
+    let browserProfile: BrowserProfilePayload | undefined
     try {
-      proxyUrl = buildProxyUrl(proxyForm)
+      proxyUrl = proxyMode === 'manual' ? buildProxyUrl(proxyForm) : ''
+      browserProfile = browserProfileForm.enabled
+        ? buildBrowserProfilePayload(browserProfileForm)
+        : undefined
     } catch (error) {
       setErrorText(loginErrorMessage(error))
       return
@@ -76,8 +97,27 @@ export default function AccountAddDialog({
     setErrorText('')
     cancelledRef.current = false
     try {
-      const proxyOverride = !isRelogin || proxyForm.enabled ? proxyUrl : undefined
-      const session = await startAccountLoginSession(platform, reloginAccountId, proxyOverride)
+      const selectedProxyId = proxyMode.startsWith('saved:')
+        ? proxyMode.slice(6)
+        : proxyMode === 'direct'
+          ? ''
+          : undefined
+      const proxyOverride =
+        proxyMode === 'keep'
+          ? undefined
+          : selectedProxyId
+            ? ''
+            : proxyMode === 'direct'
+              ? ''
+              : proxyUrl
+      const session = await startAccountLoginSession(
+        platform,
+        reloginAccountId,
+        proxyOverride,
+        selectedProxyId,
+        browserProfile,
+        proxyMode === 'direct' ? 'direct' : undefined
+      )
       if (cancelledRef.current) {
         await cancelBrowserSession(session.id).catch(() => undefined)
       } else {
@@ -89,6 +129,13 @@ export default function AccountAddDialog({
         setErrorText(loginErrorMessage(error))
         setLoading(false)
       }
+    }
+  }
+
+  const handleProxyModeChange = (value: string) => {
+    setProxyMode(value)
+    if (value === 'manual') {
+      setProxyForm((current) => ({ ...current, enabled: true }))
     }
   }
 
@@ -136,39 +183,7 @@ export default function AccountAddDialog({
       open={open}
       onClose={handleCancelClick}
       title={title}
-      titleExtra={
-        browserSession ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <button
-              type="button"
-              title="后退"
-              aria-label="后退"
-              onClick={() => handleHistory('back')}
-              style={historyButtonStyle}
-            >
-              <ArrowLeft size={16} />
-            </button>
-            <button
-              type="button"
-              title="前进"
-              aria-label="前进"
-              onClick={() => handleHistory('forward')}
-              style={historyButtonStyle}
-            >
-              <ArrowRight size={16} />
-            </button>
-            <button
-              type="button"
-              title="刷新"
-              aria-label="刷新"
-              onClick={() => handleHistory('reload')}
-              style={historyButtonStyle}
-            >
-              <RotateCw size={16} />
-            </button>
-          </div>
-        ) : null
-      }
+      titleExtra={browserSession ? <BrowserHistoryControls onAction={handleHistory} /> : null}
       width="min(1180px, calc(100vw - 32px))"
       height="min(860px, calc(100vh - 32px))"
       bodyStyle={{ padding: 0, overflow: 'hidden' }}
@@ -240,10 +255,24 @@ export default function AccountAddDialog({
           <div style={{ padding: 24, textAlign: 'left' }}>
             <div style={{ color: 'var(--text-primary)', fontSize: 14, marginBottom: 14 }}>
               {isRelogin
-                ? '重新登录时默认沿用账号当前代理；需要临时换代理时再打开下面的开关。'
-                : '登录前可以给这个账号绑定独立代理；不设置则使用服务器直连。'}
+                ? '重新登录时默认沿用账号当前代理和浏览器环境；需要临时调整时再修改下面的选项。'
+                : '登录前可以给这个账号绑定独立代理和浏览器环境；不设置则使用服务器默认环境。'}
             </div>
-            <AccountProxyFields value={proxyForm} onChange={setProxyForm} />
+            <SavedProxyPicker
+              value={proxyMode}
+              proxies={proxies}
+              isRelogin={isRelogin}
+              onChange={handleProxyModeChange}
+            />
+            {proxyMode === 'manual' && (
+              <AccountProxyFields value={proxyForm} onChange={setProxyForm} />
+            )}
+            <div style={{ marginTop: 16 }}>
+              <AccountBrowserProfileFields
+                value={browserProfileForm}
+                onChange={setBrowserProfileForm}
+              />
+            </div>
             {errorText && (
               <div style={{ color: 'var(--color-error)', fontSize: 13, marginTop: 12 }}>
                 {errorText}
@@ -256,16 +285,74 @@ export default function AccountAddDialog({
   )
 }
 
-const historyButtonStyle: CSSProperties = {
-  width: 30,
-  height: 30,
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  border: '1px solid rgba(255,255,255,0.12)',
-  borderRadius: 6,
-  background: 'rgba(255,255,255,0.06)',
-  color: '#fff',
-  cursor: 'pointer',
-  padding: 0,
+function SavedProxyPicker({
+  value,
+  proxies,
+  isRelogin,
+  onChange,
+}: {
+  value: string
+  proxies: ProxyItem[]
+  isRelogin: boolean
+  onChange: (value: string) => void
+}) {
+  return (
+    <div style={pickerStyle}>
+      <PickerLabel id="account-proxy-source">账号代理</PickerLabel>
+      <KtSelect
+        id="account-proxy-source"
+        aria-label="账号代理"
+        value={value}
+        onChange={onChange}
+        options={proxyModeOptions(isRelogin, proxies)}
+      />
+      <ProxyModeHint value={value} proxies={proxies} />
+    </div>
+  )
+}
+
+function proxyModeOptions(isRelogin: boolean, proxies: ProxyItem[]) {
+  const base = isRelogin
+    ? [
+        { value: 'keep', label: '沿用账号当前代理' },
+        { value: 'direct', label: '本次不使用代理' },
+      ]
+    : [{ value: 'none', label: '不使用代理' }]
+  const saved = proxies
+    .filter((proxy) => proxy.enabled)
+    .map((proxy) => ({
+      value: `saved:${proxy.id}`,
+      label: `使用保存代理：${proxy.name || proxy.server}`,
+    }))
+  return [...base, ...saved, { value: 'manual', label: '手动填写代理' }]
+}
+
+function ProxyModeHint({ value, proxies }: { value: string; proxies: ProxyItem[] }) {
+  if (value.startsWith('saved:')) return <Hint>将使用代理管理页中保存的地址、账号和密码。</Hint>
+  if (value === 'manual') return <Hint>下面填写的代理只绑定到这个账号。</Hint>
+  if (value === 'direct') return <Hint>本次登录不会沿用账号已保存的代理。</Hint>
+  if (!proxies.some((proxy) => proxy.enabled)) {
+    return <Hint>右侧代理页新增可用代理后，会直接出现在这里。</Hint>
+  }
+  if (value === 'none') return <Hint>这个账号会使用服务器默认网络。</Hint>
+  return null
+}
+
+function PickerLabel({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <label htmlFor={id} style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+      {children}
+    </label>
+  )
+}
+
+function Hint({ children }: { children: ReactNode }) {
+  return <span style={{ color: 'var(--text-disabled)', fontSize: 12 }}>{children}</span>
+}
+
+const pickerStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  marginBottom: 14,
 }

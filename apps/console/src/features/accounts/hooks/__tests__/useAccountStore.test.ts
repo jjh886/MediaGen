@@ -27,6 +27,7 @@ beforeEach(() => {
   useAccountStore.setState({
     accounts: [],
     loading: false,
+    error: '',
     checking: false,
     activePlatform: '',
   })
@@ -38,6 +39,7 @@ describe('useAccountStore', () => {
       const state = useAccountStore.getState()
       expect(state.accounts).toEqual([])
       expect(state.loading).toBe(false)
+      expect(state.error).toBe('')
       expect(state.checking).toBe(false)
       expect(state.activePlatform).toBe('')
     })

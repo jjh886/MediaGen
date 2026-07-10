@@ -5,14 +5,12 @@ import type { AppSettings } from '@/shared/services/settings-service'
 
 const mockGetAllSettings = vi.fn()
 const mockSetSetting = vi.fn()
-const mockCheckBrowserRuntimeVersion = vi.fn()
 const mockGetCacheSize = vi.fn()
 const mockClearCache = vi.fn()
 
 vi.mock('@/shared/services/settings-service', () => ({
   getAllSettings: (...args: unknown[]) => mockGetAllSettings(...args),
   setSetting: (...args: unknown[]) => mockSetSetting(...args),
-  checkBrowserRuntimeVersion: (...args: unknown[]) => mockCheckBrowserRuntimeVersion(...args),
   getCacheSize: (...args: unknown[]) => mockGetCacheSize(...args),
   clearCache: (...args: unknown[]) => mockClearCache(...args),
 }))
@@ -25,10 +23,8 @@ const defaultSettings: AppSettings = {
   api_port_count: 10,
   api_address: '192.168.1.1',
   api_allowed_origins: '*',
-  api_keys: 'key-a\nkey-b',
   image_task_concurrency: 64,
   image_task_queue_limit: 512,
-  flow_mirror_url: 'https://mirror.example.com',
   check_interval_minutes: 15,
   cooldown_default_seconds: 120,
   cache_dir: '/tmp/test-cache',
@@ -38,15 +34,17 @@ const defaultSettings: AppSettings = {
 beforeEach(() => {
   mockGetAllSettings.mockReset()
   mockSetSetting.mockReset()
-  mockCheckBrowserRuntimeVersion.mockReset()
   mockGetCacheSize.mockReset()
   mockClearCache.mockReset()
 
   useSettingsStore.setState({
     settings: null,
+    savedSettings: null,
     loading: false,
     saving: false,
-    runtimeVersion: '',
+    loadError: '',
+    saveError: '',
+    saveMessage: '',
     cacheSize: '',
   })
 })
@@ -58,7 +56,6 @@ describe('useSettingsStore', () => {
       expect(state.settings).toBeNull()
       expect(state.loading).toBe(false)
       expect(state.saving).toBe(false)
-      expect(state.runtimeVersion).toBe('')
       expect(state.cacheSize).toBe('')
     })
   })
@@ -185,30 +182,6 @@ describe('useSettingsStore', () => {
       })
 
       expect(useSettingsStore.getState().saving).toBe(false)
-    })
-  })
-
-  describe('detectBrowserRuntime', () => {
-    it('检测浏览器运行时版本', async () => {
-      useSettingsStore.setState({ settings: { ...defaultSettings } })
-      mockCheckBrowserRuntimeVersion.mockResolvedValue('CloakBrowser 124.0')
-
-      await act(async () => {
-        await useSettingsStore.getState().detectBrowserRuntime()
-      })
-
-      expect(mockCheckBrowserRuntimeVersion).toHaveBeenCalledWith()
-      expect(useSettingsStore.getState().runtimeVersion).toBe('CloakBrowser 124.0')
-    })
-
-    it('settings 为 null 时也可以检测运行时', async () => {
-      mockCheckBrowserRuntimeVersion.mockResolvedValue('未找到')
-
-      await act(async () => {
-        await useSettingsStore.getState().detectBrowserRuntime()
-      })
-
-      expect(mockCheckBrowserRuntimeVersion).toHaveBeenCalledWith()
     })
   })
 

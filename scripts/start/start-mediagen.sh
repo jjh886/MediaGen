@@ -13,7 +13,13 @@ if [[ ! -x "$SERVER" ]]; then
   exit 1
 fi
 
-mkdir -p "$ROOT_DIR/data" "$ROOT_DIR/logs" "$ROOT_DIR/profiles"
+if [[ -z "${MEDIAGEN_DATA_DIR:-}" ]]; then
+  DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+  export MEDIAGEN_DATA_DIR="$DATA_HOME/mediagen"
+fi
+export MEDIAGEN_LOGS_DIR="${MEDIAGEN_LOGS_DIR:-$MEDIAGEN_DATA_DIR/logs}"
+export MEDIAGEN_PROFILES_DIR="${MEDIAGEN_PROFILES_DIR:-$MEDIAGEN_DATA_DIR/profiles}"
+mkdir -p "$MEDIAGEN_DATA_DIR" "$MEDIAGEN_LOGS_DIR" "$MEDIAGEN_PROFILES_DIR"
 
 is_healthy() {
   curl -fsS "http://127.0.0.1:$1/health" >/dev/null 2>&1
@@ -53,12 +59,12 @@ fi
 
 if ! is_healthy "$PORT"; then
   MEDIAGEN_PORT="$PORT" \
-  MEDIAGEN_DATA_DIR="$ROOT_DIR/data" \
-  MEDIAGEN_LOGS_DIR="$ROOT_DIR/logs" \
-  MEDIAGEN_PROFILES_DIR="$ROOT_DIR/profiles" \
+  MEDIAGEN_DATA_DIR="$MEDIAGEN_DATA_DIR" \
+  MEDIAGEN_LOGS_DIR="$MEDIAGEN_LOGS_DIR" \
+  MEDIAGEN_PROFILES_DIR="$MEDIAGEN_PROFILES_DIR" \
   MEDIAGEN_PLUGINS_DIR="$ROOT_DIR/plugins" \
   MEDIAGEN_CONSOLE_DIR="$ROOT_DIR/console" \
-  "$SERVER" >>"$ROOT_DIR/logs/startup.log" 2>&1 &
+  "$SERVER" >>"$MEDIAGEN_LOGS_DIR/startup.log" 2>&1 &
 fi
 
 for _ in {1..150}; do
@@ -74,5 +80,5 @@ for _ in {1..150}; do
   sleep 0.3
 done
 
-echo "MediaGen 启动超时，请查看 $ROOT_DIR/logs/startup.log"
+echo "MediaGen 启动超时，请查看 $MEDIAGEN_LOGS_DIR/startup.log"
 exit 1

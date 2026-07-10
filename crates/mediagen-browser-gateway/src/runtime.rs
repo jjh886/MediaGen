@@ -2,11 +2,15 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
+use mediagen_core::{
+    bundled_cloakbrowser_candidates, first_existing_browser_binary, path_or_runtime_candidates,
+};
 use serde::Deserialize;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 
+use crate::fingerprint::BrowserFingerprint;
 use crate::proxy;
 use crate::{BrowserGatewayConfig, BrowserGatewayError, BrowserSession};
 
@@ -71,6 +75,9 @@ pub(crate) async fn launch_cloakbrowser(
     if cfg!(target_os = "linux") && std::env::var("USER").is_ok_and(|user| user == "root") {
         args.push("--no-sandbox".to_string());
     }
+    if let Some(fingerprint) = BrowserFingerprint::from_metadata(&session.metadata) {
+        args.push(format!("--user-agent={}", fingerprint.user_agent()));
+    }
     if let Some(proxy_server) = proxy::proxy_server_from_session(session) {
         args.push(format!("--proxy-server={proxy_server}"));
     }
@@ -126,30 +133,28 @@ fn resolve_cloakbrowser_path(
     config: &BrowserGatewayConfig,
 ) -> Result<PathBuf, BrowserGatewayError> {
     if let Some(path) = &config.browser_path {
-        if path.exists() {
-            return Ok(path.clone());
+        if let Some(candidate) = first_existing_browser_binary(path_or_runtime_candidates(path)) {
+            return Ok(candidate);
         }
     }
 
-    if let Some(path) = std::env::var_os("CLOAK_BROWSER_PATH").map(PathBuf::from) {
-        if path.exists() {
-            return Ok(path);
+    for path in explicit_env_candidate_paths() {
+        if let Some(candidate) = first_existing_browser_binary(path_or_runtime_candidates(&path)) {
+            return Ok(candidate);
         }
     }
 
-    candidate_paths()
-        .into_iter()
-        .find(|path| path.exists())
-        .ok_or_else(|| {
-            BrowserGatewayError::BrowserRuntimeUnavailable(
-                "未检测到 CloakBrowser，请安装后设置 CLOAK_BROWSER_PATH".to_string(),
-            )
-        })
+    first_existing_browser_binary(candidate_paths()).ok_or_else(|| {
+        BrowserGatewayError::BrowserRuntimeUnavailable(
+            "未检测到 CloakBrowser，请安装后设置 CLOAK_BROWSER_PATH".to_string(),
+        )
+    })
 }
 
 fn candidate_paths() -> Vec<PathBuf> {
     let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut bundled = bundled_candidate_paths(&root);
+    let mut bundled = env_bundle_candidate_paths();
+    bundled.extend(bundled_cloakbrowser_candidates(&root));
     if cfg!(target_os = "macos") {
         bundled.extend([
             "/Applications/CloakBrowser.app/Contents/MacOS/CloakBrowser".into(),
@@ -175,27 +180,19 @@ fn candidate_paths() -> Vec<PathBuf> {
     bundled
 }
 
-fn bundled_candidate_paths(root: &Path) -> Vec<PathBuf> {
-    if cfg!(target_os = "macos") {
-        return vec![
-            root.join("browser-runtime/Chromium.app/Contents/MacOS/Chromium"),
-            root.join("browser-runtime/CloakBrowser.app/Contents/MacOS/CloakBrowser"),
-            root.join("browser-runtime/Cloak Browser.app/Contents/MacOS/CloakBrowser"),
-        ];
-    }
-    if cfg!(target_os = "windows") {
-        return vec![
-            root.join("browser-runtime/chrome.exe"),
-            root.join("browser-runtime/CloakBrowser/chrome.exe"),
-            root.join("browser-runtime/CloakBrowser/Application/cloakbrowser.exe"),
-            root.join("browser-runtime/cloakbrowser.exe"),
-        ];
-    }
-    vec![
-        root.join("browser-runtime/chrome"),
-        root.join("browser-runtime/cloakbrowser/chrome"),
-        root.join("browser-runtime/cloakbrowser"),
-    ]
+fn env_bundle_candidate_paths() -> Vec<PathBuf> {
+    ["MEDIAGEN_CLOAK_BROWSER_DIR", "CLOAK_BROWSER_BUNDLE_DIR"]
+        .iter()
+        .filter_map(|name| std::env::var_os(name).map(PathBuf::from))
+        .flat_map(|path| path_or_runtime_candidates(&path))
+        .collect()
+}
+
+fn explicit_env_candidate_paths() -> Vec<PathBuf> {
+    ["CLOAK_BROWSER_PATH", "CLOAKBROWSER_BINARY_PATH"]
+        .iter()
+        .filter_map(|name| std::env::var_os(name).map(PathBuf::from))
+        .collect()
 }
 
 fn cache_candidate_paths() -> Vec<PathBuf> {

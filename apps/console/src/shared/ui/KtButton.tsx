@@ -43,7 +43,6 @@ const baseStyle: CSSProperties = {
   justifyContent: 'center',
   gap: 6,
   transition: 'opacity 200ms ease',
-  outline: 'none',
   fontFamily: 'inherit',
   lineHeight: 1,
   boxSizing: 'border-box',

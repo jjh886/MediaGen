@@ -2,6 +2,7 @@ name: Local Installers
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     tags:
       - 'local-v*'
@@ -29,13 +30,19 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm
+          sudo apt-get install -y \
+            rpm ca-certificates curl tar unzip fontconfig fonts-noto fonts-noto-cjk \
+            libatk-bridge2.0-0 libgtk-3-0 libnss3 libasound2t64 libx11-6 \
+            libxcomposite1 libxdamage1 libxext6 libxfixes3 libxrandr2 libxcb1
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build installers
         run: npm run package:installers
+
+      - name: Verify installer layout
+        run: node scripts/verify-local-installer-layout.mjs
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4

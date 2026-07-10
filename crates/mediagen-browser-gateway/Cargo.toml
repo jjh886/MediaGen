@@ -7,6 +7,7 @@ authors.workspace = true
 [dependencies]
 chrono.workspace = true
 futures-util.workspace = true
+mediagen-core = { path = "../mediagen-core" }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

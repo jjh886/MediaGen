@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { KtModal, KtButton, KtInput } from '@/shared/ui'
+import { KtModal, KtButton, KtInput, KtFormField } from '@/shared/ui'
 import { batchRegister } from '../services/account-service'
 
 interface BatchRegisterDialogProps {
@@ -23,17 +23,6 @@ function generateBirthday(): string {
   const end = new Date(2000, 11, 31).getTime()
   const date = new Date(start + Math.random() * (end - start))
   return date.toISOString().slice(0, 10)
-}
-
-const fieldStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 6,
-}
-
-const labelStyle: React.CSSProperties = {
-  color: 'var(--text-secondary)',
-  fontSize: 13,
 }
 
 export default function BatchRegisterDialog({
@@ -96,8 +85,7 @@ export default function BatchRegisterDialog({
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={fieldStyle}>
-          <label style={labelStyle}>注册数量（1-50）</label>
+        <KtFormField label="注册数量（1-50）">
           <KtInput
             type="number"
             min={1}
@@ -106,26 +94,24 @@ export default function BatchRegisterDialog({
             onChange={(e) => setCount(e.target.value)}
             disabled={running}
           />
-        </div>
+        </KtFormField>
 
-        <div style={fieldStyle}>
-          <label style={labelStyle}>密码</label>
+        <KtFormField label="密码">
           <KtInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={running}
           />
-        </div>
+        </KtFormField>
 
-        <div style={fieldStyle}>
-          <label style={labelStyle}>生日</label>
+        <KtFormField label="生日">
           <KtInput
             type="date"
             value={birthday}
             onChange={(e) => setBirthday(e.target.value)}
             disabled={running}
           />
-        </div>
+        </KtFormField>
 
         {running && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

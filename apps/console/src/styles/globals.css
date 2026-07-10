@@ -9,12 +9,15 @@
   --bg-card: #1e1f21;
   --bg-modal: #141414;
   --bg-elevated: #252528;
+  --bg-secondary: #1e1f21;
+  --bg-tertiary: #252528;
   --bg-surface: rgba(31, 31, 31, 0.5);
 
   /* ── 文字 ── */
   --text-primary: rgba(255, 255, 255, 0.8);
   --text-secondary: rgba(255, 255, 255, 0.6);
   --text-disabled: rgba(255, 255, 255, 0.45);
+  --text-tertiary: rgba(255, 255, 255, 0.35);
   --text-bright: #ffffff;
   --text-placeholder: rgba(255, 255, 255, 0.3);
 
@@ -37,6 +40,7 @@
   /* ── 边框 ── */
   --border-base: #424647;
   --border-light: rgba(255, 255, 255, 0.05);
+  --border-muted: rgba(255, 255, 255, 0.12);
   --border-active: #45a7e5;
 
   /* ── 组件 ── */
@@ -119,6 +123,11 @@ button {
   color: inherit;
 }
 
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
 /* ── Scrollbar ── */
 
 ::-webkit-scrollbar {
@@ -198,6 +207,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
+  overflow-y: auto;
 }
 
 .sidebar__item {
@@ -292,120 +302,6 @@ button {
 
 .status-bar__indicator--error {
   background: var(--color-error);
-}
-
-/* ── Startup Gate ── */
-
-.startup-screen {
-  min-height: 100vh;
-  width: 100vw;
-  display: grid;
-  place-items: center;
-  padding: var(--space-2xl);
-  background:
-    radial-gradient(circle at 50% 0%, rgba(90, 176, 254, 0.12), transparent 34%), var(--bg-primary);
-}
-
-.startup-panel {
-  width: min(640px, 100%);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
-  padding: var(--space-2xl);
-  border: 1px solid var(--border-base);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  box-shadow: var(--shadow-popup);
-}
-
-.startup-panel--compact {
-  width: min(420px, 100%);
-  align-items: center;
-  text-align: center;
-}
-
-.startup-panel__icon {
-  width: 52px;
-  height: 52px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-md);
-  color: var(--color-brand);
-  background: var(--color-brand-bg);
-}
-
-.startup-panel h1 {
-  font: var(--font-h1);
-  color: var(--text-bright);
-}
-
-.startup-panel p,
-.startup-guide span,
-.startup-checklist__item span {
-  color: var(--text-secondary);
-  line-height: 1.8;
-}
-
-.startup-checklist {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-}
-
-.startup-checklist__item {
-  display: flex;
-  gap: var(--space-md);
-  padding: var(--space-lg);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-}
-
-.startup-checklist__item strong,
-.startup-guide strong {
-  display: block;
-  margin-bottom: var(--space-xs);
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.startup-checklist__ok {
-  flex: 0 0 auto;
-  color: var(--color-success);
-}
-
-.startup-checklist__warn {
-  flex: 0 0 auto;
-  color: var(--color-warning);
-}
-
-.startup-guide {
-  padding: var(--space-lg);
-  border: 1px solid rgba(255, 162, 54, 0.22);
-  border-radius: var(--radius-md);
-  background: var(--color-warning-bg);
-}
-
-.startup-guide--error {
-  border-color: rgba(255, 91, 91, 0.32);
-  background: rgba(255, 91, 91, 0.1);
-}
-
-.startup-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-md);
-}
-
-.startup-spinner {
-  color: var(--color-brand);
-  animation: startup-spin 1s linear infinite;
-}
-
-@keyframes startup-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* ── Page Placeholder ── */

@@ -1,6 +1,17 @@
-import { chmod, copyFile, cp, mkdir, rm, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  copyFile,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawn, spawnSync } from 'node:child_process'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -9,6 +20,11 @@ const releaseDir = path.join(root, 'dist-local', 'MediaGen-local')
 const installersDir = path.join(root, 'dist-local', 'installers')
 const platformName = `${process.platform}-${process.arch}`
 const version = '0.1.0'
+const packageTarget = process.env.MEDIAGEN_PACKAGE_TARGET || 'all'
+
+if (packageTarget !== 'all' && process.platform !== 'linux') {
+  throw new Error(`${packageTarget} 安装包只能在 Linux 环境生成`)
+}
 
 await run('node', ['scripts/package-local-release.mjs'])
 await rm(installersDir, { recursive: true, force: true })
@@ -24,8 +40,8 @@ if (process.platform === 'win32') {
 }
 
 if (process.platform === 'linux') {
-  await createDebIfPossible()
-  await createRpmIfPossible()
+  if (packageTarget !== 'yum') await createDebIfPossible()
+  if (packageTarget !== 'apt') await createRpmIfPossible()
 }
 
 await createArchive()
@@ -53,17 +69,93 @@ async function createMacApp() {
 
 async function createDmg(appPath) {
   if (!commandAvailable('hdiutil')) throw new Error('缺少 hdiutil，无法生成 macOS DMG')
-  await run('hdiutil', [
-    'create',
-    '-volname',
-    'MediaGen',
-    '-srcfolder',
-    appPath,
-    '-ov',
-    '-format',
-    'UDZO',
-    path.join(installersDir, `MediaGen-${platformName}.dmg`),
-  ])
+  if (!commandAvailable('osascript')) throw new Error('缺少 osascript，无法写入 macOS DMG 布局')
+  const dmgPath = path.join(installersDir, `MediaGen-${platformName}.dmg`)
+  const rwDmgPath = path.join(installersDir, `rw.MediaGen-${platformName}.dmg`)
+  const stagingRoot = await mkdtemp(path.join(os.tmpdir(), 'mediagen-dmg-'))
+  const mountPoint = await mkdtemp(path.join(os.tmpdir(), 'mediagen-dmg-mount-'))
+  let mounted = false
+
+  try {
+    await cp(appPath, path.join(stagingRoot, path.basename(appPath)), { recursive: true })
+    // DMG 里放 /Applications 的快捷方式，用户就可以像常见 macOS 安装包一样拖拽安装。
+    await symlink('/Applications', path.join(stagingRoot, 'Applications'))
+    await rm(dmgPath, { force: true })
+    await rm(rwDmgPath, { force: true })
+    await run('hdiutil', [
+      'create',
+      '-volname',
+      'MediaGen',
+      '-srcfolder',
+      stagingRoot,
+      '-ov',
+      '-format',
+      'UDRW',
+      rwDmgPath,
+    ])
+    await run('hdiutil', [
+      'attach',
+      '-nobrowse',
+      '-readwrite',
+      '-mountpoint',
+      mountPoint,
+      rwDmgPath,
+    ])
+    mounted = true
+    await applyMacDmgFinderLayout(mountPoint)
+    await run('sync', [])
+    await run('hdiutil', ['detach', mountPoint])
+    mounted = false
+    await run('hdiutil', [
+      'convert',
+      rwDmgPath,
+      '-format',
+      'UDZO',
+      '-imagekey',
+      'zlib-level=9',
+      '-o',
+      dmgPath,
+    ])
+  } finally {
+    if (mounted) {
+      try {
+        await run('hdiutil', ['detach', mountPoint, '-force'])
+      } catch {
+        // 清理阶段只做兜底卸载，避免覆盖前面真正的打包错误。
+      }
+    }
+    await rm(stagingRoot, { recursive: true, force: true })
+    await rm(mountPoint, { recursive: true, force: true })
+    await rm(rwDmgPath, { force: true })
+  }
+}
+
+async function applyMacDmgFinderLayout(mountPoint) {
+  const folder = appleScriptString(mountPoint)
+  const script = [
+    'tell application "Finder"',
+    `set dmgFolder to POSIX file "${folder}" as alias`,
+    'open dmgFolder',
+    'delay 1',
+    'set current view of container window of dmgFolder to icon view',
+    'set toolbar visible of container window of dmgFolder to false',
+    'set statusbar visible of container window of dmgFolder to false',
+    'set bounds of container window of dmgFolder to {100, 100, 720, 440}',
+    'set viewOptions to icon view options of container window of dmgFolder',
+    'set arrangement of viewOptions to not arranged',
+    'set icon size of viewOptions to 96',
+    'set text size of viewOptions to 13',
+    'set position of item "MediaGen.app" of dmgFolder to {170, 135}',
+    'set position of item "Applications" of dmgFolder to {470, 135}',
+    'update dmgFolder without registering applications',
+    'delay 1',
+    'close container window of dmgFolder',
+    'end tell',
+  ]
+  await run(
+    'osascript',
+    script.flatMap((line) => ['-e', line])
+  )
 }
 
 async function createWindowsZip(
@@ -85,9 +177,11 @@ async function createWindowsInstaller() {
   }
   const staging = path.join(installersDir, 'windows-installer')
   const payloadZip = path.join(staging, `MediaGen-local-${platformName}.zip`)
+  const publicZip = path.join(installersDir, `MediaGen-local-${platformName}.zip`)
   await rm(staging, { recursive: true, force: true })
   await mkdir(staging, { recursive: true })
-  await createWindowsZip(payloadZip)
+  await createWindowsZip(publicZip)
+  await copyFile(publicZip, payloadZip)
   await writeFile(path.join(staging, 'install-windows.cmd'), windowsInstallCmd(), 'utf8')
   await writeFile(path.join(staging, 'install-windows.ps1'), windowsInstallPs1(payloadZip), 'utf8')
   const sedPath = path.join(staging, 'mediagen-installer.sed')
@@ -108,11 +202,12 @@ async function createArchive() {
 
 async function createDebIfPossible() {
   if (!commandAvailable('dpkg-deb')) throw new Error('缺少 dpkg-deb，无法生成 apt/deb 安装包')
+  const debArch = linuxDebArch()
   const debRoot = path.join(installersDir, 'deb-root')
   await rm(debRoot, { recursive: true, force: true })
   await mkdir(path.join(debRoot, 'DEBIAN'), { recursive: true })
   await installLinuxPayload(debRoot, 'usr/bin')
-  await cp(path.join(root, 'deploy/apt/control'), path.join(debRoot, 'DEBIAN/control'))
+  await writeFile(path.join(debRoot, 'DEBIAN/control'), await debControl(debArch), 'utf8')
   for (const script of ['postinst', 'postrm', 'prerm']) {
     const target = path.join(debRoot, 'DEBIAN', script)
     await cp(path.join(root, 'deploy/apt', script), target)
@@ -121,7 +216,7 @@ async function createDebIfPossible() {
   await run('dpkg-deb', [
     '--build',
     debRoot,
-    path.join(installersDir, `mediagen_${version}_amd64.deb`),
+    path.join(installersDir, `mediagen_${version}_${debArch}.deb`),
   ])
 }
 
@@ -135,9 +230,21 @@ async function createRpmIfPossible() {
   await mkdir(specs, { recursive: true })
   await installLinuxPayload(sourcePayload, 'usr/bin')
   const specPath = path.join(specs, 'mediagen.spec')
-  await writeFile(specPath, rpmSpec(), 'utf8')
+  await writeFile(specPath, await rpmSpec(), 'utf8')
   await run('rpmbuild', ['--define', `_topdir ${top}`, '-bb', specPath])
   await copyBuiltRpms(path.join(top, 'RPMS'))
+}
+
+async function debControl(arch) {
+  const template = await readFile(path.join(root, 'deploy/apt/control'), 'utf8')
+  return template.replace('@VERSION@', version).replace('@DEB_ARCH@', arch)
+}
+
+function linuxDebArch() {
+  if (process.arch === 'x64') return 'amd64'
+  if (process.arch === 'arm64') return 'arm64'
+  if (process.arch === 'ia32') return 'i386'
+  throw new Error(`暂不支持的 deb 架构: ${process.arch}`)
 }
 
 async function installLinuxPayload(targetRoot, binDir) {
@@ -150,15 +257,17 @@ async function installLinuxPayload(targetRoot, binDir) {
     path.join(releaseDir, 'bin/mediagen-server'),
     path.join(targetRoot, binDir, 'mediagen-server')
   )
+  await chmod(path.join(targetRoot, binDir, 'mediagen-server'), 0o755)
   await cp(path.join(releaseDir, 'console'), path.join(targetRoot, 'usr/share/mediagen/console'), {
     recursive: true,
   })
   await cp(path.join(releaseDir, 'plugins'), path.join(targetRoot, 'opt/mediagen/plugins'), {
     recursive: true,
   })
-  await copyDirIfExists(
+  await cp(
     path.join(releaseDir, 'browser-runtime'),
-    path.join(targetRoot, 'opt/mediagen/browser-runtime')
+    path.join(targetRoot, 'opt/mediagen/browser-runtime'),
+    { recursive: true }
   )
   await cp(
     path.join(root, 'deploy/systemd/mediagen-server.service'),
@@ -177,10 +286,6 @@ async function copyBuiltRpms(rpmsDir) {
 
 async function copyIfExists(from, to) {
   if (existsSync(from)) await copyFile(from, to)
-}
-
-async function copyDirIfExists(from, to) {
-  if (existsSync(from)) await cp(from, to, { recursive: true })
 }
 
 function macInfoPlist() {
@@ -213,46 +318,15 @@ function linuxEnv() {
     'MEDIAGEN_DATA_DIR=/var/lib/mediagen',
     'MEDIAGEN_LOGS_DIR=/var/log/mediagen',
     'MEDIAGEN_PROFILES_DIR=/var/lib/mediagen/profiles',
-    'CLOAK_BROWSER_PATH=/opt/mediagen/browser-runtime/chrome',
+    'CLOAK_BROWSER_BUNDLE_DIR=/opt/mediagen/browser-runtime',
+    'CLOAKBROWSER_CACHE_DIR=/var/lib/mediagen/.cloakbrowser',
     '',
   ].join('\n')
 }
 
-function rpmSpec() {
-  return `Name: mediagen
-Version: ${version}
-Release: 1%{?dist}
-Summary: MediaGen Web Console server
-License: Open Source
-
-%description
-MediaGen Web Console server with plugin execution, browser sessions, and CloakBrowser runtime.
-
-%install
-mkdir -p %{buildroot}
-cp -a %{_sourcedir}/payload/* %{buildroot}/
-
-%post
-id mediagen >/dev/null 2>&1 || useradd --system --home /var/lib/mediagen --shell /sbin/nologin mediagen
-mkdir -p /var/lib/mediagen/profiles /var/log/mediagen
-chown -R mediagen:mediagen /var/lib/mediagen /var/log/mediagen
-systemctl daemon-reload || true
-systemctl enable mediagen-server.service || true
-
-%preun
-systemctl stop mediagen-server.service || true
-
-%postun
-systemctl daemon-reload || true
-
-%files
-/usr/bin/mediagen-server
-/usr/share/mediagen/console
-/opt/mediagen/plugins
-/opt/mediagen/browser-runtime
-/lib/systemd/system/mediagen-server.service
-/etc/mediagen/mediagen.env
-`
+async function rpmSpec() {
+  const template = await readFile(path.join(root, 'deploy/yum/mediagen.spec'), 'utf8')
+  return template.replace(/^Version:.*/m, `Version: ${version}`)
 }
 
 function windowsInstallCmd() {
@@ -274,10 +348,6 @@ function windowsInstallPs1(payloadZip) {
     'New-Item -ItemType Directory -Force -Path $Target | Out-Null',
     'Expand-Archive -Force -Path $Payload -DestinationPath $Target',
     '$AppRoot = Join-Path $Target "MediaGen-local"',
-    'New-MediaGenShortcut -Folder ([Environment]::GetFolderPath("Desktop"))',
-    'New-MediaGenShortcut -Folder (Join-Path $env:APPDATA "Microsoft\\Windows\\Start Menu\\Programs")',
-    'Start-Process (Join-Path $AppRoot "MediaGen.exe")',
-    '',
     'function New-MediaGenShortcut {',
     '  param([string]$Folder)',
     '  New-Item -ItemType Directory -Force -Path $Folder | Out-Null',
@@ -288,6 +358,10 @@ function windowsInstallPs1(payloadZip) {
     '  $Shortcut.IconLocation = Join-Path $AppRoot "icons\\mediagen.ico"',
     '  $Shortcut.Save()',
     '}',
+    '',
+    'New-MediaGenShortcut -Folder ([Environment]::GetFolderPath("Desktop"))',
+    'New-MediaGenShortcut -Folder (Join-Path $env:APPDATA "Microsoft\\Windows\\Start Menu\\Programs")',
+    'Start-Process (Join-Path $AppRoot "MediaGen.exe")',
     '',
   ].join('\r\n')
 }
@@ -337,6 +411,10 @@ function commandAvailable(command) {
 
 function escapePs(value) {
   return value.replaceAll("'", "''")
+}
+
+function appleScriptString(value) {
+  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
 }
 
 function run(command, args) {

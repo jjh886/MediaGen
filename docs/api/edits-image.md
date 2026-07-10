@@ -5,9 +5,9 @@
 Creates an edited or extended image given one or more source images and a prompt. This endpoint supports GPT Image models (`gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`, and `chatgpt-image-latest`) and `dall-e-2`.
 
 MediaGen 兼容 OpenAI SDK 默认的 `multipart/form-data` 文件上传，也支持 JSON
-`images[].image_url`。当前本地桌面端不提供 `/v1/files`，所以 `file_id` 不可用；
-`mask` 会返回 OpenAI 风格错误。`stream=true` 会返回官方 Image API 风格的 SSE；
-当前插件只发送最终 `image_edit.completed` 事件。
+`images[].image_url` 和 `/v1/files` 上传后的 `file_id`。`mask` 支持 `image_url`
+或 `file_id`。`stream=true` 会返回官方 Image API 风格的 SSE；当前插件只发送最终
+`image_edit.completed` 事件。
 
 ### Body Parameters
 

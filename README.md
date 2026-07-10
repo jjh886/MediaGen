@@ -171,10 +171,6 @@ plugins/{platform}/
 │   ├── mediagen-browser-gateway/
 │   ├── mediagen-core/
 │   └── mediagen-plugin-runtime/
-├── packages/
-│   ├── contracts/
-│   ├── feature-kits/
-│   └── ui/
 ├── plugins/
 │   ├── _shared/
 │   ├── chatgpt/
@@ -182,9 +178,9 @@ plugins/{platform}/
 │   ├── doubao/
 │   ├── flow/
 │   └── jimeng/
-├── deploy/
-├── docs/
-└── scripts/
+├── deploy/              # systemd、apt、yum、Docker 和本机桌面入口
+├── docs/                # API 文档、产品方案和开发规格
+└── scripts/             # 启动、打包、格式化和质量门禁脚本
 ```
 
 ## 开发约定

@@ -12,6 +12,7 @@ import {
 interface AccountStore {
   accounts: Account[]
   loading: boolean
+  error: string
   checking: boolean
   activePlatform: string
   fetch: (platform?: string) => Promise<void>
@@ -25,15 +26,19 @@ interface AccountStore {
 export const useAccountStore = create<AccountStore>((set, get) => ({
   accounts: [],
   loading: false,
+  error: '',
   checking: false,
   activePlatform: '',
 
   fetch: async (platform?: string) => {
     const p = platform ?? get().activePlatform
-    set({ loading: true })
+    set({ loading: true, error: '' })
     try {
       const accounts = await fetchAccounts(p)
       set({ accounts })
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '账号加载失败。' })
+      throw error
     } finally {
       set({ loading: false })
     }
@@ -41,7 +46,9 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
 
   setActivePlatform: (platform) => {
     set({ activePlatform: platform })
-    get().fetch(platform)
+    void get()
+      .fetch(platform)
+      .catch(() => undefined)
   },
 
   remove: async (id) => {

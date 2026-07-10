@@ -3,8 +3,6 @@ import { KtButton } from '@/shared/ui'
 import type { AppSettings } from '@/shared/services/settings-service'
 import { useSettingsStore } from '../hooks/useSettingsStore'
 import { ApiServiceCard } from './ApiServiceCard'
-import { MirrorCard } from './MirrorCard'
-import { BrowserCard } from './BrowserCard'
 import { LoginManageCard } from './LoginManageCard'
 import { PlatformQuotaCard } from './PlatformQuotaCard'
 import { DataManageCard } from './DataManageCard'
@@ -21,17 +19,7 @@ function SettingsToolbar({ saving, save }: { saving: boolean; save: () => Promis
   )
 }
 
-function SettingsCardGrid({
-  settings,
-  runtimeVersion,
-  update,
-  detectBrowserRuntime,
-}: {
-  settings: AppSettings
-  runtimeVersion: string
-  update: SettingsUpdate
-  detectBrowserRuntime: () => Promise<void>
-}) {
+function SettingsCardGrid({ settings, update }: { settings: AppSettings; update: SettingsUpdate }) {
   return (
     <div
       style={{
@@ -43,8 +31,6 @@ function SettingsCardGrid({
       }}
     >
       <ApiServiceCard settings={settings} update={update} />
-      <MirrorCard settings={settings} update={update} />
-      <BrowserCard runtimeVersion={runtimeVersion} detectBrowserRuntime={detectBrowserRuntime} />
       <LoginManageCard settings={settings} update={update} />
       <div style={{ gridColumn: '1 / -1' }}>
         <PlatformQuotaCard settings={settings} update={update} />
@@ -58,12 +44,13 @@ export function SettingsPage() {
     settings,
     loading,
     saving,
-    runtimeVersion,
+    loadError,
+    saveError,
+    saveMessage,
     cacheSize,
     load,
     update,
     save,
-    detectBrowserRuntime,
     refreshCacheSize,
     cleanCache,
   } = useSettingsStore()
@@ -72,19 +59,32 @@ export function SettingsPage() {
     load()
   }, [load])
 
-  if (loading || !settings) {
+  if (loading) {
     return <div style={{ padding: 32, color: 'rgba(255,255,255,0.4)' }}>加载中...</div>
+  }
+
+  if (loadError || !settings) {
+    return (
+      <div style={{ padding: 32, color: 'var(--color-error)' }}>
+        设置加载失败：{loadError || '服务没有返回设置数据'}
+      </div>
+    )
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
       <SettingsToolbar saving={saving} save={save} />
-      <SettingsCardGrid
-        settings={settings}
-        runtimeVersion={runtimeVersion}
-        update={update}
-        detectBrowserRuntime={detectBrowserRuntime}
-      />
+      {(saveError || saveMessage) && (
+        <div
+          style={{
+            color: saveError ? 'var(--color-error)' : 'var(--color-success)',
+            fontSize: 13,
+          }}
+        >
+          {saveError || saveMessage}
+        </div>
+      )}
+      <SettingsCardGrid settings={settings} update={update} />
       <DataManageCard
         settings={settings}
         cacheSize={cacheSize}

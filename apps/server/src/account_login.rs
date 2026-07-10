@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use tokio::time::{sleep, Duration};
 
+use crate::account_browser_profile::browser_metadata_from_account;
 use crate::flow_templates::collect_script_files;
 use crate::oauth_login;
 use crate::server_plugin_host::ServerPluginHost;
@@ -82,7 +83,10 @@ async fn run_login_plugin_script(
 ) -> Result<AccountLoginProfile, String> {
     let script = read_plugin_script(state, &session.platform, script_file)?;
     let context = plugin_login_context(state, session, script_file)?;
-    let host = ServerPluginHost::new(proxy_url_from_metadata(&session.metadata));
+    let host = ServerPluginHost::new_with_metadata(
+        proxy_url_from_metadata(&session.metadata),
+        &session.metadata,
+    );
     let result = run_js_step(script, context, host).await?;
     Ok(profile_from_value(&result))
 }
@@ -147,7 +151,7 @@ async fn check_saved_account_with_flow(
     let Some(flow) = manifest.flows.get("check_account") else {
         return Ok(None);
     };
-    let host = ServerPluginHost::new(account.proxy_url.clone());
+    let host = ServerPluginHost::new_for_account(account);
     let mut context = json!({
         "platform": account.platform,
         "account": account,
@@ -193,10 +197,6 @@ async fn check_saved_account_with_browser(
     manifest: &PluginManifest,
     account: &AccountRecord,
 ) -> Result<AccountLoginProfile, String> {
-    let mut metadata = HashMap::new();
-    if !account.proxy_url.trim().is_empty() {
-        metadata.insert("proxy_server".to_string(), json!(account.proxy_url));
-    }
     let start_url = if manifest.workspace_url.trim().is_empty() {
         manifest.login_url.clone()
     } else {
@@ -213,7 +213,7 @@ async fn check_saved_account_with_browser(
             headless: Some(true),
             width: Some(1365),
             height: Some(768),
-            metadata,
+            metadata: browser_metadata_from_account(account),
             ..BrowserSessionCreateRequest::default()
         })
         .await
@@ -361,8 +361,9 @@ fn login_detection_config(manifest: &PluginManifest) -> Result<LoginDetectionCon
     let value = manifest
         .extra
         .get("login_detection")
+        .or_else(|| manifest.extra.get("login_check"))
         .cloned()
-        .unwrap_or_else(|| json!(null));
+        .unwrap_or(Value::Null);
     if value.is_null() {
         return Err(format!(
             "{} 插件没有配置登录检测脚本。",

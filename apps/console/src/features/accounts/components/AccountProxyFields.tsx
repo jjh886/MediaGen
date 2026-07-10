@@ -1,5 +1,15 @@
 import { KtInput, KtSelect } from '@/shared/ui'
+import { parseProxyUrlParts } from '@/shared/utils/proxy-url'
 import type { ProxyFormState, ProxyProtocol } from '../utils/proxy-config'
+import {
+  accountFieldHintStyle,
+  accountFieldLabelStyle,
+  accountFieldStyle,
+  accountFormStackStyle,
+  accountTwoColumnGridStyle,
+  updateAccountFormField,
+} from './account-form-shared'
+import AccountSettingSwitch from './AccountSettingSwitch'
 
 interface AccountProxyFieldsProps {
   value: ProxyFormState
@@ -11,98 +21,84 @@ const protocolOptions: { value: ProxyProtocol; label: string }[] = [
   { value: 'socks5', label: 'SOCKS5' },
 ]
 
-const gridStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: '1fr 120px',
-  gap: 10,
-}
+const proxyGridStyle = accountTwoColumnGridStyle(120)
 
-const labelStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  color: 'var(--text-secondary)',
-  fontSize: 13,
-}
-
-const fieldStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 6,
-}
-
-function updateField<K extends keyof ProxyFormState>(
-  value: ProxyFormState,
-  key: K,
-  next: ProxyFormState[K]
-) {
-  return { ...value, [key]: next }
+function applyHostInput(value: ProxyFormState, raw: string): ProxyFormState {
+  const parsed = parseProxyUrlParts(raw)
+  if (!parsed || !raw.includes('://')) {
+    return updateAccountFormField(value, 'host', raw)
+  }
+  return { ...value, enabled: true, ...parsed }
 }
 
 export default function AccountProxyFields({ value, onChange }: AccountProxyFieldsProps) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <label style={labelStyle}>
-        <input
-          type="checkbox"
-          checked={value.enabled}
-          onChange={(event) => onChange(updateField(value, 'enabled', event.target.checked))}
-        />
+    <div style={accountFormStackStyle}>
+      <AccountSettingSwitch
+        checked={value.enabled}
+        onChange={(enabled) => onChange(updateAccountFormField(value, 'enabled', enabled))}
+      >
         为这个账号单独设置代理
-      </label>
+      </AccountSettingSwitch>
 
       {value.enabled && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={gridStyle}>
-            <div style={fieldStyle}>
-              <span style={labelStyle}>代理协议</span>
+        <div style={accountFormStackStyle}>
+          <div style={proxyGridStyle}>
+            <div style={accountFieldStyle}>
+              <span style={accountFieldLabelStyle}>代理协议</span>
               <KtSelect
                 value={value.protocol}
                 onChange={(protocol) =>
-                  onChange(updateField(value, 'protocol', protocol as ProxyProtocol))
+                  onChange(updateAccountFormField(value, 'protocol', protocol as ProxyProtocol))
                 }
                 options={protocolOptions}
               />
             </div>
-            <div style={fieldStyle}>
-              <span style={labelStyle}>端口</span>
+            <div style={accountFieldStyle}>
+              <span style={accountFieldLabelStyle}>端口</span>
               <KtInput
                 type="number"
                 min={1}
                 max={65535}
                 value={value.port}
-                onChange={(event) => onChange(updateField(value, 'port', event.target.value))}
+                onChange={(event) =>
+                  onChange(updateAccountFormField(value, 'port', event.target.value))
+                }
               />
             </div>
           </div>
 
-          <div style={fieldStyle}>
-            <span style={labelStyle}>代理地址</span>
+          <div style={accountFieldStyle}>
+            <span style={accountFieldLabelStyle}>代理地址</span>
             <KtInput
-              placeholder="127.0.0.1 或 proxy.example.com"
+              placeholder="127.0.0.1、proxy.example.com 或完整 socks5h:// 地址"
               value={value.host}
-              onChange={(event) => onChange(updateField(value, 'host', event.target.value))}
+              onChange={(event) => onChange(applyHostInput(value, event.target.value))}
             />
           </div>
 
-          <div style={gridStyle}>
-            <div style={fieldStyle}>
-              <span style={labelStyle}>账号</span>
+          <div style={proxyGridStyle}>
+            <div style={accountFieldStyle}>
+              <span style={accountFieldLabelStyle}>账号</span>
               <KtInput
                 value={value.username}
-                onChange={(event) => onChange(updateField(value, 'username', event.target.value))}
+                onChange={(event) =>
+                  onChange(updateAccountFormField(value, 'username', event.target.value))
+                }
               />
             </div>
-            <div style={fieldStyle}>
-              <span style={labelStyle}>密码</span>
+            <div style={accountFieldStyle}>
+              <span style={accountFieldLabelStyle}>密码</span>
               <KtInput
                 type="password"
                 value={value.password}
-                onChange={(event) => onChange(updateField(value, 'password', event.target.value))}
+                onChange={(event) =>
+                  onChange(updateAccountFormField(value, 'password', event.target.value))
+                }
               />
             </div>
           </div>
-          <span style={{ color: 'var(--text-disabled)', fontSize: 12 }}>
+          <span style={accountFieldHintStyle}>
             开启后，登录窗口、浏览器任务和插件 HTTP 请求都会使用这个代理。
           </span>
         </div>

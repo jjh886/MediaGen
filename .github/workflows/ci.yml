@@ -17,7 +17,7 @@ jobs:
   app:
     name: MediaGen App Gates
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -33,6 +33,9 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
@@ -47,26 +50,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Format check
-        run: npm run format:check
+      - name: App check
+        run: npm run check
 
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npm run type-check
-
-      - name: Test UI
-        run: npm run test
-
-      - name: Build UI
-        run: npm run build
-
-      - name: Cargo check
-        run: npm run cargo-check
-
-      - name: Cargo test
-        run: npm run cargo-test
+      - name: Startup quality gate
+        run: node scripts/gates/run-start-quality-gate.mjs --modules app --include-coverage
 
       - name: Security audit
         run: npm audit --audit-level=moderate || true

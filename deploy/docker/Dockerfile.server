@@ -1,7 +1,8 @@
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl fonts-noto fonts-noto-cjk \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates curl fonts-noto fonts-noto-cjk libatk-bridge2.0-0 libgtk-3-0 libnss3 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/mediagen
@@ -15,6 +16,8 @@ ENV MEDIAGEN_CONSOLE_DIR=/usr/share/mediagen/console
 ENV MEDIAGEN_PLUGINS_DIR=/opt/mediagen/plugins
 ENV MEDIAGEN_DATA_DIR=/var/lib/mediagen
 ENV MEDIAGEN_LOGS_DIR=/var/log/mediagen
+ENV MEDIAGEN_PROFILES_DIR=/var/lib/mediagen/profiles
+ENV CLOAKBROWSER_CACHE_DIR=/var/lib/mediagen/.cloakbrowser
 
 EXPOSE 18080
 CMD ["/usr/bin/mediagen-server"]

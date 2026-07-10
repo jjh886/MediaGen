@@ -4,6 +4,7 @@ use futures_util::{stream, Stream};
 use mediagen_browser_gateway::{BrowserGatewayError, BrowserSessionEvent};
 use serde::Deserialize;
 
+use crate::browser_session_public::public_browser_event_data;
 use crate::browser_sessions::gateway_error_response;
 use crate::ServerState;
 
@@ -79,7 +80,8 @@ fn read_event_after(request: &HttpRequest, query_after: u64) -> u64 {
 fn format_sse_events(events: Vec<BrowserSessionEvent>) -> String {
     let mut body = String::new();
     for event in events {
-        let data = serde_json::to_string(&event.data).unwrap_or_else(|_| "{}".to_string());
+        let data = serde_json::to_string(&public_browser_event_data(event.data))
+            .unwrap_or_else(|_| "{}".to_string());
         body.push_str(&format!("id: {}\n", event.sequence));
         body.push_str(&format!("event: {}\n", event.event));
         body.push_str("data: ");
@@ -95,8 +97,11 @@ fn format_sse_events(events: Vec<BrowserSessionEvent>) -> String {
 #[cfg(test)]
 mod tests {
     use actix_web::test::TestRequest;
+    use chrono::Utc;
+    use mediagen_browser_gateway::BrowserSessionEvent;
+    use serde_json::json;
 
-    use super::read_event_after;
+    use super::{format_sse_events, read_event_after};
 
     #[test]
     fn last_event_id_header_wins_over_query_after() {
@@ -104,5 +109,27 @@ mod tests {
             .insert_header(("last-event-id", "12"))
             .to_http_request();
         assert_eq!(read_event_after(&request, 5), 12);
+    }
+
+    #[test]
+    fn sse_events_hide_proxy_credentials() {
+        let body = format_sse_events(vec![BrowserSessionEvent {
+            sequence: 1,
+            event: "status".to_string(),
+            data: json!({
+                "id": "session-1",
+                "metadata": {
+                    "proxy_server": "socks5h://user:secret@proxy.example:1080",
+                    "proxy_username": "user",
+                    "proxy_password": "secret"
+                }
+            }),
+            created_at: Utc::now(),
+        }]);
+
+        assert!(body.contains("socks5h://proxy.example:1080"));
+        assert!(!body.contains("secret"));
+        assert!(!body.contains("proxy_username"));
+        assert!(!body.contains("proxy_password"));
     }
 }

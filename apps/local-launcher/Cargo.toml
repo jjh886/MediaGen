@@ -6,6 +6,8 @@ authors.workspace = true
 build = "build.rs"
 
 [dependencies]
+mediagen-core = { path = "../../crates/mediagen-core" }
+serde_json = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }

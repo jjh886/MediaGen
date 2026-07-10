@@ -84,7 +84,7 @@ impl BrowserGateway {
     pub fn list_sessions(&self) -> Result<Vec<BrowserSession>, BrowserGatewayError> {
         let state = self.lock_state()?;
         let mut sessions: Vec<_> = state.sessions.values().cloned().collect();
-        sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        sessions.sort_by_key(|session| std::cmp::Reverse(session.created_at));
         Ok(sessions)
     }
 
@@ -212,6 +212,7 @@ impl BrowserGateway {
         client.send("Runtime.enable", json!({})).await?;
         client.send("Network.enable", json!({})).await?;
         let session = self.get_session(id)?;
+        crate::fingerprint::apply_browser_fingerprint(&client, &session).await?;
         crate::proxy::enable_auth_handling(&client).await?;
         native_dialogs::install_native_dialog_guards(&client).await;
         rendering::configure_rendering(&client, &session).await?;

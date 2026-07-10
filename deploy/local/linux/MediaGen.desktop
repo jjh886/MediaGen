@@ -2,7 +2,7 @@
 Type=Application
 Name=MediaGen
 Comment=Start MediaGen Web Console
-Exec=/opt/mediagen-local/start-mediagen.sh
-Icon=/opt/mediagen-local/icons/mediagen.png
+Exec=sh -c 'APP_DIR=$(dirname "$(readlink -f "$1")"); exec "$APP_DIR/start-mediagen.sh"' mediagen %k
+Icon=mediagen
 Terminal=false
 Categories=Graphics;Utility;

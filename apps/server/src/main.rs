@@ -1,15 +1,25 @@
 mod access_control;
+mod account_browser_profile;
 mod account_login;
-mod browser_runtime;
+mod admin_access;
+mod admin_routes;
 mod browser_session_events;
+mod browser_session_public;
+mod browser_session_setup;
 mod browser_sessions;
 mod callback_host;
+mod failure_strategy;
+mod file_api;
 mod flow_runner;
 mod flow_runtime;
 mod flow_templates;
 mod image_api;
+mod image_api_response;
+mod image_assets;
+mod image_file_refs;
 mod image_multipart;
 mod image_request;
+mod image_task_queue;
 mod js_flow_runner;
 mod net_client;
 mod oauth_login;
@@ -18,28 +28,42 @@ mod routes;
 mod server_plugin_host;
 mod settings;
 mod store;
+mod store_accounts;
+mod store_entities;
+mod store_helpers;
+mod store_models;
+mod store_persistence;
 mod system_control;
 mod value_utils;
 
 #[cfg(test)]
+mod browser_session_route_tests;
+#[cfg(test)]
+mod file_api_tests;
+#[cfg(test)]
+mod image_api_tests;
+#[cfg(test)]
 mod routes_tests;
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+mod test_fixtures;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use actix_files::Files;
-use actix_web::{web, App, HttpServer};
+use actix_web::{dev::Service, web, App, HttpServer};
+use futures_util::future::{ready, Either, FutureExt};
+use image_task_queue::ImageTaskQueue;
 use mediagen_browser_gateway::{BrowserGateway, BrowserGatewayConfig};
 use mediagen_plugin_runtime::PluginLoader;
 use oauth_login::OAuthLoginStore;
 use store::AppStore;
 
 use routes::{
-    account_groups, accounts, api_keys, browser_runtime_install_guide, browser_runtimes,
-    cancel_task, check_accounts_login, delete_account, health, install_browser_runtime, logs,
-    models, plugins, settings, setup, tasks, toggle_account, update_account, update_settings,
+    accounts, cancel_task, check_accounts_login, delete_account, health, models, plugins, settings,
+    setup, tasks, toggle_account, update_account, update_settings,
 };
 
 #[derive(Clone)]
@@ -48,6 +72,8 @@ pub struct ServerState {
     pub browser_gateway: Arc<BrowserGateway>,
     pub store: Arc<AppStore>,
     pub oauth_logins: OAuthLoginStore,
+    pub file_root: PathBuf,
+    pub image_task_queue: Arc<ImageTaskQueue>,
 }
 
 #[actix_web::main]
@@ -62,6 +88,20 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
+            .wrap_fn(|request, service| {
+                if admin_access::request_allowed(&request) {
+                    Either::Left(
+                        service
+                            .call(request)
+                            .map(|response| response.map(|value| value.map_into_left_body())),
+                    )
+                } else {
+                    Either::Right(ready(Ok(request.into_response(
+                        admin_access::unauthorized_response().map_into_right_body(),
+                    ))))
+                }
+            })
+            .configure(admin_routes::configure)
             .configure(configure_routes)
             .service(Files::new("/", &console_dir).index_file("index.html"))
     })
@@ -88,18 +128,23 @@ fn build_state(config: &ServerConfig) -> ServerState {
             profile_root: config.profiles_dir.clone(),
             ..BrowserGatewayConfig::default()
         })),
-        store: Arc::new(AppStore::load(config.data_dir.join("server-state.json"))),
+        store: Arc::new(AppStore::load(config.data_dir.join("mediagen.sqlite"))),
         oauth_logins: OAuthLoginStore::default(),
+        file_root: config.data_dir.join("openai-files"),
+        image_task_queue: Arc::new(ImageTaskQueue::default()),
     }
 }
 
 fn configure_routes(cfg: &mut web::ServiceConfig) {
+    configure_management_routes(cfg);
+    configure_openai_routes(cfg);
+}
+
+fn configure_management_routes(cfg: &mut web::ServiceConfig) {
     cfg.route("/health", web::get().to(health))
         .route("/api/setup", web::post().to(setup))
         .route("/api/plugins", web::get().to(plugins))
         .route("/api/accounts", web::get().to(accounts))
-        .route("/api/account-groups", web::get().to(account_groups))
-        .route("/api/api-keys", web::get().to(api_keys))
         .route(
             "/api/accounts/check-login",
             web::post().to(check_accounts_login),
@@ -116,22 +161,29 @@ fn configure_routes(cfg: &mut web::ServiceConfig) {
             web::get().to(system_control::system_info),
         )
         .route("/api/system/exit", web::post().to(system_control::exit_app))
-        .route("/api/logs", web::get().to(logs))
         .route(
             "/api/oauth/callback",
             web::get().to(oauth_login::oauth_callback),
         )
-        .route("/api/browser-runtimes", web::get().to(browser_runtimes))
+        .configure(browser_sessions::configure);
+}
+
+fn configure_openai_routes(cfg: &mut web::ServiceConfig) {
+    cfg.route("/v1/models", web::get().to(models))
+        .route("/v1/files", web::post().to(file_api::upload_file))
+        .route("/v1/files", web::get().to(file_api::list_files))
         .route(
-            "/api/browser-runtimes/install-guide",
-            web::get().to(browser_runtime_install_guide),
+            "/v1/files/{file_id}",
+            web::get().to(file_api::retrieve_file),
         )
         .route(
-            "/api/browser-runtimes/install",
-            web::post().to(install_browser_runtime),
+            "/v1/files/{file_id}",
+            web::delete().to(file_api::delete_file),
         )
-        .configure(browser_sessions::configure)
-        .route("/v1/models", web::get().to(models))
+        .route(
+            "/v1/files/{file_id}/content",
+            web::get().to(file_api::retrieve_file_content),
+        )
         .route(
             "/v1/images/generations",
             web::post().to(image_api::generate_image),

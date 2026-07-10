@@ -9,8 +9,7 @@
  *   node scripts/gates/check-coverage-gate.mjs         # app UI + Rust
  *   node scripts/gates/check-coverage-gate.mjs --app   # app UI + Rust
  *
- * 跳过：
- *   MEDIAGEN_SKIP_COVERAGE_GATE=1 node scripts/gates/check-coverage-gate.mjs
+ * 覆盖率门禁必须真实执行，不提供跳过入口。
  */
 
 import { spawnSync } from 'node:child_process'
@@ -41,16 +40,23 @@ const APP_FRONTEND_INCLUDE = [
 
 const FRONTEND_EXCLUDE = ['**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx']
 
-// ─── Rust 覆盖范围：可稳定单元测试的纯逻辑模块 ───
-// 浏览器/CDP/HTTP 路由编排依赖外部进程或网络，这里只统计能用单元测试稳定覆盖的核心逻辑。
+// ─── Rust 覆盖范围：可稳定单元测试的核心模块 ───
+// runtime.rs 会启动外部浏览器进程并探测 CDP 端口，放到集成验证里看，不纳入单元覆盖率汇总。
 const RUST_INCLUDE_REGEX = [
   'apps/server/src/access_control\\.rs$',
+  'apps/server/src/account_browser_profile\\.rs$',
+  'apps/server/src/admin_routes\\.rs$',
   'apps/server/src/image_request\\.rs$',
   'apps/server/src/net_client\\.rs$',
   'apps/server/src/store\\.rs$',
+  'apps/server/src/store_entities\\.rs$',
+  'apps/server/src/store_persistence\\.rs$',
+  'apps/server/src/flow_runtime\\.rs$',
   'apps/server/src/value_utils\\.rs$',
+  'crates/mediagen-browser-gateway/src/fingerprint\\.rs$',
   'crates/mediagen-browser-gateway/src/types\\.rs$',
   'crates/mediagen-core/src/plugin_manifest\\.rs$',
+  'crates/mediagen-plugin-runtime/src/plugin_loader\\.rs$',
 ].join('|')
 
 function parseArgs(argv) {
@@ -230,9 +236,9 @@ function runRustCoverage() {
   })
 
   if (checkResult.status !== 0) {
-    console.log('[coverage-gate] cargo-llvm-cov 未安装，跳过 Rust 覆盖率检查。')
-    console.log('[coverage-gate] 安装方式: cargo install cargo-llvm-cov')
-    return true
+    console.error('[coverage-gate] cargo-llvm-cov 未安装，无法计算 Rust 覆盖率。')
+    console.error('[coverage-gate] 安装方式: cargo install cargo-llvm-cov')
+    return false
   }
 
   console.log(`[coverage-gate] Rust 覆盖率检查，阈值 ${RUST_THRESHOLD}%`)
@@ -336,7 +342,8 @@ function runRustCoverage() {
 
 function main() {
   if (process.env.MEDIAGEN_SKIP_COVERAGE_GATE === '1') {
-    console.log('[coverage-gate] 已通过环境变量跳过覆盖率门禁。')
+    console.error('[coverage-gate] 禁止通过 MEDIAGEN_SKIP_COVERAGE_GATE 跳过覆盖率门禁。')
+    process.exitCode = 1
     return
   }
 

@@ -1,96 +1,49 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::access_control::{account_key_allowed, groups_for_key, normalize_lines};
-use crate::account_login::{default_tier, AccountLoginProfile};
+use crate::account_login::AccountLoginProfile;
 use crate::settings::apply_settings_update;
-use chrono::Utc;
-use mediagen_browser_gateway::{BrowserSession, BrowserSessionPurpose};
-use mediagen_core::PluginManifest;
-use serde::{Deserialize, Serialize};
+use crate::store_entities::migrate_legacy_api_keys;
+use crate::store_helpers::{
+    account_ready_for_dispatch, apply_account_profile, apply_account_update, first_result_url,
+};
+pub use crate::store_models::{
+    AccountRecord, AccountUpdate, ApiKeyRecord, AuditLogRecord, ProxyRecord, StoreSnapshot,
+    TaskEventRecord, TaskRecord,
+};
+use crate::store_persistence::{read_store_snapshot, write_store_snapshot};
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 pub use crate::settings::{AppSettings, SettingsUpdate};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccountRecord {
-    pub id: String,
-    pub platform: String,
-    pub name: String,
-    pub email: String,
-    pub avatar_url: String,
-    pub tier: String,
-    pub login_state: String,
-    pub used_today: u32,
-    pub daily_limit: u32,
-    pub used_total: u32,
-    pub total_limit: u32,
-    pub concurrency_limit: u32,
-    pub task_interval_seconds: u32,
-    pub group_name: String,
-    pub proxy_url: String,
-    pub api_key: String,
-    pub profile_dir: String,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskRecord {
-    pub id: String,
-    pub platform: String,
-    pub task_kind: String,
-    pub model_id: String,
-    pub prompt: String,
-    pub account_id: Option<String>,
-    pub status: String,
-    pub result_url: Option<String>,
-    pub storage_key: Option<String>,
-    pub error_message: Option<String>,
-    pub result_data: Option<String>,
-    pub created_at: String,
-    pub completed_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct AccountUpdate {
-    pub tier: Option<String>,
-    pub concurrency_limit: Option<u32>,
-    pub daily_limit: Option<u32>,
-    pub total_limit: Option<u32>,
-    pub task_interval_seconds: Option<u32>,
-    pub group_name: Option<String>,
-    pub proxy_url: Option<String>,
-    pub api_key: Option<String>,
-}
-
-#[derive(Default, Serialize, Deserialize)]
-struct StoreSnapshot {
-    accounts: Vec<AccountRecord>,
-    #[serde(default)]
-    tasks: Vec<TaskRecord>,
-    #[serde(default)]
-    settings: AppSettings,
-}
-
 pub struct AppStore {
-    path: PathBuf,
-    accounts: Mutex<Vec<AccountRecord>>,
-    tasks: Mutex<Vec<TaskRecord>>,
-    settings: Mutex<AppSettings>,
+    pub(crate) path: PathBuf,
+    pub(crate) accounts: Mutex<Vec<AccountRecord>>,
+    pub(crate) tasks: Mutex<Vec<TaskRecord>>,
+    pub(crate) settings: Mutex<AppSettings>,
+    pub(crate) api_keys: Mutex<Vec<ApiKeyRecord>>,
+    pub(crate) proxies: Mutex<Vec<ProxyRecord>>,
+    pub(crate) audit_logs: Mutex<Vec<AuditLogRecord>>,
+    pub(crate) task_events: Mutex<Vec<TaskEventRecord>>,
 }
 
 impl AppStore {
     pub fn load(path: PathBuf) -> Self {
-        let snapshot = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<StoreSnapshot>(&raw).ok())
-            .unwrap_or_default();
-        Self {
+        let mut snapshot = read_store_snapshot(&path);
+        migrate_legacy_api_keys(&mut snapshot);
+        let store = Self {
             path,
             accounts: Mutex::new(snapshot.accounts),
             tasks: Mutex::new(snapshot.tasks),
             settings: Mutex::new(snapshot.settings),
-        }
+            api_keys: Mutex::new(snapshot.api_keys),
+            proxies: Mutex::new(snapshot.proxies),
+            audit_logs: Mutex::new(snapshot.audit_logs),
+            task_events: Mutex::new(snapshot.task_events),
+        };
+        store.save();
+        store
     }
 
     pub fn list_accounts(&self, platform: Option<&str>) -> Vec<AccountRecord> {
@@ -104,21 +57,47 @@ impl AppStore {
             .collect()
     }
 
+    pub fn account_by_id(&self, id: &str) -> Option<AccountRecord> {
+        self.accounts
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .iter()
+            .find(|account| account.id == id)
+            .cloned()
+    }
+
     pub fn first_available_account_for_key(
         &self,
         platform: &str,
         api_key: Option<&str>,
     ) -> Option<AccountRecord> {
+        self.first_available_account_for_key_excluding(platform, api_key, &[])
+    }
+
+    pub fn first_available_account_for_key_excluding(
+        &self,
+        platform: &str,
+        api_key: Option<&str>,
+        excluded_ids: &[String],
+    ) -> Option<AccountRecord> {
+        self.release_expired_cooldowns();
         let accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
-        let mut candidates = accounts
-            .iter()
-            .filter(|account| account.platform == platform && account.login_state == "available");
+        let tasks = self.tasks.lock().unwrap_or_else(|err| err.into_inner());
+        let mut candidates = accounts.iter().filter(|account| {
+            account.platform == platform
+                && !excluded_ids.iter().any(|id| id == &account.id)
+                && account_ready_for_dispatch(account, &tasks)
+        });
         if let Some(key) = api_key.map(str::trim).filter(|key| !key.is_empty()) {
-            let settings = self.settings.lock().unwrap_or_else(|err| err.into_inner());
-            let groups = groups_for_key(&settings.api_keys, key);
-            candidates
-                .find(|account| account_allowed(account, key, &groups))
-                .cloned()
+            if self.global_api_key_allowed(key) {
+                candidates.next().cloned()
+            } else {
+                candidates
+                    .find(|account| {
+                        crate::access_control::account_key_allowed(&account.api_key, key)
+                    })
+                    .cloned()
+            }
         } else {
             candidates.next().cloned()
         }
@@ -132,8 +111,10 @@ impl AppStore {
     }
 
     pub fn update_settings(&self, update: SettingsUpdate) -> AppSettings {
+        self.replace_api_keys_from_settings_update(update.api_keys.as_deref());
         let mut settings = self.settings.lock().unwrap_or_else(|err| err.into_inner());
         apply_settings_update(&mut settings, update);
+        settings.api_keys.clear();
         let updated = settings.clone();
         drop(settings);
         self.save();
@@ -161,6 +142,30 @@ impl AppStore {
         self.save();
     }
 
+    pub fn add_task_event(&self, task_id: &str, level: &str, message: String) {
+        self.task_events
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .push(TaskEventRecord {
+                id: format!("event-{}", Uuid::new_v4()),
+                task_id: task_id.to_string(),
+                level: level.to_string(),
+                message,
+                created_at: Utc::now().to_rfc3339(),
+            });
+        self.save();
+    }
+
+    pub fn mark_account_usage(&self, account_id: &str) {
+        let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
+        if let Some(account) = accounts.iter_mut().find(|account| account.id == account_id) {
+            account.used_today = account.used_today.saturating_add(1);
+            account.used_total = account.used_total.saturating_add(1);
+        }
+        drop(accounts);
+        self.save();
+    }
+
     pub fn complete_task(&self, id: &str, result: serde_json::Value) -> Option<TaskRecord> {
         self.update_task(id, |task| {
             task.status = "completed".to_string();
@@ -172,6 +177,18 @@ impl AppStore {
         })
     }
 
+    pub fn set_task_account(&self, id: &str, account_id: &str) -> Option<TaskRecord> {
+        self.update_task(id, |task| {
+            task.account_id = Some(account_id.to_string());
+        })
+    }
+
+    pub fn start_task(&self, id: &str) -> Option<TaskRecord> {
+        self.update_task(id, |task| {
+            task.status = "processing".to_string();
+        })
+    }
+
     pub fn fail_task(&self, id: &str, message: String) -> Option<TaskRecord> {
         self.update_task(id, |task| {
             task.status = "failed".to_string();
@@ -180,9 +197,24 @@ impl AppStore {
         })
     }
 
+    pub fn require_task_verification(&self, id: &str, message: String) -> Option<TaskRecord> {
+        self.update_task(id, |task| {
+            task.status = "verification_required".to_string();
+            task.error_message = Some(message);
+        })
+    }
+
+    pub fn resume_task_after_verification(&self, id: &str) -> Option<TaskRecord> {
+        self.update_task(id, |task| {
+            task.status = "queued".to_string();
+            task.error_message = None;
+            task.completed_at = None;
+        })
+    }
+
     pub fn cancel_task(&self, id: &str) -> Option<TaskRecord> {
         self.update_task(id, |task| {
-            task.status = "failed".to_string();
+            task.status = "cancelled".to_string();
             task.error_message = Some("用户取消".to_string());
             task.completed_at = Some(Utc::now().to_rfc3339());
         })
@@ -198,74 +230,10 @@ impl AppStore {
         Some(task)
     }
 
-    pub fn upsert_from_browser_session(&self, session: &BrowserSession) -> Option<AccountRecord> {
-        match session.purpose {
-            BrowserSessionPurpose::AddAccount => {
-                Some(self.create_from_browser_session(session, None, None))
-            }
-            BrowserSessionPurpose::ReloginAccount => {
-                if let Some(id) = &session.account_id {
-                    self.mark_available(
-                        id,
-                        None,
-                        proxy_url_from_session_metadata(&session.metadata),
-                    )
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    pub fn upsert_from_browser_session_with_profile(
-        &self,
-        session: &BrowserSession,
-        manifest: &PluginManifest,
-        profile: AccountLoginProfile,
-    ) -> Option<AccountRecord> {
-        match session.purpose {
-            BrowserSessionPurpose::AddAccount => {
-                Some(self.create_from_browser_session(session, Some(manifest), Some(profile)))
-            }
-            BrowserSessionPurpose::ReloginAccount => session.account_id.as_deref().and_then(|id| {
-                self.mark_available(
-                    id,
-                    Some(profile),
-                    proxy_url_from_session_metadata(&session.metadata),
-                )
-            }),
-            _ => None,
-        }
-    }
-
     pub fn update_account(&self, id: &str, update: AccountUpdate) -> Option<AccountRecord> {
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         let account = accounts.iter_mut().find(|account| account.id == id)?;
-        if let Some(value) = update.tier {
-            account.tier = value;
-        }
-        if let Some(value) = update.concurrency_limit {
-            account.concurrency_limit = value;
-        }
-        if let Some(value) = update.daily_limit {
-            account.daily_limit = value;
-        }
-        if let Some(value) = update.total_limit {
-            account.total_limit = value;
-        }
-        if let Some(value) = update.task_interval_seconds {
-            account.task_interval_seconds = value;
-        }
-        if let Some(value) = update.group_name {
-            account.group_name = value;
-        }
-        if let Some(value) = update.proxy_url {
-            account.proxy_url = value;
-        }
-        if let Some(value) = update.api_key {
-            account.api_key = normalize_lines(&value);
-        }
+        apply_account_update(account, update);
         let account = account.clone();
         drop(accounts);
         self.save();
@@ -304,19 +272,38 @@ impl AppStore {
         let account = accounts.iter_mut().find(|account| account.id == id)?;
         account.login_state = login_state.to_string();
         if let Some(profile) = profile {
-            if !profile.username.trim().is_empty() {
-                account.name = profile.username;
-            }
-            if !profile.email.trim().is_empty() {
-                account.email = profile.email;
-            }
-            if !profile.avatar_url.trim().is_empty() {
-                account.avatar_url = profile.avatar_url;
-            }
-            if !profile.tier.trim().is_empty() {
-                account.tier = profile.tier;
-            }
+            apply_account_profile(account, profile);
         }
+        let account = account.clone();
+        drop(accounts);
+        self.save();
+        Some(account)
+    }
+
+    pub fn mark_account_state(&self, id: &str, login_state: &str) -> Option<AccountRecord> {
+        let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
+        let account = accounts.iter_mut().find(|account| account.id == id)?;
+        account.login_state = login_state.to_string();
+        if login_state != "cooldown" {
+            account.cooldown_until = None;
+        }
+        let account = account.clone();
+        drop(accounts);
+        self.save();
+        Some(account)
+    }
+
+    pub fn mark_account_state_for_seconds(
+        &self,
+        id: &str,
+        login_state: &str,
+        seconds: i64,
+    ) -> Option<AccountRecord> {
+        let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
+        let account = accounts.iter_mut().find(|account| account.id == id)?;
+        account.login_state = login_state.to_string();
+        account.cooldown_until = (login_state == "cooldown" && seconds > 0)
+            .then(|| (Utc::now() + chrono::Duration::seconds(seconds)).to_rfc3339());
         let account = account.clone();
         drop(accounts);
         self.save();
@@ -331,134 +318,64 @@ impl AppStore {
         self.save();
     }
 
-    fn create_from_browser_session(
-        &self,
-        session: &BrowserSession,
-        manifest: Option<&PluginManifest>,
-        profile: Option<AccountLoginProfile>,
-    ) -> AccountRecord {
-        let now = Utc::now().to_rfc3339();
-        let profile = profile.unwrap_or_default();
-        let fallback_name = format!("{} 账号", session.platform);
-        let manifest_tier = manifest.map(default_tier).unwrap_or_default();
-        let name = first_non_empty(&[
-            profile.username.as_str(),
-            profile.email.as_str(),
-            fallback_name.as_str(),
-        ]);
-        let email = first_non_empty(&[profile.email.as_str(), profile.user_id.as_str()]);
-        let tier = first_non_empty(&[profile.tier.as_str(), manifest_tier.as_str()]);
-        let account = AccountRecord {
-            id: format!("acc-{}", Uuid::new_v4()),
-            platform: session.platform.clone(),
-            name,
-            email,
-            avatar_url: profile.avatar_url,
-            tier,
-            login_state: "available".to_string(),
-            used_today: 0,
-            daily_limit: 100,
-            used_total: 0,
-            total_limit: 5000,
-            concurrency_limit: 1,
-            task_interval_seconds: 0,
-            group_name: "默认分组".to_string(),
-            proxy_url: proxy_url_from_session_metadata(&session.metadata).unwrap_or_default(),
-            api_key: String::new(),
-            profile_dir: session.profile_dir.clone(),
-            created_at: now,
-        };
-        self.accounts
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
-            .push(account.clone());
-        self.save();
-        account
-    }
-
-    fn mark_available(
-        &self,
-        id: &str,
-        profile: Option<AccountLoginProfile>,
-        proxy_url: Option<String>,
-    ) -> Option<AccountRecord> {
-        let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
-        let account = accounts.iter_mut().find(|account| account.id == id)?;
-        account.login_state = "available".to_string();
-        if let Some(proxy_url) = proxy_url {
-            account.proxy_url = proxy_url;
-        }
-        if let Some(profile) = profile {
-            if !profile.username.trim().is_empty() {
-                account.name = profile.username;
-            }
-            if !profile.email.trim().is_empty() {
-                account.email = profile.email;
-            }
-            if !profile.avatar_url.trim().is_empty() {
-                account.avatar_url = profile.avatar_url;
-            }
-            if !profile.tier.trim().is_empty() {
-                account.tier = profile.tier;
-            }
-        }
-        let account = account.clone();
-        drop(accounts);
-        self.save();
-        Some(account)
-    }
-
-    fn save(&self) {
+    pub(crate) fn save(&self) {
         if let Some(parent) = self.path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
         let accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         let tasks = self.tasks.lock().unwrap_or_else(|err| err.into_inner());
         let settings = self.settings.lock().unwrap_or_else(|err| err.into_inner());
+        let api_keys = self.api_keys.lock().unwrap_or_else(|err| err.into_inner());
+        let proxies = self.proxies.lock().unwrap_or_else(|err| err.into_inner());
+        let audit_logs = self
+            .audit_logs
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let task_events = self
+            .task_events
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
         let snapshot = StoreSnapshot {
             accounts: accounts.clone(),
             tasks: tasks.clone(),
             settings: settings.clone(),
+            api_keys: api_keys.clone(),
+            proxies: proxies.clone(),
+            audit_logs: audit_logs.clone(),
+            task_events: task_events.clone(),
         };
-        if let Ok(raw) = serde_json::to_string_pretty(&snapshot) {
-            let _ = std::fs::write(&self.path, raw);
+        let _ = write_store_snapshot(&self.path, &snapshot);
+    }
+
+    fn release_expired_cooldowns(&self) {
+        let now = Utc::now();
+        let mut changed = false;
+        let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
+        for account in accounts.iter_mut() {
+            if cooldown_has_expired(account, now) {
+                account.login_state = "available".to_string();
+                account.cooldown_until = None;
+                changed = true;
+            }
+        }
+        drop(accounts);
+        if changed {
+            self.save();
         }
     }
 }
 
-fn account_allowed(account: &AccountRecord, key: &str, groups: &[String]) -> bool {
-    account_key_allowed(&account.api_key, key)
-        || groups
-            .iter()
-            .any(|group| group.trim() == account.group_name.trim())
+fn cooldown_has_expired(account: &AccountRecord, now: DateTime<Utc>) -> bool {
+    account.login_state == "cooldown"
+        && account
+            .cooldown_until
+            .as_deref()
+            .and_then(parse_time)
+            .is_some_and(|until| until <= now)
 }
 
-fn proxy_url_from_session_metadata(
-    metadata: &std::collections::HashMap<String, serde_json::Value>,
-) -> Option<String> {
-    metadata
-        .get("proxy_server")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-}
-
-fn first_non_empty(values: &[&str]) -> String {
-    values
-        .iter()
-        .map(|value| value.trim())
-        .find(|value| !value.is_empty())
-        .unwrap_or_default()
-        .to_string()
-}
-
-fn first_result_url(result: &serde_json::Value) -> Option<String> {
-    result
-        .get("images")
-        .and_then(|value| value.as_array())
-        .and_then(|items| items.first())
-        .and_then(|item| item.get("url"))
-        .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned)
+fn parse_time(value: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|value| value.with_timezone(&Utc))
 }

@@ -45,6 +45,8 @@ interface Props {
   task: Task
   accountLabel?: string
   onCancel: (task: Task) => void
+  onOpenVerification?: (taskId: string) => void
+  onOpenTaskLogs?: (taskId: string) => void
   onClose: () => void
 }
 
@@ -59,7 +61,40 @@ function shortId(value?: string): string {
   return value ? value.slice(0, 8) : '-'
 }
 
-export default function TaskDetail({ task, accountLabel, onCancel, onClose }: Props) {
+function copyText(value?: string) {
+  if (!value) return
+  void navigator.clipboard?.writeText(value).catch(() => undefined)
+}
+
+function openUrl(value?: string) {
+  if (!value) return
+  window.open(value, '_blank', 'noopener,noreferrer')
+}
+
+function ResultActions({ value, openable }: { value?: string; openable?: boolean }) {
+  if (!value) return null
+  return (
+    <span style={{ display: 'inline-flex', gap: 6, marginLeft: 8 }}>
+      <KtButton variant="default" size="sm" onClick={() => copyText(value)}>
+        复制
+      </KtButton>
+      {openable && (
+        <KtButton variant="default" size="sm" onClick={() => openUrl(value)}>
+          打开
+        </KtButton>
+      )}
+    </span>
+  )
+}
+
+export default function TaskDetail({
+  task,
+  accountLabel,
+  onCancel,
+  onOpenVerification,
+  onOpenTaskLogs,
+  onClose,
+}: Props) {
   const canCancel = task.status === 'pending' || task.status === 'processing'
   const resultData = parseResultData(task)
 
@@ -88,6 +123,14 @@ export default function TaskDetail({ task, accountLabel, onCancel, onClose }: Pr
               取消任务
             </KtButton>
           )}
+          {task.status === 'verification_required' && (
+            <KtButton variant="primary" size="sm" onClick={() => onOpenVerification?.(task.id)}>
+              去人机接管
+            </KtButton>
+          )}
+          <KtButton variant="default" size="sm" onClick={() => onOpenTaskLogs?.(task.id)}>
+            查看日志
+          </KtButton>
           <KtButton variant="default" size="sm" onClick={onClose}>
             关闭
           </KtButton>
@@ -218,7 +261,10 @@ export default function TaskDetail({ task, accountLabel, onCancel, onClose }: Pr
               {resultData.url && (
                 <div style={rowStyle}>
                   <span style={labelStyle}>URL</span>
-                  <span style={monoValue}>{resultData.url}</span>
+                  <span style={monoValue}>
+                    {resultData.url}
+                    <ResultActions value={resultData.url} openable />
+                  </span>
                 </div>
               )}
               {(resultData.width || resultData.height) && (
@@ -248,7 +294,10 @@ export default function TaskDetail({ task, accountLabel, onCancel, onClose }: Pr
               {resultData.storage_key && (
                 <div style={rowStyle}>
                   <span style={labelStyle}>存储</span>
-                  <span style={monoValue}>{resultData.storage_key}</span>
+                  <span style={monoValue}>
+                    {resultData.storage_key}
+                    <ResultActions value={resultData.storage_key} />
+                  </span>
                 </div>
               )}
             </>
@@ -258,7 +307,10 @@ export default function TaskDetail({ task, accountLabel, onCancel, onClose }: Pr
           {!resultData && task.result_url && (
             <div style={rowStyle}>
               <span style={labelStyle}>URL</span>
-              <span style={monoValue}>{task.result_url}</span>
+              <span style={monoValue}>
+                {task.result_url}
+                <ResultActions value={task.result_url} openable />
+              </span>
             </div>
           )}
         </>

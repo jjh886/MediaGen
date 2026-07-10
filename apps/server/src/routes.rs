@@ -1,18 +1,26 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
+use serde_json::{json, Value};
 
-use crate::access_control::{key_grants, settings_key_allowed};
+use crate::access_control::mask_account_keys;
 use crate::account_login;
-use crate::browser_runtime;
+use crate::net_client::proxy_url_without_auth;
 use crate::{
-    store::{AccountUpdate, SettingsUpdate},
+    store::{AccountRecord, AccountUpdate, SettingsUpdate},
     ServerState,
 };
 
 pub async fn health() -> impl Responder {
+    let install_root = std::env::current_dir()
+        .ok()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_default();
     HttpResponse::Ok().json(serde_json::json!({
         "ok": true,
-        "service": "mediagen-server"
+        "service": "mediagen-server",
+        "version": env!("CARGO_PKG_VERSION"),
+        "install_root": install_root,
+        "pid": std::process::id()
     }))
 }
 
@@ -38,6 +46,12 @@ pub async fn plugins(state: web::Data<ServerState>) -> impl Responder {
                 "workspace_url": manifest.workspace_url,
                 "models": manifest.models,
                 "tiers": manifest.tiers,
+                "model_count": manifest.models.len(),
+                "supports_registration": manifest.extra
+                    .get("registration")
+                    .and_then(|value| value.get("enabled"))
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
             })
         })
         .collect();
@@ -53,40 +67,13 @@ pub async fn accounts(
     state: web::Data<ServerState>,
     query: web::Query<AccountQuery>,
 ) -> impl Responder {
-    let data = state.store.list_accounts(query.platform.as_deref());
-    HttpResponse::Ok().json(serde_json::json!({ "data": data }))
-}
-
-pub async fn account_groups(state: web::Data<ServerState>) -> impl Responder {
-    let mut groups = std::collections::BTreeMap::<String, usize>::new();
-    for account in state.store.list_accounts(None) {
-        let name = if account.group_name.trim().is_empty() {
-            "默认分组"
-        } else {
-            account.group_name.trim()
-        };
-        *groups.entry(name.to_string()).or_default() += 1;
-    }
-    for (_, granted_groups) in key_grants(&state.store.settings().api_keys) {
-        for group in granted_groups {
-            groups.entry(group).or_default();
-        }
-    }
-    let data = groups
+    let data = state
+        .store
+        .list_accounts(query.platform.as_deref())
         .into_iter()
-        .map(|(name, account_count)| {
-            serde_json::json!({ "name": name, "account_count": account_count })
-        })
+        .map(public_account)
         .collect::<Vec<_>>();
-    HttpResponse::Ok().json(serde_json::json!({ "data": data }))
-}
-
-pub async fn api_keys(state: web::Data<ServerState>) -> impl Responder {
-    let data = key_grants(&state.store.settings().api_keys)
-        .into_iter()
-        .map(|(key, groups)| serde_json::json!({ "key": mask_key(&key), "groups": groups }))
-        .collect::<Vec<_>>();
-    HttpResponse::Ok().json(serde_json::json!({ "data": data }))
+    HttpResponse::Ok().json(json!({ "data": data }))
 }
 
 pub async fn update_account(
@@ -98,8 +85,8 @@ pub async fn update_account(
         .store
         .update_account(&path.into_inner(), payload.into_inner())
     {
-        Some(account) => HttpResponse::Ok().json(serde_json::json!({ "data": account })),
-        None => HttpResponse::NotFound().json(serde_json::json!({ "error": "account not found" })),
+        Some(account) => HttpResponse::Ok().json(json!({ "data": public_account(account) })),
+        None => HttpResponse::NotFound().json(json!({ "error": "account not found" })),
     }
 }
 
@@ -128,9 +115,38 @@ pub async fn toggle_account(
         .store
         .toggle_account(&path.into_inner(), payload.disabled)
     {
-        Some(account) => HttpResponse::Ok().json(serde_json::json!({ "data": account })),
-        None => HttpResponse::NotFound().json(serde_json::json!({ "error": "account not found" })),
+        Some(account) => HttpResponse::Ok().json(json!({ "data": public_account(account) })),
+        None => HttpResponse::NotFound().json(json!({ "error": "account not found" })),
     }
+}
+
+pub(crate) fn public_account(account: AccountRecord) -> Value {
+    let api_key = mask_account_keys(&account.api_key);
+    json!({
+        "id": account.id,
+        "platform": account.platform,
+        "name": account.name,
+        "email": account.email,
+        "avatar_url": account.avatar_url,
+        "tier": account.tier,
+        "login_state": account.login_state,
+        "cooldown_until": account.cooldown_until,
+        "used_today": account.used_today,
+        "daily_limit": account.daily_limit,
+        "used_total": account.used_total,
+        "total_limit": account.total_limit,
+        "concurrency_limit": account.concurrency_limit,
+        "task_interval_seconds": account.task_interval_seconds,
+        "proxy_url": proxy_url_without_auth(&account.proxy_url),
+        "proxy_id": account.proxy_id,
+        "browser_os": account.browser_os,
+        "browser_version": account.browser_version,
+        "api_key": "",
+        "api_key_masked": api_key,
+        "api_key_configured": !account.api_key.trim().is_empty(),
+        "profile_dir": account.profile_dir,
+        "created_at": account.created_at,
+    })
 }
 
 pub async fn check_accounts_login(state: web::Data<ServerState>) -> impl Responder {
@@ -141,7 +157,8 @@ pub async fn check_accounts_login(state: web::Data<ServerState>) -> impl Respond
         if account.login_state == "disabled" {
             continue;
         }
-        match account_login::check_saved_account_login(&state, &account).await {
+        let runtime_account = state.store.account_with_runtime_proxy(account.clone());
+        match account_login::check_saved_account_login(&state, &runtime_account).await {
             Ok(profile) => {
                 checked += 1;
                 state
@@ -197,38 +214,6 @@ pub async fn update_settings(
     HttpResponse::Ok().json(serde_json::json!({ "data": data }))
 }
 
-pub async fn logs() -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({ "data": [] }))
-}
-
-pub async fn browser_runtimes() -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({
-        "data": [browser_runtime::detect_cloakbrowser()],
-    }))
-}
-
-pub async fn browser_runtime_install_guide() -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({
-        "runtime": "CloakBrowser",
-        "status": "manual_or_packaged_install_required",
-        "steps": browser_runtime::install_steps(),
-        "notes": [
-            "正式安装包会尽量随包携带当前平台的 CloakBrowser 二进制。",
-            "如果没有随包携带，自动安装会下载到当前用户的 ~/.cloakbrowser 缓存目录。",
-            "安装完成后点击重新检测即可进入应用。"
-        ]
-    }))
-}
-
-pub async fn install_browser_runtime() -> impl Responder {
-    match browser_runtime::install_cloakbrowser() {
-        Ok(runtime) => HttpResponse::Ok().json(serde_json::json!({ "data": runtime })),
-        Err(message) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": message
-        })),
-    }
-}
-
 pub async fn models(state: web::Data<ServerState>, request: HttpRequest) -> impl Responder {
     if !api_key_allowed(&state, &request) {
         return HttpResponse::Unauthorized().json(serde_json::json!({
@@ -280,12 +265,7 @@ pub async fn models(state: web::Data<ServerState>, request: HttpRequest) -> impl
 }
 
 pub(crate) fn api_key_allowed(state: &ServerState, request: &HttpRequest) -> bool {
-    let settings = state.store.settings();
-    if settings.api_keys.trim().is_empty() {
-        return false;
-    }
-    api_key_from_request(request)
-        .is_some_and(|bearer| settings_key_allowed(&settings.api_keys, &bearer))
+    api_key_from_request(request).is_some_and(|bearer| state.store.api_key_allowed(&bearer))
 }
 
 pub(crate) fn api_key_from_request(request: &HttpRequest) -> Option<String> {
@@ -297,23 +277,4 @@ pub(crate) fn api_key_from_request(request: &HttpRequest) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-}
-
-fn mask_key(key: &str) -> String {
-    let chars = key.chars().collect::<Vec<_>>();
-    if chars.len() <= 8 {
-        return "********".to_string();
-    }
-    format!(
-        "{}****{}",
-        chars.iter().take(4).collect::<String>(),
-        chars
-            .iter()
-            .rev()
-            .take(4)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<String>()
-    )
 }

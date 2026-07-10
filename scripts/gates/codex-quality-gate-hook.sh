@@ -190,7 +190,7 @@ run_module_gate() {
   fi
 }
 
-if printf '%s\n' "$CHANGED_FILES" | grep -Eq '^(apps|crates|plugins|packages|scripts)/' 2>/dev/null; then
+if printf '%s\n' "$CHANGED_FILES" | grep -Eq '^(apps|crates|plugins|scripts)/' 2>/dev/null; then
   run_module_gate "app"
 fi
 

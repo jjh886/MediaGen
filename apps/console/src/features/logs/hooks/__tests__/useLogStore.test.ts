@@ -16,7 +16,9 @@ beforeEach(() => {
     moduleFilter: '',
     levelFilter: '',
     keyword: '',
+    taskId: '',
     expandedId: null,
+    error: '',
   })
 })
 
@@ -128,6 +130,7 @@ describe('useLogStore', () => {
         moduleFilter: 'scheduler',
         levelFilter: 'warn',
         keyword: '超时',
+        taskId: 'task-1',
       })
 
       await act(async () => {
@@ -138,6 +141,7 @@ describe('useLogStore', () => {
         module: 'scheduler',
         level: 'warn',
         keyword: '超时',
+        task_id: 'task-1',
       })
     })
 

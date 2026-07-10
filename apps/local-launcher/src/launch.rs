@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use crate::health::{is_healthy, wait_for_health};
+use crate::health::{is_current_install, is_healthy, wait_for_health};
 use crate::platform::append_startup_log;
+use mediagen_core::{bundled_cloakbrowser_candidates, first_existing_browser_binary};
 
 const DEFAULT_PORT: u16 = 18080;
 const MAX_PORT: u16 = 18089;
@@ -27,8 +28,8 @@ pub fn run() -> Result<LaunchSession, String> {
     }
 
     create_dirs(&paths.writable_root)?;
-    let port = select_port()?;
-    if !is_healthy(port) {
+    let port = select_port(&paths.install_root)?;
+    if !is_current_install(port, &paths.install_root) {
         start_server(&paths, &server, port)?;
     }
     wait_for_health(port, Duration::from_secs(45))?;
@@ -149,10 +150,15 @@ fn start_server(paths: &LauncherPaths, server: &Path, port: u16) -> Result<(), S
         .map_err(|e| format!("启动 mediagen-server 失败: {e}"))
 }
 
-fn select_port() -> Result<u16, String> {
+fn select_port(install_root: &Path) -> Result<u16, String> {
     if let Some(port) = configured_port()? {
-        if is_healthy(port) || !is_port_open(port) {
+        if is_current_install(port, install_root) || !is_port_open(port) {
             return Ok(port);
+        }
+        if is_healthy(port) {
+            return Err(format!(
+                "端口 {port} 已有旧版 MediaGen 服务在运行，请先从托盘退出旧服务，或换一个 MEDIAGEN_PORT"
+            ));
         }
         return Err(format!(
             "端口 {port} 已被占用，请换一个 MEDIAGEN_PORT 或关闭占用程序"
@@ -160,7 +166,7 @@ fn select_port() -> Result<u16, String> {
     }
 
     for port in DEFAULT_PORT..=MAX_PORT {
-        if is_healthy(port) || !is_port_open(port) {
+        if is_current_install(port, install_root) || !is_port_open(port) {
             return Ok(port);
         }
     }
@@ -208,49 +214,5 @@ fn resolve_bundled_cloakbrowser_path(root: &Path) -> Option<PathBuf> {
     if std::env::var_os("CLOAK_BROWSER_PATH").is_some() {
         return None;
     }
-    bundled_cloakbrowser_candidates(root)
-        .into_iter()
-        .find(|path| path.exists())
-}
-
-fn bundled_cloakbrowser_candidates(root: &Path) -> Vec<PathBuf> {
-    if cfg!(target_os = "macos") {
-        return vec![
-            root.join("browser-runtime")
-                .join("Chromium.app")
-                .join("Contents")
-                .join("MacOS")
-                .join("Chromium"),
-            root.join("browser-runtime")
-                .join("CloakBrowser.app")
-                .join("Contents")
-                .join("MacOS")
-                .join("CloakBrowser"),
-            root.join("browser-runtime")
-                .join("Cloak Browser.app")
-                .join("Contents")
-                .join("MacOS")
-                .join("CloakBrowser"),
-        ];
-    }
-    if cfg!(target_os = "windows") {
-        return vec![
-            root.join("browser-runtime").join("chrome.exe"),
-            root.join("browser-runtime")
-                .join("CloakBrowser")
-                .join("chrome.exe"),
-            root.join("browser-runtime")
-                .join("CloakBrowser")
-                .join("Application")
-                .join("cloakbrowser.exe"),
-            root.join("browser-runtime").join("cloakbrowser.exe"),
-        ];
-    }
-    vec![
-        root.join("browser-runtime").join("chrome"),
-        root.join("browser-runtime")
-            .join("cloakbrowser")
-            .join("chrome"),
-        root.join("browser-runtime").join("cloakbrowser"),
-    ]
+    first_existing_browser_binary(bundled_cloakbrowser_candidates(root))
 }

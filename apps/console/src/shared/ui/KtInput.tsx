@@ -19,7 +19,6 @@ const KtInput = React.forwardRef<HTMLInputElement, KtInputProps>(
       color: 'rgba(255,255,255,0.8)',
       padding: '0 12px',
       fontSize: 14,
-      outline: 'none',
       transition: 'border-color 200ms ease',
       boxSizing: 'border-box',
       width: '100%',

@@ -42,7 +42,7 @@ impl Default for BrowserGatewayConfig {
     fn default() -> Self {
         Self {
             profile_root: PathBuf::from("data/profiles"),
-            browser_path: std::env::var_os("CLOAK_BROWSER_PATH").map(PathBuf::from),
+            browser_path: browser_path_from_env(),
             default_width: DEFAULT_WIDTH,
             default_height: DEFAULT_HEIGHT,
             launch_browser: true,
@@ -50,20 +50,26 @@ impl Default for BrowserGatewayConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+fn browser_path_from_env() -> Option<PathBuf> {
+    [
+        "CLOAK_BROWSER_PATH",
+        "CLOAKBROWSER_BINARY_PATH",
+        "MEDIAGEN_CLOAK_BROWSER_DIR",
+        "CLOAK_BROWSER_BUNDLE_DIR",
+    ]
+    .iter()
+    .find_map(|name| std::env::var_os(name).map(PathBuf::from))
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum BrowserSessionPurpose {
     AddAccount,
     ReloginAccount,
     HumanVerification,
     TaskTakeover,
+    #[default]
     DebugPreview,
-}
-
-impl Default for BrowserSessionPurpose {
-    fn default() -> Self {
-        Self::DebugPreview
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

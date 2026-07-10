@@ -5,7 +5,7 @@ SHELL := /bin/bash
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 .PHONY: help install dev dev-console dev-server dev-launcher start-local build build-console \
-	build-server build-launcher package-local package-installers package-apt package-yum lint typecheck test cargo-check cargo-test check \
+	build-server build-launcher package-local package-installers package-apt package-yum lint typecheck test coverage-gate cargo-fmt cargo-clippy cargo-check cargo-test check \
 	preflight preflight-format preflight-app preflight-docs format-check check-compat
 
 help: ## 显示帮助信息
@@ -58,10 +58,12 @@ package-local: build-console build-server build-launcher ## 打包本机发行�
 package-installers: ## 打包本机和服务器安装产物
 	cd $(ROOT_DIR) && npm run package:installers
 
-package-apt: package-installers ## 生成 apt/deb 安装包
-	test -f $(ROOT_DIR)/dist-local/installers/mediagen_0.1.0_amd64.deb
+package-apt: ## 生成 apt/deb 安装包
+	cd $(ROOT_DIR) && npm run package:apt
+	test -f $(ROOT_DIR)/dist-local/installers/mediagen_0.1.0_$$(node -e "const m={x64:'amd64',arm64:'arm64',ia32:'i386'}; process.stdout.write(m[process.arch] || process.arch)").deb
 
-package-yum: package-installers ## 生成 yum/rpm 安装包
+package-yum: ## 生成 yum/rpm 安装包
+	cd $(ROOT_DIR) && npm run package:yum
 	ls $(ROOT_DIR)/dist-local/installers/*.rpm >/dev/null
 
 lint: ## 运行 TypeScript lint、行数和导入边界检查
@@ -73,13 +75,22 @@ typecheck: ## 运行 TypeScript 类型检查
 test: ## 运行前端单元测试
 	cd $(ROOT_DIR) && npm run test
 
+coverage-gate: ## 运行前端和 Rust 覆盖率门禁
+	cd $(ROOT_DIR) && npm run coverage:gate
+
 cargo-check: ## 运行 Rust 编译检查
 	cd $(ROOT_DIR) && npm run cargo-check
 
 cargo-test: ## 运行 Rust 单元测试
 	cd $(ROOT_DIR) && npm run cargo-test
 
-check: typecheck lint test cargo-check ## 运行常用检查
+cargo-fmt: ## 运行 Rust 格式检查
+	cd $(ROOT_DIR) && npm run cargo-fmt
+
+cargo-clippy: ## 运行 Rust Clippy 检查
+	cd $(ROOT_DIR) && npm run cargo-clippy
+
+check: format-check typecheck lint test coverage-gate build cargo-fmt cargo-clippy cargo-test cargo-check check-compat ## 运行常用检查
 
 # ─── Preflight 门禁 ───────────────────────────────────────────────
 
@@ -94,7 +105,7 @@ preflight-format: ## 运行仓库级 Prettier 格式校验
 preflight-app: ## 运行 App 完整门禁
 	@echo "=== MediaGen App ==="
 	@cd $(ROOT_DIR) && npm ci && npm run lint && npm run type-check && npm run test && npm run coverage:gate && npm run build
-	@cd $(ROOT_DIR) && npm run cargo-check
+	@cd $(ROOT_DIR) && npm run cargo-fmt && npm run cargo-clippy && npm run cargo-test && npm run cargo-check
 
 preflight-docs: ## 运行文档和兼容注释检查
 	@echo "=== Docs ==="

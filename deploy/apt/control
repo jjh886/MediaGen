@@ -1,9 +1,10 @@
 Package: mediagen
-Version: 0.1.0
+Version: @VERSION@
 Section: graphics
 Priority: optional
-Architecture: amd64
+Architecture: @DEB_ARCH@
 Maintainer: MediaGen Team
+Depends: ca-certificates, curl, tar, unzip, fonts-noto, fonts-noto-cjk, libatk-bridge2.0-0, libgtk-3-0, libnss3, libasound2 | libasound2t64, libx11-6, libxcomposite1, libxdamage1, libxext6, libxfixes3, libxrandr2, libxcb1
 Description: MediaGen Web Console server
  MediaGen provides a Web Console, OpenAI-compatible image APIs,
  plugin execution, browser sessions, and account management.

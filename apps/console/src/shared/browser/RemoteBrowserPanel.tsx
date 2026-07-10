@@ -316,7 +316,6 @@ export default function RemoteBrowserPanel({ session, mode = 'debug' }: RemoteBr
               display: 'block',
               width: '100%',
               height: '100%',
-              outline: 'none',
               cursor: remoteCursor || 'default',
               background: '#fff',
             }}

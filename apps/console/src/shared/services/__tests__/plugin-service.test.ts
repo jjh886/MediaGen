@@ -40,6 +40,7 @@ describe('fetchPlugins', () => {
     })
     expect(plugins).toEqual([
       {
+        id: 'chatgpt',
         platform_id: 'chatgpt',
         display_name: 'ChatGPT',
         model_count: 2,

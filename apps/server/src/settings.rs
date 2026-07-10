@@ -13,7 +13,6 @@ pub struct AppSettings {
     pub api_keys: String,
     pub image_task_concurrency: u32,
     pub image_task_queue_limit: u32,
-    pub flow_mirror_url: String,
     pub check_interval_minutes: u32,
     pub cooldown_default_seconds: u32,
     pub cache_dir: String,
@@ -33,7 +32,6 @@ impl Default for AppSettings {
             api_keys: std::env::var("MEDIAGEN_API_KEYS").unwrap_or_default(),
             image_task_concurrency: 64,
             image_task_queue_limit: 512,
-            flow_mirror_url: String::new(),
             check_interval_minutes: 30,
             cooldown_default_seconds: 300,
             cache_dir: String::new(),
@@ -53,7 +51,6 @@ pub struct SettingsUpdate {
     pub api_keys: Option<String>,
     pub image_task_concurrency: Option<u32>,
     pub image_task_queue_limit: Option<u32>,
-    pub flow_mirror_url: Option<String>,
     pub check_interval_minutes: Option<u32>,
     pub cooldown_default_seconds: Option<u32>,
     pub cache_dir: Option<String>,
@@ -71,7 +68,6 @@ pub fn apply_settings_update(settings: &mut AppSettings, update: SettingsUpdate)
         api_keys,
         image_task_concurrency,
         image_task_queue_limit,
-        flow_mirror_url,
         check_interval_minutes,
         cooldown_default_seconds,
         cache_dir,
@@ -87,7 +83,6 @@ pub fn apply_settings_update(settings: &mut AppSettings, update: SettingsUpdate)
     set_api_keys(&mut settings.api_keys, api_keys);
     set_if_some(&mut settings.image_task_concurrency, image_task_concurrency);
     set_if_some(&mut settings.image_task_queue_limit, image_task_queue_limit);
-    set_trimmed(&mut settings.flow_mirror_url, flow_mirror_url);
     set_if_some(&mut settings.check_interval_minutes, check_interval_minutes);
     set_if_some(
         &mut settings.cooldown_default_seconds,

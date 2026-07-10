@@ -7,10 +7,8 @@ export interface AppSettings {
   api_port_count: number
   api_address: string
   api_allowed_origins: string
-  api_keys: string
   image_task_concurrency: number
   image_task_queue_limit: number
-  flow_mirror_url: string
   check_interval_minutes: number
   cooldown_default_seconds: number
   cache_dir: string
@@ -33,30 +31,12 @@ const DEFAULTS: AppSettings = {
   api_port_count: 10,
   api_address: '127.0.0.1',
   api_allowed_origins: '*',
-  api_keys: '',
   image_task_concurrency: 64,
   image_task_queue_limit: 512,
-  flow_mirror_url: '',
   check_interval_minutes: 30,
   cooldown_default_seconds: 300,
   cache_dir: '',
   platform_tier_overrides: '{}',
-}
-
-export interface BrowserRuntime {
-  id: string
-  name: string
-  installed: boolean
-  path: string
-  version: string
-  healthy: boolean
-}
-
-export interface BrowserRuntimeInstallGuide {
-  runtime: string
-  status: string
-  steps: string[]
-  notes: string[]
 }
 
 function deserializeValue<K extends keyof AppSettings>(key: K, raw: unknown): AppSettings[K] {
@@ -95,54 +75,14 @@ export async function getAllSettings(): Promise<AppSettings> {
   return Object.fromEntries(entries) as unknown as AppSettings
 }
 
-export async function checkBrowserRuntimeAvailable(): Promise<{ ok: boolean; message: string }> {
-  try {
-    const runtimes = await apiGet<BrowserRuntime[]>('/api/browser-runtimes')
-    const cloak = runtimes.find((runtime) => runtime.id === 'cloakbrowser')
-    if (cloak?.healthy) return { ok: true, message: `${cloak.name} ${cloak.version}` }
-    return {
-      ok: false,
-      message: '未检测到 CloakBrowser，请按安装引导完成配置后重启 MediaGen。',
-    }
-  } catch (error) {
-    return { ok: false, message: String(error) }
-  }
-}
-
-export async function getBrowserRuntimeInstallGuide(): Promise<BrowserRuntimeInstallGuide | null> {
-  try {
-    return await apiGet<BrowserRuntimeInstallGuide>('/api/browser-runtimes/install-guide')
-  } catch {
-    return null
-  }
-}
-
-export async function installBrowserRuntime(): Promise<BrowserRuntime> {
-  return await apiPost<BrowserRuntime>('/api/browser-runtimes/install')
-}
-
-export async function checkBrowserRuntimeVersion(): Promise<string> {
-  try {
-    const runtimes = await apiGet<BrowserRuntime[]>('/api/browser-runtimes')
-    const found = runtimes.find((runtime) => runtime.id === 'cloakbrowser')
-    return found?.version || '检测失败'
-  } catch {
-    return '检测失败'
-  }
-}
-
 export async function getCacheSize(): Promise<string> {
-  return '由服务端统一管理'
+  return '暂未接入真实清理'
 }
 
 export async function clearCache(): Promise<void> {
-  return Promise.resolve()
+  await apiPost('/api/cache/clear')
 }
 
 async function getServerSettings(): Promise<Partial<Record<keyof AppSettings, unknown>>> {
-  try {
-    return await apiGet<Partial<Record<keyof AppSettings, unknown>>>('/api/settings')
-  } catch {
-    return {}
-  }
+  return await apiGet<Partial<Record<keyof AppSettings, unknown>>>('/api/settings')
 }

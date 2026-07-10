@@ -1,7 +1,9 @@
 use std::net::IpAddr;
 use std::time::Duration;
 
-use actix_web::{HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
+
+use crate::ServerState;
 
 fn exit_supported() -> bool {
     cfg!(target_os = "macos") || cfg!(target_os = "windows")
@@ -26,7 +28,7 @@ pub async fn system_info() -> impl Responder {
     }))
 }
 
-pub async fn exit_app(request: HttpRequest) -> impl Responder {
+pub async fn exit_app(state: web::Data<ServerState>, request: HttpRequest) -> impl Responder {
     // 退出能力只服务 macOS/Windows 本机启动器，Linux 服务端默认常驻运行。
     if !exit_supported() {
         return HttpResponse::Forbidden().json(serde_json::json!({
@@ -40,8 +42,14 @@ pub async fn exit_app(request: HttpRequest) -> impl Responder {
         }));
     }
 
+    let gateway = state.browser_gateway.clone();
     actix_web::rt::spawn(async move {
         actix_web::rt::time::sleep(Duration::from_millis(300)).await;
+        if let Ok(sessions) = gateway.list_sessions() {
+            for session in sessions {
+                let _ = gateway.cancel_session(&session.id).await;
+            }
+        }
         std::process::exit(0);
     });
 

@@ -1,4 +1,4 @@
-import { copyFile, cp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, cp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
@@ -50,6 +50,7 @@ await copyIfExists(
   path.join(dist, 'icons/mediagen.png')
 )
 await writeLinuxDesktopFile()
+await ensureExecutableBits()
 
 console.log(`本机发行包已生成：${dist}`)
 
@@ -74,6 +75,7 @@ async function bundleCloakBrowserRuntime() {
   if (source) {
     await cp(source, path.join(dist, 'browser-runtime'), { recursive: true })
     ensureRuntimeExecutable(path.join(dist, 'browser-runtime'))
+    await writeRuntimeMetadata('local-env', path.basename(source))
     return
   }
   await run('node', [
@@ -85,6 +87,16 @@ async function bundleCloakBrowserRuntime() {
     throw new Error('CloakBrowser 运行时没有写入发行包')
   }
   ensureRuntimeExecutable(path.join(dist, 'browser-runtime'))
+}
+
+async function writeRuntimeMetadata(source, asset) {
+  const metadataPath = path.join(dist, 'browser-runtime', 'mediagen-cloakbrowser.json')
+  if (existsSync(metadataPath)) return
+  await writeFile(
+    metadataPath,
+    JSON.stringify({ source, asset, bundled_at: new Date().toISOString() }, null, 2) + '\n',
+    'utf8'
+  )
 }
 
 function ensureRuntimeExecutable(runtimeDir) {
@@ -105,14 +117,25 @@ async function writeLinuxDesktopFile() {
     'Type=Application',
     'Name=MediaGen',
     'Comment=Start MediaGen Web Console',
-    `Exec=${path.join(dist, 'start-mediagen.sh')}`,
-    `Icon=${path.join(dist, 'icons/mediagen.png')}`,
+    `Exec=sh -c 'APP_DIR=$(dirname "$(readlink -f "$1")"); exec "$APP_DIR/start-mediagen.sh"' mediagen %k`,
+    'Icon=mediagen',
     'Terminal=false',
     'Categories=Graphics;Utility;',
     '',
   ].join('\n')
   await mkdir(dist, { recursive: true })
   await writeFile(path.join(dist, 'MediaGen.desktop'), desktopFile, 'utf8')
+}
+
+async function ensureExecutableBits() {
+  const files = ['MediaGen', 'bin/mediagen-server', 'start-mediagen.sh', 'start-mediagen.command']
+  for (const file of files) {
+    await chmodIfExists(path.join(dist, file), 0o755)
+  }
+}
+
+async function chmodIfExists(file, mode) {
+  if (existsSync(file)) await chmod(file, mode)
 }
 
 function run(command, args) {

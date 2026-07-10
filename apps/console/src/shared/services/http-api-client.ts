@@ -1,4 +1,5 @@
 const API_BASE = import.meta.env.VITE_MEDIAGEN_API_BASE || ''
+const ADMIN_TOKEN_STORAGE_KEY = 'mediagen_admin_token'
 
 export class HttpApiError extends Error {
   constructor(
@@ -14,10 +15,60 @@ function apiUrl(path: string): string {
   return new URL(path, API_BASE).toString()
 }
 
-async function parseJson(response: Response): Promise<unknown> {
+async function parseResponseBody(response: Response): Promise<unknown> {
   const text = await response.text()
   if (!text) return null
-  return JSON.parse(text) as unknown
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return text
+  }
+}
+
+function errorMessage(payload: unknown, status: number): string {
+  if (payload && typeof payload === 'object' && 'error' in payload) {
+    return String((payload as { error: unknown }).error)
+  }
+  if (typeof payload === 'string' && payload.trim()) {
+    return payload.trim()
+  }
+  return `HTTP ${status}`
+}
+
+function jsonHeaders(): HeadersInit {
+  return {
+    Accept: 'application/json',
+    ...adminTokenHeader(),
+  }
+}
+
+function jsonPostHeaders(): HeadersInit {
+  return {
+    ...jsonHeaders(),
+    'Content-Type': 'application/json',
+  }
+}
+
+function adminTokenHeader(): HeadersInit {
+  const token = currentAdminToken()
+  return token ? { 'X-MediaGen-Admin-Token': token } : {}
+}
+
+function currentAdminToken(): string {
+  if (typeof window === 'undefined') return ''
+  const tokenFromUrl = new URLSearchParams(window.location.search).get('admin_token')?.trim() || ''
+  if (tokenFromUrl) {
+    window.localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, tokenFromUrl)
+    removeAdminTokenFromUrl()
+    return tokenFromUrl
+  }
+  return window.localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY)?.trim() || ''
+}
+
+function removeAdminTokenFromUrl() {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('admin_token')
+  window.history.replaceState(null, '', url.toString())
 }
 
 function unwrapData<T>(payload: unknown): T {
@@ -29,15 +80,11 @@ function unwrapData<T>(payload: unknown): T {
 
 export async function apiGet<T>(path: string): Promise<T> {
   const response = await fetch(apiUrl(path), {
-    headers: { Accept: 'application/json' },
+    headers: jsonHeaders(),
   })
-  const payload = await parseJson(response)
+  const payload = await parseResponseBody(response)
   if (!response.ok) {
-    const message =
-      payload && typeof payload === 'object' && 'error' in payload
-        ? String((payload as { error: unknown }).error)
-        : `HTTP ${response.status}`
-    throw new HttpApiError(message, response.status)
+    throw new HttpApiError(errorMessage(payload, response.status), response.status)
   }
   return unwrapData<T>(payload)
 }
@@ -46,18 +93,13 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(apiUrl(path), {
     method: 'POST',
     headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
+      ...jsonPostHeaders(),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  const payload = await parseJson(response)
+  const payload = await parseResponseBody(response)
   if (!response.ok) {
-    const message =
-      payload && typeof payload === 'object' && 'error' in payload
-        ? String((payload as { error: unknown }).error)
-        : `HTTP ${response.status}`
-    throw new HttpApiError(message, response.status)
+    throw new HttpApiError(errorMessage(payload, response.status), response.status)
   }
   return unwrapData<T>(payload)
 }
@@ -65,15 +107,11 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 export async function apiDelete<T>(path: string): Promise<T> {
   const response = await fetch(apiUrl(path), {
     method: 'DELETE',
-    headers: { Accept: 'application/json' },
+    headers: jsonHeaders(),
   })
-  const payload = await parseJson(response)
+  const payload = await parseResponseBody(response)
   if (!response.ok) {
-    const message =
-      payload && typeof payload === 'object' && 'error' in payload
-        ? String((payload as { error: unknown }).error)
-        : `HTTP ${response.status}`
-    throw new HttpApiError(message, response.status)
+    throw new HttpApiError(errorMessage(payload, response.status), response.status)
   }
   return unwrapData<T>(payload)
 }

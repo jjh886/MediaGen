@@ -10,6 +10,6 @@ export async function fetchTasks(platform = '', limit = 50, offset = 0): Promise
   return await apiGet<Task[]>(`/api/tasks${query ? `?${query}` : ''}`)
 }
 
-export async function cancelTask(taskId: string): Promise<void> {
-  await apiPost(`/api/tasks/${encodeURIComponent(taskId)}/cancel`)
+export async function cancelTask(taskId: string): Promise<Task> {
+  return await apiPost<Task>(`/api/tasks/${encodeURIComponent(taskId)}/cancel`)
 }

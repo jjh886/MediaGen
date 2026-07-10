@@ -26,12 +26,7 @@ pub(crate) async fn enable_auth_handling(
     client: &Arc<CdpClient>,
 ) -> Result<(), BrowserGatewayError> {
     // 只启用认证事件处理；如果 Chromium 仍暂停普通请求，manager 会立即 continueRequest。
-    client
-        .send(
-            "Fetch.enable",
-            json!({ "patterns": [], "handleAuthRequests": true }),
-        )
-        .await?;
+    client.send("Fetch.enable", auth_handling_params()).await?;
     Ok(())
 }
 
@@ -71,6 +66,13 @@ fn auth_response_for_challenge(metadata: &HashMap<String, Value>, source: &str) 
         }
     }
     json!({ "response": "CancelAuth" })
+}
+
+fn auth_handling_params() -> Value {
+    json!({
+        "patterns": [{ "urlPattern": "*" }],
+        "handleAuthRequests": true
+    })
 }
 
 fn proxy_auth_from_metadata(metadata: &HashMap<String, Value>) -> Option<ProxyAuth> {
@@ -168,5 +170,12 @@ mod tests {
         assert_eq!(server_response["response"], "CancelAuth");
         let missing_proxy_response = auth_response_for_challenge(&HashMap::new(), "Proxy");
         assert_eq!(missing_proxy_response["response"], "CancelAuth");
+    }
+
+    #[test]
+    fn auth_handling_uses_non_empty_fetch_pattern() {
+        let params = auth_handling_params();
+        assert_eq!(params["handleAuthRequests"], true);
+        assert_eq!(params["patterns"][0]["urlPattern"], "*");
     }
 }

@@ -22,8 +22,8 @@ export function DataManageCard({
       <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap' }}>
         占用：{cacheSize || '—'}
       </div>
-      <KtButton size="sm" variant="danger" onClick={cleanCache}>
-        清理缓存
+      <KtButton size="sm" variant="danger" onClick={cleanCache} disabled>
+        清理缓存暂未接入
       </KtButton>
       <KtButton size="sm" onClick={refreshCacheSize}>
         刷新

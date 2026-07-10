@@ -15,9 +15,28 @@ if (!(Test-Path $Server)) {
   exit 1
 }
 
-New-Item -ItemType Directory -Force -Path (Join-Path $Root "data") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $Root "logs") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $Root "profiles") | Out-Null
+$DataRoot = if ($env:MEDIAGEN_DATA_DIR) {
+  $env:MEDIAGEN_DATA_DIR
+} elseif ($env:LOCALAPPDATA) {
+  Join-Path $env:LOCALAPPDATA "MediaGen"
+} else {
+  Join-Path $env:USERPROFILE ".mediagen"
+}
+$LogsRoot = if ($env:MEDIAGEN_LOGS_DIR) {
+  $env:MEDIAGEN_LOGS_DIR
+} else {
+  Join-Path $DataRoot "logs"
+}
+$ProfilesRoot = if ($env:MEDIAGEN_PROFILES_DIR) {
+  $env:MEDIAGEN_PROFILES_DIR
+} else {
+  Join-Path $DataRoot "profiles"
+}
+
+New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $LogsRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $ProfilesRoot | Out-Null
+$Log = Join-Path $LogsRoot "startup.log"
 
 function Test-Healthy([int]$Port) {
   try {
@@ -59,12 +78,11 @@ if (!$env:CLOAK_BROWSER_PATH) {
 
 if (!(Test-Healthy $Port)) {
   $env:MEDIAGEN_PORT = "$Port"
-  $env:MEDIAGEN_DATA_DIR = Join-Path $Root "data"
-  $env:MEDIAGEN_LOGS_DIR = Join-Path $Root "logs"
-  $env:MEDIAGEN_PROFILES_DIR = Join-Path $Root "profiles"
+  $env:MEDIAGEN_DATA_DIR = $DataRoot
+  $env:MEDIAGEN_LOGS_DIR = $LogsRoot
+  $env:MEDIAGEN_PROFILES_DIR = $ProfilesRoot
   $env:MEDIAGEN_PLUGINS_DIR = Join-Path $Root "plugins"
   $env:MEDIAGEN_CONSOLE_DIR = Join-Path $Root "console"
-  $Log = Join-Path $Root "logs\startup.log"
   Start-Process -FilePath $Server -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput $Log -RedirectStandardError $Log
 }
 
@@ -76,6 +94,6 @@ for ($i = 0; $i -lt 150; $i++) {
   Start-Sleep -Milliseconds 300
 }
 
-Write-Host "MediaGen 启动超时，请查看 logs\startup.log"
+Write-Host "MediaGen 启动超时，请查看 $Log"
 Read-Host "按回车退出"
 exit 1

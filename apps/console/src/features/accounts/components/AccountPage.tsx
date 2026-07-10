@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { KtTabs, KtButton } from '@/shared/ui'
+import { KtTabs, KtButton, KtConfirmDialog, KtAsyncState } from '@/shared/ui'
 import { fetchPlugins, type PluginInfo } from '@/shared/services/plugin-service'
 import { useAccountStore } from '../hooks/useAccountStore'
 import type { AccountConfigUpdate } from '../services/account-service'
@@ -14,6 +14,7 @@ export default function AccountPage() {
     accounts,
     activePlatform,
     loading,
+    error,
     checking,
     fetch,
     setActivePlatform,
@@ -28,28 +29,34 @@ export default function AccountPage() {
   const [reloginId, setReloginId] = useState<string | null>(null)
   const [configAccount, setConfigAccount] = useState<Account | null>(null)
   const [batchOpen, setBatchOpen] = useState(false)
+  const [deleteAccount, setDeleteAccount] = useState<Account | null>(null)
+  const [pluginError, setPluginError] = useState('')
 
   useEffect(() => {
-    fetchPlugins().then((list) => {
-      setPlugins(list)
-      if (list.length > 0) {
-        const first = list[0].platform_id
-        if (!activePlatform) {
-          setActivePlatform(first)
-        } else {
-          fetch()
+    fetchPlugins()
+      .then((list) => {
+        setPlugins(list)
+        if (list.length > 0) {
+          const first = list[0].platform_id
+          if (!activePlatform) {
+            setActivePlatform(first)
+          } else {
+            void fetch().catch(() => undefined)
+          }
         }
-      }
-    })
+      })
+      .catch((error) => setPluginError(error instanceof Error ? error.message : '平台加载失败。'))
     // 页面加载时自动检查所有账号登录态
-    checkLogin()
+    void checkLogin().catch(() => undefined)
   }, [])
 
   const platformTabs = plugins.map((p) => ({ key: p.platform_id, label: p.display_name }))
   const activePlugin = plugins.find((p) => p.platform_id === activePlatform)
 
-  const handleDelete = async (account: Account) => {
-    await remove(account.id)
+  const confirmDelete = async () => {
+    if (!deleteAccount) return
+    await remove(deleteAccount.id)
+    setDeleteAccount(null)
   }
 
   const handleToggle = async (account: Account) => {
@@ -88,24 +95,32 @@ export default function AccountPage() {
               批量注册
             </KtButton>
           )}
-          <KtButton variant="primary" size="sm" onClick={handleAddAccount}>
+          <KtButton
+            variant="primary"
+            size="sm"
+            onClick={handleAddAccount}
+            disabled={!activePlatform}
+          >
             添加账号
           </KtButton>
         </div>
       </div>
 
       <div style={{ flex: 1, overflow: 'auto' }}>
-        {loading ? (
-          <div style={{ color: 'var(--text-secondary)', padding: 32, textAlign: 'center' }}>
-            加载中...
-          </div>
-        ) : (
+        <KtAsyncState
+          loading={loading}
+          error={pluginError || error}
+          empty={!loading && accounts.length === 0}
+          emptyText="还没有账号。先选择平台并点击添加账号完成登录。"
+          onRetry={() => fetch()}
+        />
+        {!loading && !pluginError && !error && accounts.length > 0 && (
           <AccountTable
             accounts={accounts}
             onConfigure={setConfigAccount}
             onRelogin={handleRelogin}
             onToggle={handleToggle}
-            onDelete={handleDelete}
+            onDelete={setDeleteAccount}
           />
         )}
       </div>
@@ -130,6 +145,15 @@ export default function AccountPage() {
         onClose={() => setBatchOpen(false)}
         platform={activePlatform}
         onSuccess={() => fetch()}
+      />
+      <KtConfirmDialog
+        open={Boolean(deleteAccount)}
+        title="删除账号"
+        message={`确定删除「${deleteAccount?.name || deleteAccount?.email || '这个账号'}」吗？删除后正在使用这个账号的任务可能会失败。`}
+        confirmText="删除"
+        danger
+        onCancel={() => setDeleteAccount(null)}
+        onConfirm={confirmDelete}
       />
     </div>
   )

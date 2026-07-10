@@ -4,15 +4,17 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD};
+use mediagen_browser_gateway::BrowserFingerprint;
 use mediagen_plugin_runtime::{PluginHost, PluginStepResult};
 use rand::RngCore;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, USER_AGENT};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::callback_host::CallbackRegistry;
 use crate::net_client::normalize_proxy_url;
 use crate::port_process;
+use crate::store::AccountRecord;
 
 const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
 
@@ -21,10 +23,28 @@ pub struct ServerPluginHost {
     callbacks: CallbackRegistry,
     client: reqwest::Client,
     proxy_url: String,
+    browser_fingerprint: Option<BrowserFingerprint>,
 }
 
 impl ServerPluginHost {
-    pub fn new(proxy_url: String) -> Self {
+    pub fn new_for_account(account: &AccountRecord) -> Self {
+        Self::with_fingerprint(
+            account.proxy_url.clone(),
+            BrowserFingerprint::from_values(&account.browser_os, &account.browser_version),
+        )
+    }
+
+    pub fn new_with_metadata(
+        proxy_url: String,
+        metadata: &std::collections::HashMap<String, Value>,
+    ) -> Self {
+        Self::with_fingerprint(proxy_url, BrowserFingerprint::from_metadata(metadata))
+    }
+
+    fn with_fingerprint(
+        proxy_url: String,
+        browser_fingerprint: Option<BrowserFingerprint>,
+    ) -> Self {
         Self {
             callbacks: CallbackRegistry::default(),
             client: reqwest::Client::builder()
@@ -33,6 +53,7 @@ impl ServerPluginHost {
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
             proxy_url,
+            browser_fingerprint,
         }
     }
 
@@ -132,7 +153,7 @@ impl ServerPluginHost {
                     .map_err(|_| format!("不支持的 HTTP 方法: {method}"))?,
                 url,
             )
-            .headers(request_headers(params)?)
+            .headers(self.request_headers(params)?)
             .timeout(Duration::from_millis(
                 params["timeout_ms"].as_u64().unwrap_or(30_000),
             ));
@@ -155,6 +176,30 @@ impl ServerPluginHost {
             )
             .build()
             .map_err(|err| err.to_string())
+    }
+
+    fn request_headers(&self, params: &Value) -> Result<HeaderMap, String> {
+        let mut headers = request_headers(params)?;
+        let Some(fingerprint) = &self.browser_fingerprint else {
+            return Ok(headers);
+        };
+        insert_header_if_missing(&mut headers, USER_AGENT, fingerprint.user_agent())?;
+        insert_header_if_missing(
+            &mut headers,
+            HeaderName::from_static("sec-ch-ua"),
+            fingerprint.sec_ch_ua(),
+        )?;
+        insert_header_if_missing(
+            &mut headers,
+            HeaderName::from_static("sec-ch-ua-platform"),
+            format!("\"{}\"", fingerprint.sec_ch_ua_platform()),
+        )?;
+        insert_header_if_missing(
+            &mut headers,
+            HeaderName::from_static("sec-ch-ua-mobile"),
+            "?0".to_string(),
+        )?;
+        Ok(headers)
     }
 }
 
@@ -210,6 +255,20 @@ fn request_headers(params: &Value) -> Result<HeaderMap, String> {
     Ok(map)
 }
 
+fn insert_header_if_missing(
+    headers: &mut HeaderMap,
+    name: HeaderName,
+    value: String,
+) -> Result<(), String> {
+    if !headers.contains_key(&name) {
+        headers.insert(
+            name,
+            HeaderValue::from_str(&value).map_err(|err| err.to_string())?,
+        );
+    }
+    Ok(())
+}
+
 fn response_headers(headers: &HeaderMap) -> HashMap<String, String> {
     headers
         .iter()
@@ -239,7 +298,10 @@ fn apply_body(
 }
 
 fn proxy_url(params: &Value, account_proxy: &str) -> Option<String> {
-    if params["proxy"].as_str() == Some("direct") || params["use_proxy"].as_bool() == Some(false) {
+    if params["proxy"].as_str() == Some("direct")
+        || params["use_proxy"].as_bool() == Some(false)
+        || params["use_account_proxy"].as_bool() == Some(false)
+    {
         return None;
     }
     let direct = params["proxy_url"].as_str().unwrap_or("").trim();
@@ -311,9 +373,11 @@ fn value_to_string(value: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use serde_json::json;
 
-    use super::proxy_url;
+    use super::{proxy_url, ServerPluginHost};
 
     #[test]
     fn http_request_defaults_to_account_proxy() {
@@ -328,6 +392,51 @@ mod tests {
         assert_eq!(
             proxy_url(&json!({ "proxy": "direct" }), "socks5://127.0.0.1:1080"),
             None
+        );
+        assert_eq!(
+            proxy_url(
+                &json!({ "use_account_proxy": false }),
+                "socks5://127.0.0.1:1080"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn account_fingerprint_fills_default_http_headers() {
+        let mut metadata = HashMap::new();
+        metadata.insert("browser_os".to_string(), json!("windows"));
+        metadata.insert("browser_version".to_string(), json!("126"));
+        let host = ServerPluginHost::new_with_metadata(String::new(), &metadata);
+
+        let headers = host.request_headers(&json!({})).unwrap();
+
+        assert!(headers
+            .get("user-agent")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("Chrome/126.0.0.0"));
+        assert_eq!(
+            headers.get("sec-ch-ua-platform").unwrap().to_str().unwrap(),
+            "\"Windows\""
+        );
+    }
+
+    #[test]
+    fn explicit_plugin_user_agent_is_not_overwritten() {
+        let mut metadata = HashMap::new();
+        metadata.insert("browser_os".to_string(), json!("windows"));
+        metadata.insert("browser_version".to_string(), json!("126"));
+        let host = ServerPluginHost::new_with_metadata(String::new(), &metadata);
+
+        let headers = host
+            .request_headers(&json!({ "headers": { "user-agent": "PluginUA" } }))
+            .unwrap();
+
+        assert_eq!(
+            headers.get("user-agent").unwrap().to_str().unwrap(),
+            "PluginUA"
         );
     }
 }
