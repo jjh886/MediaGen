@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { PageId } from '../../App'
+import { AuthSessionMenu } from '../../features/auth/components/AuthSessionMenu'
 import { SystemControlMenu } from '../../features/settings/components/SystemControlCard'
 
 interface SidebarProps {
@@ -47,6 +48,7 @@ export default function Sidebar({ currentPage, onNavigate }: SidebarProps) {
           )
         })}
       </nav>
+      <AuthSessionMenu />
       <SystemControlMenu />
     </aside>
   )

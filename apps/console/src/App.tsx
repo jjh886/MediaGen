@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import AppShell from './app/layout/AppShell'
+import AuthGate from './features/auth/components/AuthGate'
 
 export type PageId =
   | 'accounts'
@@ -28,13 +29,15 @@ export default function App() {
   }
 
   return (
-    <AppShell
-      currentPage={currentPage}
-      verificationTaskId={verificationTaskId}
-      logTaskId={logTaskId}
-      onNavigate={setCurrentPage}
-      onOpenVerification={openVerification}
-      onOpenTaskLogs={openTaskLogs}
-    />
+    <AuthGate>
+      <AppShell
+        currentPage={currentPage}
+        verificationTaskId={verificationTaskId}
+        logTaskId={logTaskId}
+        onNavigate={setCurrentPage}
+        onOpenVerification={openVerification}
+        onOpenTaskLogs={openTaskLogs}
+      />
+    </AuthGate>
   )
 }

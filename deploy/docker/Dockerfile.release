@@ -1,0 +1,61 @@
+FROM rust:1.88-slim-bookworm AS builder
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates curl g++ make nodejs npm pkg-config python3 unzip \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+COPY package.json package-lock.json ./
+COPY apps/console/package.json apps/console/package.json
+RUN HUSKY=0 npm ci --workspace @mediagen/console --include-workspace-root
+
+COPY Cargo.toml Cargo.lock ./
+COPY apps apps
+COPY crates crates
+COPY plugins plugins
+COPY scripts scripts
+
+RUN npm run build:console
+RUN cargo build --release -p mediagen-server
+RUN node scripts/ensure-cloakbrowser-runtime.mjs --output /opt/mediagen/browser-runtime
+
+RUN mkdir -p /opt/mediagen/bin /opt/mediagen/console /opt/mediagen/plugins \
+  && cp target/release/mediagen-server /opt/mediagen/bin/mediagen-server \
+  && cp -r apps/console/dist/. /opt/mediagen/console/ \
+  && cp -r plugins/. /opt/mediagen/plugins/
+
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates curl fonts-noto fonts-noto-cjk libasound2 libatk-bridge2.0-0 \
+    libcairo2 libdrm2 libgbm1 libgtk-3-0 libnss3 libpango-1.0-0 libxcomposite1 \
+    libxdamage1 libxkbcommon0 libxrandr2 libxss1 \
+  && rm -rf /var/lib/apt/lists/* \
+  && useradd --system --create-home --home-dir /var/lib/mediagen mediagen
+
+COPY --from=builder /opt/mediagen/bin/mediagen-server /usr/bin/mediagen-server
+COPY --from=builder /opt/mediagen/console /usr/share/mediagen/console
+COPY --from=builder /opt/mediagen/plugins /opt/mediagen/plugins
+COPY --from=builder /opt/mediagen/browser-runtime /opt/mediagen/browser-runtime
+
+ENV MEDIAGEN_HOST=0.0.0.0
+ENV MEDIAGEN_PORT=18080
+ENV MEDIAGEN_CONSOLE_DIR=/usr/share/mediagen/console
+ENV MEDIAGEN_PLUGINS_DIR=/opt/mediagen/plugins
+ENV MEDIAGEN_DATA_DIR=/var/lib/mediagen
+ENV MEDIAGEN_LOGS_DIR=/var/log/mediagen
+ENV MEDIAGEN_PROFILES_DIR=/var/lib/mediagen/profiles
+ENV CLOAK_BROWSER_BUNDLE_DIR=/opt/mediagen/browser-runtime
+ENV CLOAKBROWSER_CACHE_DIR=/var/lib/mediagen/.cloakbrowser
+
+RUN mkdir -p /var/lib/mediagen /var/log/mediagen \
+  && chown -R mediagen:mediagen /var/lib/mediagen /var/log/mediagen /opt/mediagen
+
+USER mediagen
+WORKDIR /var/lib/mediagen
+EXPOSE 18080
+
+CMD ["/usr/bin/mediagen-server"]

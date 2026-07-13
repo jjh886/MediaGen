@@ -15,6 +15,10 @@ function apiUrl(path: string): string {
   return new URL(path, API_BASE).toString()
 }
 
+function requestInit(init: RequestInit): RequestInit {
+  return API_BASE ? { ...init, credentials: 'include' } : init
+}
+
 async function parseResponseBody(response: Response): Promise<unknown> {
   const text = await response.text()
   if (!text) return null
@@ -79,9 +83,12 @@ function unwrapData<T>(payload: unknown): T {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(apiUrl(path), {
-    headers: jsonHeaders(),
-  })
+  const response = await fetch(
+    apiUrl(path),
+    requestInit({
+      headers: jsonHeaders(),
+    })
+  )
   const payload = await parseResponseBody(response)
   if (!response.ok) {
     throw new HttpApiError(errorMessage(payload, response.status), response.status)
@@ -90,13 +97,16 @@ export async function apiGet<T>(path: string): Promise<T> {
 }
 
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(apiUrl(path), {
-    method: 'POST',
-    headers: {
-      ...jsonPostHeaders(),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+  const response = await fetch(
+    apiUrl(path),
+    requestInit({
+      method: 'POST',
+      headers: {
+        ...jsonPostHeaders(),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  )
   const payload = await parseResponseBody(response)
   if (!response.ok) {
     throw new HttpApiError(errorMessage(payload, response.status), response.status)
@@ -105,10 +115,13 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export async function apiDelete<T>(path: string): Promise<T> {
-  const response = await fetch(apiUrl(path), {
-    method: 'DELETE',
-    headers: jsonHeaders(),
-  })
+  const response = await fetch(
+    apiUrl(path),
+    requestInit({
+      method: 'DELETE',
+      headers: jsonHeaders(),
+    })
+  )
   const payload = await parseResponseBody(response)
   if (!response.ok) {
     throw new HttpApiError(errorMessage(payload, response.status), response.status)

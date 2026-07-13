@@ -1,23 +1,30 @@
 use actix_web::{dev::ServiceRequest, http::header, HttpResponse};
 use serde_json::json;
 
+use crate::admin_auth;
+
 const ADMIN_TOKEN_ENV: &str = "MEDIAGEN_ADMIN_TOKEN";
 const ADMIN_TOKEN_HEADER: &str = "x-mediagen-admin-token";
 
 pub(crate) fn request_allowed(request: &ServiceRequest) -> bool {
     !requires_admin_access(request.path())
-        || loopback_request(request)
         || token_matches(request, admin_token().as_deref())
+        || admin_auth::request_has_session(request)
+        || loopback_request_allowed(request)
 }
 
 pub(crate) fn unauthorized_response() -> HttpResponse {
     HttpResponse::Unauthorized().json(json!({
-        "error": "远程管理访问需要配置 MEDIAGEN_ADMIN_TOKEN，并在请求中携带管理令牌"
+        "error": "请先登录 MediaGen 管理台"
     }))
 }
 
 fn requires_admin_access(path: &str) -> bool {
-    path.starts_with("/api/") && path != "/api/oauth/callback"
+    path.starts_with("/api/") && path != "/api/oauth/callback" && !path.starts_with("/api/auth/")
+}
+
+fn loopback_request_allowed(request: &ServiceRequest) -> bool {
+    !admin_auth::admin_login_configured() && loopback_request(request)
 }
 
 fn loopback_request(request: &ServiceRequest) -> bool {
@@ -72,6 +79,7 @@ mod tests {
         assert!(!requires_admin_access("/health"));
         assert!(!requires_admin_access("/v1/images/generations"));
         assert!(!requires_admin_access("/api/oauth/callback"));
+        assert!(!requires_admin_access("/api/auth/status"));
     }
 
     #[test]

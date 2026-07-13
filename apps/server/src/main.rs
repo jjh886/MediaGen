@@ -2,6 +2,7 @@ mod access_control;
 mod account_browser_profile;
 mod account_login;
 mod admin_access;
+mod admin_auth;
 mod admin_routes;
 mod browser_session_events;
 mod browser_session_public;
@@ -101,6 +102,7 @@ async fn main() -> std::io::Result<()> {
                     ))))
                 }
             })
+            .configure(admin_auth::configure)
             .configure(admin_routes::configure)
             .configure(configure_routes)
             .service(Files::new("/", &console_dir).index_file("index.html"))
