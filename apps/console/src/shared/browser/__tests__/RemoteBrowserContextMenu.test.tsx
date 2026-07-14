@@ -16,6 +16,8 @@ describe('RemoteBrowserContextMenu', () => {
 
     expect(screen.getByRole('menuitem', { name: '复制' })).toBeEnabled()
     expect(screen.getByRole('menuitem', { name: '粘贴' })).toBeEnabled()
+    expect(screen.getByRole('menuitem', { name: '复制' })).toHaveStyle({ color: '#202124' })
+    expect(screen.getByRole('menu', { name: '网页菜单' })).toHaveStyle({ background: '#fff' })
     expect(screen.queryByText(/保存|审查|开发者工具/)).not.toBeInTheDocument()
   })
 
@@ -32,6 +34,7 @@ describe('RemoteBrowserContextMenu', () => {
     )
 
     expect(screen.getByRole('menuitem', { name: '复制' })).toBeDisabled()
+    expect(screen.getByRole('menuitem', { name: '复制' })).toHaveStyle({ color: '#9aa0a6' })
     expect(screen.getByRole('menuitem', { name: '剪切' })).toBeDisabled()
     fireEvent.click(screen.getByRole('menuitem', { name: '刷新' }))
     expect(onAction).toHaveBeenCalledWith('reload')

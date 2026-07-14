@@ -24,18 +24,7 @@ interface PointerHandlerOptions extends InputHandlerOptions {
 export function createPointerHandlers(options: PointerHandlerOptions) {
   let pointerDown = false
   let lastCursorRead = 0
-  let moveFrame: number | null = null
-  let queuedMove: BrowserInputRequest | null = null
-
-  const queueMove = (input: BrowserInputRequest) => {
-    queuedMove = input
-    if (moveFrame) return
-    moveFrame = window.requestAnimationFrame(() => {
-      moveFrame = null
-      if (queuedMove) options.sendInput(queuedMove)
-      queuedMove = null
-    })
-  }
+  const moveQueue = createMoveQueue(options.sendInput)
   const point = (event: PointerEvent<HTMLCanvasElement> | WheelEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
     return {
@@ -45,11 +34,11 @@ export function createPointerHandlers(options: PointerHandlerOptions) {
   }
 
   return {
-    cancel: () => {
-      if (moveFrame) window.cancelAnimationFrame(moveFrame)
-    },
+    cancel: moveQueue.cancel,
     handlers: {
       onPointerDown: (event: PointerEvent<HTMLCanvasElement>) => {
+        // 防止画布的默认点击行为覆盖隐藏输入接收器的焦点。
+        event.preventDefault()
         options.setMenu(null)
         pointerDown = true
         event.currentTarget.setPointerCapture(event.pointerId)
@@ -60,11 +49,13 @@ export function createPointerHandlers(options: PointerHandlerOptions) {
         const now = performance.now()
         const readCursor = !pointerDown && now - lastCursorRead >= 50
         if (readCursor) lastCursorRead = now
-        queueMove(mouseInput('move', event, point(event), readCursor))
+        moveQueue.push(mouseInput('move', event, point(event), readCursor))
       },
       onPointerUp: (event: PointerEvent<HTMLCanvasElement>) => {
+        event.preventDefault()
         pointerDown = false
         options.sendInput(mouseInput('up', event, point(event), true))
+        options.focus()
       },
       onWheel: (event: WheelEvent<HTMLCanvasElement>) => {
         event.preventDefault()
@@ -74,6 +65,25 @@ export function createPointerHandlers(options: PointerHandlerOptions) {
         event.preventDefault()
         options.setMenu(clampMenuPosition(event.clientX, event.clientY))
       },
+    },
+  }
+}
+
+function createMoveQueue(sendInput: InputHandlerOptions['sendInput']) {
+  let frame: number | null = null
+  let queued: BrowserInputRequest | null = null
+  return {
+    cancel: () => {
+      if (frame) window.cancelAnimationFrame(frame)
+    },
+    push: (input: BrowserInputRequest) => {
+      queued = input
+      if (frame) return
+      frame = window.requestAnimationFrame(() => {
+        frame = null
+        if (queued) sendInput(queued)
+        queued = null
+      })
     },
   }
 }
@@ -89,6 +99,8 @@ export function createKeyboardHandlers(options: KeyboardHandlerOptions) {
     onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (options.composingRef.current || event.nativeEvent.isComposing) return
       const shortcut = remoteShortcut(event)
+      // 保留浏览器原生 paste 事件，才能可靠拿到系统剪贴板内容。
+      if (shortcut === 'paste') return
       event.preventDefault()
       if (shortcut) return options.runAction(shortcut)
       options.sendInput(keyInput('down', event))

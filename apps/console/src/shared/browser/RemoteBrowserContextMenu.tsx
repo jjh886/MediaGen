@@ -52,9 +52,11 @@ export default function RemoteBrowserContextMenu({
         zIndex: 1200,
         width: 184,
         padding: 6,
-        border: '1px solid var(--border-base)',
+        border: '1px solid #c7c7c7',
         borderRadius: 6,
-        background: 'var(--panel-bg, #fff)',
+        // 远程网页菜单模拟浏览器原生浅色菜单，不能继承控制台的深色文字变量。
+        background: '#fff',
+        color: '#202124',
         boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
       }}
     >
@@ -80,9 +82,9 @@ export default function RemoteBrowserContextMenu({
               marginTop: index === 3 ? 5 : 0,
               padding: '0 9px',
               border: 0,
-              borderTop: index === 3 ? '1px solid var(--border-base)' : undefined,
+              borderTop: index === 3 ? '1px solid #dadce0' : undefined,
               background: 'transparent',
-              color: disabled ? 'var(--text-tertiary)' : 'var(--text-primary)',
+              color: disabled ? '#9aa0a6' : '#202124',
               cursor: disabled ? 'not-allowed' : 'pointer',
               fontSize: 13,
               textAlign: 'left',

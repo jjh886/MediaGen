@@ -27,6 +27,8 @@ REMOTE_ENV_FILE="${MEDIAGEN_REMOTE_ENV_FILE:-/etc/mediagen/mediagen.env}"
 BIND_HOST="${MEDIAGEN_BIND_HOST:-172.20.0.1}"
 BIND_PORT="${MEDIAGEN_BIND_PORT:-18080}"
 BROWSER_PROXY="${MEDIAGEN_BROWSER_PROXY:-auto}"
+CLASH_UPSTREAM="${MEDIAGEN_CLASH_UPSTREAM:-http://${BIND_HOST}:9090}"
+CLASH_SECRET="${MEDIAGEN_CLASH_SECRET:-}"
 NO_PROXY_VALUE="${MEDIAGEN_NO_PROXY:-127.0.0.1,localhost,::1,${BIND_HOST}}"
 ADMIN_USERNAME="${MEDIAGEN_ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${MEDIAGEN_ADMIN_PASSWORD:-}"
@@ -123,23 +125,18 @@ run_local_checks() {
 
 sync_source() {
   log "同步源码到服务器"
-  remote "mkdir -p $(quote_remote "${REMOTE_SRC}")"
-  rsync -az --delete \
+  # 使用系统自带的 tar 通过 SSH 传输，避免新服务器必须预装 rsync。
+  COPYFILE_DISABLE=1 tar -C "${ROOT_DIR}" -czf - \
     --exclude '.git/' \
     --exclude 'node_modules/' \
     --exclude 'target/' \
     --exclude 'dist-local/' \
     --exclude '.playwright-cli/' \
     --exclude 'coverage/' \
-    --exclude 'data/' \
-    --exclude 'logs/' \
-    --exclude 'profiles/' \
     --exclude '.env' \
     --exclude '.env.local' \
     --exclude '.env.*.local' \
-    -e "ssh -p ${DEPLOY_PORT} -o BatchMode=yes -o StrictHostKeyChecking=accept-new" \
-    "${ROOT_DIR}/" \
-    "${SSH_TARGET}:${REMOTE_SRC}/"
+    . | remote "rm -rf $(quote_remote "${REMOTE_SRC}") && mkdir -p $(quote_remote "${REMOTE_SRC}") && tar -xzf - -C $(quote_remote "${REMOTE_SRC}")"
 }
 
 remote_build_and_install() {
@@ -172,13 +169,13 @@ as_root() {
 install_packages() {
   apply_package_proxy
   if command -v dnf >/dev/null 2>&1; then
-    as_root dnf install -y nodejs npm curl tar gzip unzip gcc gcc-c++ pkgconf-pkg-config openssl-devel ca-certificates \
-      gtk3 nss alsa-lib libX11 libXcomposite libXdamage libXrandr libgbm atk at-spi2-atk cups-libs libdrm
-    as_root dnf install -y google-noto-sans-cjk-ttc-fonts wqy-microhei-fonts
+    install_rpm_packages dnf nodejs npm curl tar gzip unzip gcc gcc-c++ pkgconf-pkg-config openssl-devel ca-certificates \
+      gtk3 nss alsa-lib libX11 libXcomposite libXdamage libXrandr mesa-libgbm atk at-spi2-atk cups-libs libdrm \
+      google-noto-sans-cjk-ttc-fonts wqy-microhei-fonts
   elif command -v yum >/dev/null 2>&1; then
-    as_root yum install -y nodejs npm curl tar gzip unzip gcc gcc-c++ pkgconfig openssl-devel ca-certificates \
-      gtk3 nss alsa-lib libX11 libXcomposite libXdamage libXrandr libgbm atk at-spi2-atk cups-libs libdrm
-    as_root yum install -y google-noto-sans-cjk-ttc-fonts wqy-microhei-fonts
+    install_rpm_packages yum nodejs npm curl tar gzip unzip gcc gcc-c++ pkgconfig openssl-devel ca-certificates \
+      gtk3 nss alsa-lib libX11 libXcomposite libXdamage libXrandr mesa-libgbm atk at-spi2-atk cups-libs libdrm \
+      google-noto-sans-cjk-ttc-fonts wqy-microhei-fonts
   elif command -v apt-get >/dev/null 2>&1; then
     as_root apt-get update
     as_root apt-get install -y nodejs npm curl tar gzip unzip build-essential pkg-config libssl-dev ca-certificates \
@@ -186,6 +183,18 @@ install_packages() {
     as_root apt-get install -y fonts-noto-cjk fonts-wqy-microhei
   fi
   command -v fc-cache >/dev/null 2>&1 && as_root fc-cache -f || true
+}
+
+install_rpm_packages() {
+  local package_manager="$1"
+  shift
+  local missing=() package
+  for package in "$@"; do
+    rpm -q "${package}" >/dev/null 2>&1 || missing+=("${package}")
+  done
+  if (( ${#missing[@]} > 0 )); then
+    as_root "${package_manager}" install -y "${missing[@]}"
+  fi
 }
 
 apply_package_proxy() {
@@ -310,14 +319,19 @@ as_root mkdir -p "${REMOTE_APP}/bin" "${REMOTE_DATA}/profiles" "${REMOTE_LOGS}" 
 as_root chown -R mediagen:mediagen "${REMOTE_DATA}" "${REMOTE_LOGS}" /var/cache/mediagen
 
 cd "${REMOTE_SRC}"
+export CARGO_TARGET_DIR=/var/cache/mediagen/cargo-target
 npm ci --ignore-scripts
 npm run build:console
 cargo build --release -p mediagen-server
-node scripts/ensure-cloakbrowser-runtime.mjs \
-  --output "${REMOTE_APP}/browser-runtime" \
-  --cache /var/cache/mediagen/cloakbrowser
+if [[ ! -x "${REMOTE_APP}/browser-runtime/chrome" ]]; then
+  node scripts/ensure-cloakbrowser-runtime.mjs \
+    --output "${REMOTE_APP}/browser-runtime" \
+    --cache /var/cache/mediagen/cloakbrowser
+else
+  echo "复用服务器已安装的 CloakBrowser 运行时"
+fi
 
-as_root install -m 0755 target/release/mediagen-server "${REMOTE_APP}/bin/mediagen-server"
+as_root install -m 0755 "${CARGO_TARGET_DIR}/release/mediagen-server" "${REMOTE_APP}/bin/mediagen-server"
 as_root rm -rf "${REMOTE_APP}/console" "${REMOTE_APP}/plugins"
 as_root cp -a apps/console/dist "${REMOTE_APP}/console"
 as_root cp -a plugins "${REMOTE_APP}/plugins"
@@ -344,6 +358,8 @@ configure_nginx() {
     "DEPLOY_DOMAIN=${DEPLOY_DOMAIN}" \
     "BIND_HOST=${BIND_HOST}" \
     "BIND_PORT=${BIND_PORT}" \
+    "CLASH_UPSTREAM=${CLASH_UPSTREAM}" \
+    "CLASH_SECRET=${CLASH_SECRET}" \
     "NGINX_CONTAINER=${NGINX_CONTAINER}" \
     "NGINX_CONF_HOST=${NGINX_CONF_HOST}" \
     "NGINX_CERT_HOST=${NGINX_CERT_HOST}" \
@@ -401,14 +417,49 @@ server {
   include /etc/nginx/snippets/ssl-common.conf;
   client_max_body_size 100m;
 
+  location = /_mediagen_clash_auth {
+    internal;
+    proxy_pass http://${BIND_HOST}:${BIND_PORT}/api/accounts;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header Cookie \$http_cookie;
+  }
+
+  location = /clash {
+    return 302 /clash/;
+  }
+
+  location = /clash-auto {
+    auth_request /_mediagen_clash_auth;
+    error_page 401 =302 /;
+    error_page 418 = @mediagen_clash_auto;
+    recursive_error_pages on;
+    try_files /__mediagen_clash_auto__ =418;
+  }
+
+  location @mediagen_clash_auto {
+    default_type text/html;
+    add_header Cache-Control "no-store";
+    return 200 '<!doctype html><meta charset="utf-8"><title>打开 Clash 面板</title><script>location.replace("/clash/#/setup?protocol=https&hostname=${DEPLOY_DOMAIN}&port=443&secondaryPath=%2Fclash-api&secret=${CLASH_SECRET}&type=clash&disableUpgradeCore=1")</script>';
+  }
+
+  location ^~ /clash/ {
+    auth_request /_mediagen_clash_auth;
+    error_page 401 =302 /;
+    proxy_pass ${CLASH_UPSTREAM}/ui/;
+    include /etc/nginx/snippets/proxy-common.conf;
+  }
+
+  location ^~ /clash-api/ {
+    auth_request /_mediagen_clash_auth;
+    proxy_pass ${CLASH_UPSTREAM}/;
+    include /etc/nginx/snippets/proxy-common.conf;
+  }
+
   location / {
     proxy_pass http://${BIND_HOST}:${BIND_PORT};
+    # 公共代理片段已统一配置 WebSocket Upgrade 和超时。
     include /etc/nginx/snippets/proxy-common.conf;
-    # 远程浏览器画面和输入共用 WebSocket，避免退回高延迟的逐请求传输。
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_read_timeout 3600s;
   }
 }
 NGINX_HTTPS
@@ -435,6 +486,23 @@ reload_nginx
 REMOTE_SCRIPT
 }
 
+verify_clash_anonymous() {
+  [[ -n "${CLASH_SECRET}" ]] || return
+  local base_url="$1" panel_status api_status
+  panel_status="$(curl -sS --http2 -o /dev/null -w '%{http_code}' "${base_url}/clash/")"
+  api_status="$(curl -sS --http2 -o /dev/null -w '%{http_code}' "${base_url}/clash-api/version")"
+  [[ "${panel_status}" == "302" ]] || die "Clash 面板未登录保护异常，返回 ${panel_status}"
+  [[ "${api_status}" == "401" ]] || die "Clash API 未登录保护异常，返回 ${api_status}"
+}
+
+verify_clash_authenticated() {
+  [[ -n "${CLASH_SECRET}" ]] || return
+  local base_url="$1" cookie_file="$2"
+  curl -fsS --http2 -b "${cookie_file}" "${base_url}/clash/" >/dev/null
+  curl -fsS --http2 -b "${cookie_file}" -H "Authorization: Bearer ${CLASH_SECRET}" \
+    "${base_url}/clash-api/version" >/dev/null
+}
+
 verify_deploy() {
   log "验证线上服务"
   local base_url="https://${DEPLOY_DOMAIN}"
@@ -443,6 +511,7 @@ verify_deploy() {
   curl -fsS --http2 "${base_url}/health" >/dev/null
   status_code="$(curl -sS --http2 -o /tmp/mediagen-deploy-accounts.json -w '%{http_code}' "${base_url}/api/accounts")"
   [[ "${status_code}" == "401" ]] || die "未登录保护异常，/api/accounts 返回 ${status_code}"
+  verify_clash_anonymous "${base_url}"
 
   if [[ -n "${ADMIN_PASSWORD}" ]]; then
     cookie_file="$(mktemp)"
@@ -457,6 +526,7 @@ verify_deploy() {
       "${base_url}/api/auth/login" >"${login_body}"
     grep -q '"authenticated":true' "${login_body}" || die "管理员账号登录验证失败"
     curl -fsS --http2 -b "${cookie_file}" "${base_url}/api/plugins" >/dev/null
+    verify_clash_authenticated "${base_url}" "${cookie_file}"
     rm -f "${cookie_file}" "${login_body}"
   else
     log "只提供了密码哈希，跳过登录验证"
@@ -487,7 +557,7 @@ SUCCESS
 
 main() {
   require_cmd ssh
-  require_cmd rsync
+  require_cmd tar
   require_cmd curl
   require_cmd node
   prepare_admin_secret

@@ -64,12 +64,27 @@ describe('useRemoteBrowserInteraction', () => {
     render(<Harness />)
     const input = screen.getByLabelText('input')
     fireEvent.keyDown(input, { key: 'c', ctrlKey: true })
-    fireEvent.keyDown(input, { key: 'v', metaKey: true })
+    fireEvent.paste(input, { clipboardData: { getData: () => 'pasted' } })
     fireEvent.keyDown(input, { key: 'a', ctrlKey: true })
 
     await waitFor(() => expect(mocks.copy).toHaveBeenCalledWith('session-1'))
     expect(mocks.write).toHaveBeenCalledWith('session-1', 'pasted')
     expect(mocks.selectAll).toHaveBeenCalledWith('session-1')
+  })
+
+  it('keeps the keyboard sink focused after clicking the remote page', () => {
+    render(<Harness />)
+    const canvas = screen.getByTestId('canvas')
+    const input = screen.getByLabelText('input')
+    Object.defineProperty(canvas, 'setPointerCapture', { value: vi.fn() })
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 1000, height: 500 }),
+    })
+
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, buttons: 1 })
+    fireEvent.pointerUp(canvas, { pointerId: 1, button: 0, buttons: 0 })
+
+    expect(input).toHaveFocus()
   })
 
   it('sends composition updates and committed Chinese text', () => {
