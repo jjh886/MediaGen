@@ -12,6 +12,8 @@ mod proxy;
 mod rendering;
 mod runtime;
 mod screenshot;
+mod session_metadata;
+mod session_paths;
 mod types;
 #[cfg(test)]
 mod types_tests;

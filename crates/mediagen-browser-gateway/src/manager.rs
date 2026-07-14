@@ -146,19 +146,16 @@ impl BrowserGateway {
         let runtime_id = request.resolved_runtime_id();
         let viewport = request.resolved_viewport(&self.config);
         let device_scale_factor = request.resolved_device_scale_factor();
-        let profile_dir = request
-            .profile_dir
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| {
-                self.config
-                    .profile_root
-                    .join(&session_id)
-                    .display()
-                    .to_string()
-            });
+        let metadata = crate::session_metadata::build_session_metadata(
+            request.metadata,
+            request.proxy_id.as_deref(),
+            self.config.default_proxy_server.as_deref(),
+        );
+        let profile_dir = crate::session_paths::resolve_profile_dir(
+            &self.config.profile_root,
+            &session_id,
+            request.profile_dir.as_deref(),
+        );
 
         BrowserSession {
             id: session_id,
@@ -185,7 +182,7 @@ impl BrowserGateway {
             updated_at: now,
             cancelled_at: None,
             completed_at: None,
-            metadata: request.metadata,
+            metadata,
         }
     }
 
@@ -217,9 +214,8 @@ impl BrowserGateway {
         native_dialogs::install_native_dialog_guards(&client).await;
         rendering::configure_rendering(&client, &session).await?;
         if is_useful_page_url(&session.start_url) {
-            client
-                .send("Page.navigate", json!({ "url": session.start_url }))
-                .await?;
+            // 服务端网络可能较慢，初始跳转不能阻塞会话创建，否则用户看不到可接管画面。
+            client.send_fire_and_forget("Page.navigate", json!({ "url": session.start_url }))?;
         }
 
         let gateway = self.clone();

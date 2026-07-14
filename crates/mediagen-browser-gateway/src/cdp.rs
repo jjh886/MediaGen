@@ -105,4 +105,22 @@ impl CdpClient {
         }
         Ok(response.get("result").cloned().unwrap_or_else(|| json!({})))
     }
+
+    pub(crate) fn send_fire_and_forget(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<(), BrowserGatewayError> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let message = json!({
+            "id": id,
+            "method": method,
+            "params": params,
+        })
+        .to_string();
+
+        self.sender
+            .send(message)
+            .map_err(|_| BrowserGatewayError::Cdp("CDP websocket 已断开".to_string()))
+    }
 }

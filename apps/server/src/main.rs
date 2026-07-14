@@ -84,9 +84,14 @@ async fn main() -> std::io::Result<()> {
     let state = web::Data::new(build_state(&config));
     let console_dir = config.console_dir.clone();
     let bind = format!("{}:{}", config.host, config.port);
+    let callback_server = oauth_login::callback_server(state.clone(), &config.oauth_callback_bind)?;
 
     println!("[mediagen-server] listening on http://{bind}");
-    HttpServer::new(move || {
+    println!(
+        "[mediagen-server] OAuth callback listening on http://{}",
+        config.oauth_callback_bind
+    );
+    let main_server = HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
             .wrap_fn(|request, service| {
@@ -108,8 +113,10 @@ async fn main() -> std::io::Result<()> {
             .service(Files::new("/", &console_dir).index_file("index.html"))
     })
     .bind(bind)?
-    .run()
-    .await
+    .run();
+    futures_util::future::try_join(main_server, callback_server)
+        .await
+        .map(|_| ())
 }
 
 fn ensure_server_dirs(config: &ServerConfig) -> std::io::Result<()> {
@@ -205,6 +212,7 @@ struct ServerConfig {
     profiles_dir: PathBuf,
     plugins_dir: PathBuf,
     console_dir: PathBuf,
+    oauth_callback_bind: String,
 }
 
 impl ServerConfig {
@@ -221,6 +229,8 @@ impl ServerConfig {
             profiles_dir: env_path("MEDIAGEN_PROFILES_DIR", data_dir.join("profiles")),
             plugins_dir: env_path("MEDIAGEN_PLUGINS_DIR", root.join("plugins")),
             console_dir: env_path("MEDIAGEN_CONSOLE_DIR", root.join("apps/console/dist")),
+            oauth_callback_bind: std::env::var("MEDIAGEN_OAUTH_CALLBACK_BIND")
+                .unwrap_or_else(|_| "127.0.0.1:1455".to_string()),
             data_dir,
         }
     }

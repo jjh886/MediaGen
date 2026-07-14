@@ -1,8 +1,11 @@
+use std::collections::HashMap;
+
 use mediagen_browser_gateway::{
     BrowserClipboardAction, BrowserClipboardRequest, BrowserGateway, BrowserGatewayConfig,
     BrowserGatewayError, BrowserInputRequest, BrowserResizeRequest, BrowserSessionCreateRequest,
     BrowserViewport, BrowserWheelInput,
 };
+use serde_json::json;
 
 fn test_gateway() -> BrowserGateway {
     BrowserGateway::new(BrowserGatewayConfig {
@@ -87,4 +90,34 @@ async fn cancelled_session_rejects_later_actions() {
         )
         .await;
     assert!(matches!(result, Err(BrowserGatewayError::SessionClosed(_))));
+}
+
+#[tokio::test]
+async fn default_proxy_is_used_only_without_session_override() {
+    let gateway = BrowserGateway::new(BrowserGatewayConfig {
+        launch_browser: false,
+        default_proxy_server: Some("socks5h://127.0.0.1:7890".to_string()),
+        ..BrowserGatewayConfig::default()
+    });
+    let inherited = gateway
+        .create_session(BrowserSessionCreateRequest::default())
+        .await
+        .unwrap()
+        .session;
+    assert_eq!(
+        inherited.metadata["proxy_server"],
+        "socks5h://127.0.0.1:7890"
+    );
+
+    let mut metadata = HashMap::new();
+    metadata.insert("proxy_mode".to_string(), json!("direct"));
+    let direct = gateway
+        .create_session(BrowserSessionCreateRequest {
+            metadata,
+            ..BrowserSessionCreateRequest::default()
+        })
+        .await
+        .unwrap()
+        .session;
+    assert!(direct.metadata.get("proxy_server").is_none());
 }

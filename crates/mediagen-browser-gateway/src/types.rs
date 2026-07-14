@@ -33,6 +33,7 @@ pub enum BrowserGatewayError {
 pub struct BrowserGatewayConfig {
     pub profile_root: PathBuf,
     pub browser_path: Option<PathBuf>,
+    pub default_proxy_server: Option<String>,
     pub default_width: u32,
     pub default_height: u32,
     pub launch_browser: bool,
@@ -43,6 +44,7 @@ impl Default for BrowserGatewayConfig {
         Self {
             profile_root: PathBuf::from("data/profiles"),
             browser_path: browser_path_from_env(),
+            default_proxy_server: proxy_server_from_env(),
             default_width: DEFAULT_WIDTH,
             default_height: DEFAULT_HEIGHT,
             launch_browser: true,
@@ -59,6 +61,19 @@ fn browser_path_from_env() -> Option<PathBuf> {
     ]
     .iter()
     .find_map(|name| std::env::var_os(name).map(PathBuf::from))
+}
+
+fn proxy_server_from_env() -> Option<String> {
+    [
+        "MEDIAGEN_BROWSER_PROXY",
+        "CLOAK_BROWSER_PROXY",
+        "ALL_PROXY",
+        "all_proxy",
+    ]
+    .iter()
+    .find_map(|name| std::env::var(name).ok())
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty())
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

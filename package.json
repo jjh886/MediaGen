@@ -21,6 +21,7 @@
     "package:installers": "node scripts/package-local-installers.mjs",
     "package:apt": "MEDIAGEN_PACKAGE_TARGET=apt node scripts/package-local-installers.mjs",
     "package:yum": "MEDIAGEN_PACKAGE_TARGET=yum node scripts/package-local-installers.mjs",
+    "deploy:server": "bash scripts/deploy-server-release.sh",
     "type-check": "npm --workspace @mediagen/console run type-check",
     "lint": "node scripts/check-code-line-limit.mjs --scope app --max 500 && node scripts/check-import-boundaries.mjs && node scripts/check-rust-platform-boundaries.mjs && npm --workspace @mediagen/console run lint",
     "test": "npm --workspace @mediagen/console run test",

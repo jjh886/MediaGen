@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{dev::Server, web, App, HttpResponse, HttpServer, Responder};
 use base64::prelude::{Engine as _, BASE64_URL_SAFE_NO_PAD};
 use mediagen_browser_gateway::{BrowserSessionCreateRequest, BrowserSessionPurpose};
 use mediagen_core::PluginManifest;
@@ -30,6 +30,8 @@ struct OAuthPkceConfig {
     token_url: String,
     client_id: String,
     scope: String,
+    #[serde(default)]
+    redirect_uri: String,
     #[serde(default)]
     token_script_file: String,
     #[serde(default)]
@@ -91,7 +93,7 @@ pub fn prepare_oauth_request(
     let state = random_token(32);
     let code_verifier = random_token(64);
     let code_challenge = BASE64_URL_SAFE_NO_PAD.encode(Sha256::digest(code_verifier.as_bytes()));
-    let redirect_uri = callback_base_url() + "/api/oauth/callback";
+    let redirect_uri = configured_redirect_uri(&config);
     request.start_url = build_auth_url(&config, &redirect_uri, &state, &code_challenge);
     request.metadata.insert(
         "oauth_pkce".to_string(),
@@ -105,6 +107,18 @@ pub fn prepare_oauth_request(
         }),
     );
     Ok(())
+}
+
+/// 启动独立的本机回调入口，供要求固定 loopback 地址的 OAuth 客户端使用。
+pub fn callback_server(state: web::Data<ServerState>, bind: &str) -> std::io::Result<Server> {
+    let server = HttpServer::new(move || {
+        App::new()
+            .app_data(state.clone())
+            .route("/auth/callback", web::get().to(oauth_callback))
+    })
+    .bind(bind)?
+    .run();
+    Ok(server)
 }
 
 pub fn oauth_meta(session_metadata: &HashMap<String, Value>) -> Option<SessionOAuthMeta> {
@@ -168,6 +182,15 @@ fn callback_base_url() -> String {
         .to_string()
 }
 
+fn configured_redirect_uri(config: &OAuthPkceConfig) -> String {
+    let redirect_uri = config.redirect_uri.trim();
+    if redirect_uri.is_empty() {
+        callback_base_url() + "/api/oauth/callback"
+    } else {
+        redirect_uri.to_string()
+    }
+}
+
 fn random_token(bytes: usize) -> String {
     let mut data = vec![0u8; bytes];
     rand::rngs::OsRng.fill_bytes(&mut data);
@@ -200,4 +223,32 @@ fn callback_page() -> &'static str {
      <style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;padding:48px;color:#111}</style>\
      <h1>登录已完成</h1><p>MediaGen 正在保存账号信息，这个页面会自动关闭。</p>\
      <script>setTimeout(()=>window.close(),1000)</script>"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_auth_url, configured_redirect_uri, OAuthPkceConfig};
+    use std::collections::HashMap;
+
+    fn config(redirect_uri: &str) -> OAuthPkceConfig {
+        OAuthPkceConfig {
+            auth_url: "https://auth.example/authorize".to_string(),
+            token_url: "https://auth.example/token".to_string(),
+            client_id: "client".to_string(),
+            scope: "openid profile".to_string(),
+            redirect_uri: redirect_uri.to_string(),
+            token_script_file: String::new(),
+            auth_params: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn explicit_loopback_redirect_is_used_in_authorize_url() {
+        let config = config("http://localhost:1455/auth/callback");
+        let redirect_uri = configured_redirect_uri(&config);
+        let url = build_auth_url(&config, &redirect_uri, "state", "challenge");
+
+        assert_eq!(redirect_uri, "http://localhost:1455/auth/callback");
+        assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback"));
+    }
 }

@@ -5,7 +5,7 @@ SHELL := /bin/bash
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 .PHONY: help install dev dev-console dev-server dev-launcher start-local build build-console \
-	build-server build-launcher package-local package-installers package-apt package-yum lint typecheck test coverage-gate cargo-fmt cargo-clippy cargo-check cargo-test check \
+	build-server build-launcher package-local package-installers package-apt package-yum deploy-server lint typecheck test coverage-gate cargo-fmt cargo-clippy cargo-check cargo-test check \
 	preflight preflight-format preflight-app preflight-docs format-check check-compat
 
 help: ## 显示帮助信息
@@ -65,6 +65,9 @@ package-apt: ## 生成 apt/deb 安装包
 package-yum: ## 生成 yum/rpm 安装包
 	cd $(ROOT_DIR) && npm run package:yum
 	ls $(ROOT_DIR)/dist-local/installers/*.rpm >/dev/null
+
+deploy-server: ## 一键打包并部署到服务端
+	cd $(ROOT_DIR) && npm run deploy:server
 
 lint: ## 运行 TypeScript lint、行数和导入边界检查
 	cd $(ROOT_DIR) && npm run lint
