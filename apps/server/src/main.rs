@@ -7,6 +7,7 @@ mod admin_routes;
 mod browser_session_events;
 mod browser_session_public;
 mod browser_session_setup;
+mod browser_session_stream;
 mod browser_sessions;
 mod callback_host;
 mod failure_strategy;

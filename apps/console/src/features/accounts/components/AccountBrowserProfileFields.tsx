@@ -1,11 +1,14 @@
-import { KtInput, KtSelect } from '@/shared/ui'
-import type { BrowserOs, BrowserProfileFormState } from '../utils/browser-profile'
+import { KtSelect } from '@/shared/ui'
+import {
+  getDefaultChromeMajorVersion,
+  type BrowserOs,
+  type BrowserProfileFormState,
+} from '../utils/browser-profile'
 import {
   accountFieldHintStyle,
   accountFieldLabelStyle,
   accountFieldStyle,
   accountFormStackStyle,
-  accountTwoColumnGridStyle,
   updateAccountFormField,
 } from './account-form-shared'
 import AccountSettingSwitch from './AccountSettingSwitch'
@@ -21,12 +24,12 @@ const osOptions: { value: BrowserOs; label: string }[] = [
   { value: 'linux', label: 'Linux' },
 ]
 
-const browserProfileGridStyle = accountTwoColumnGridStyle(140)
-
 export default function AccountBrowserProfileFields({
   value,
   onChange,
 }: AccountBrowserProfileFieldsProps) {
+  const chromeMajorVersion = getDefaultChromeMajorVersion(value.os)
+
   return (
     <div style={accountFormStackStyle}>
       <AccountSettingSwitch
@@ -38,29 +41,16 @@ export default function AccountBrowserProfileFields({
 
       {value.enabled && (
         <div style={accountFormStackStyle}>
-          <div style={browserProfileGridStyle}>
-            <div style={accountFieldStyle}>
-              <span style={accountFieldLabelStyle}>系统</span>
-              <KtSelect
-                value={value.os}
-                onChange={(os) => onChange(updateAccountFormField(value, 'os', os as BrowserOs))}
-                options={osOptions}
-              />
-            </div>
-            <div style={accountFieldStyle}>
-              <span style={accountFieldLabelStyle}>Chrome 主版本</span>
-              <KtInput
-                inputMode="numeric"
-                placeholder="126"
-                value={value.browserVersion}
-                onChange={(event) =>
-                  onChange(updateAccountFormField(value, 'browserVersion', event.target.value))
-                }
-              />
-            </div>
+          <div style={accountFieldStyle}>
+            <span style={accountFieldLabelStyle}>系统</span>
+            <KtSelect
+              value={value.os}
+              onChange={(os) => onChange(updateAccountFormField(value, 'os', os as BrowserOs))}
+              options={osOptions}
+            />
           </div>
           <span style={accountFieldHintStyle}>
-            开启后，网站看到的系统和 Chrome 版本会按这里发送；不确定时保持关闭。
+            Chrome 版本会自动使用所选系统当前的稳定主版本 {chromeMajorVersion}，无需手动填写。
           </span>
         </div>
       )}

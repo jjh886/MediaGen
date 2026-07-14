@@ -1,5 +1,8 @@
 use serde_json::json;
 
+use crate::input_types::{
+    BrowserClipboardAction, BrowserClipboardRequest, BrowserInputRequest, BrowserKeyInput,
+};
 use crate::types::*;
 
 #[test]

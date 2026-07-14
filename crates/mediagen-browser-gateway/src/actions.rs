@@ -214,6 +214,15 @@ impl BrowserGateway {
                 text
             }
             BrowserClipboardAction::CopySelection => self.read_remote_selection(&client).await?,
+            BrowserClipboardAction::CutSelection => {
+                let text = self.read_remote_selection(&client).await?;
+                dispatch_edit_command(&client, "cut").await?;
+                text
+            }
+            BrowserClipboardAction::SelectAll => {
+                dispatch_edit_command(&client, "selectAll").await?;
+                String::new()
+            }
         };
 
         self.push_event(
@@ -279,6 +288,19 @@ impl BrowserGateway {
             .await?;
         Ok(read_runtime_value(&result))
     }
+}
+
+async fn dispatch_edit_command(
+    client: &Arc<CdpClient>,
+    command: &str,
+) -> Result<(), BrowserGatewayError> {
+    client
+        .send(
+            "Input.dispatchKeyEvent",
+            json!({ "type": "rawKeyDown", "commands": [command] }),
+        )
+        .await?;
+    Ok(())
 }
 
 pub(crate) fn read_runtime_value(result: &Value) -> String {

@@ -81,11 +81,35 @@ export type BrowserInputRequest =
       ctrlKey?: boolean
       metaKey?: boolean
       altKey?: boolean
+      shiftKey?: boolean
+      text?: string
+      unmodifiedText?: string
+      autoRepeat?: boolean
+      isKeypad?: boolean
+      location?: number
+      commands?: string[]
     }
+  | {
+      kind: 'ime'
+      event: 'set_composition' | 'commit' | 'cancel'
+      text?: string
+      selectionStart?: number
+      selectionEnd?: number
+    }
+
+export interface BrowserPointerState {
+  cursor: string
+  editable: boolean
+  selectable: boolean
+  has_selection: boolean
+  password: boolean
+  element_kind: string
+}
 
 export interface BrowserInputResponse {
   ok: boolean
   cursor: string
+  pointer: BrowserPointerState
 }
 
 export type BrowserHistoryAction = 'back' | 'forward' | 'reload'
@@ -150,6 +174,18 @@ export async function copyBrowserSelection(id: string): Promise<string> {
   return response.text
 }
 
+export async function cutBrowserSelection(id: string): Promise<string> {
+  const response = await apiPost<{ ok: boolean; text: string }>(
+    `/api/browser-sessions/${id}/clipboard`,
+    { action: 'cut_selection' }
+  )
+  return response.text
+}
+
+export async function selectAllBrowserContent(id: string): Promise<void> {
+  await apiPost(`/api/browser-sessions/${id}/clipboard`, { action: 'select_all' })
+}
+
 export async function fetchBrowserSession(id: string): Promise<BrowserSession> {
   const response = await apiGet<SessionEnvelope>(`/api/browser-sessions/${id}`)
   return response.session
@@ -157,4 +193,10 @@ export async function fetchBrowserSession(id: string): Promise<BrowserSession> {
 
 export function browserSessionEventsUrl(id: string): string {
   return apiEventUrl(`/api/browser-sessions/${id}/events`)
+}
+
+export function browserSessionStreamUrl(id: string): string {
+  const url = new URL(apiEventUrl(`/api/browser-sessions/${id}/stream`), window.location.href)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
 }

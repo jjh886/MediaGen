@@ -404,6 +404,11 @@ server {
   location / {
     proxy_pass http://${BIND_HOST}:${BIND_PORT};
     include /etc/nginx/snippets/proxy-common.conf;
+    # 远程浏览器画面和输入共用 WebSocket，避免退回高延迟的逐请求传输。
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;
   }
 }
 NGINX_HTTPS

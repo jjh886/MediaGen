@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use crate::actions::read_runtime_value;
 use crate::cdp::CdpClient;
+use crate::pointer_state::read_pointer_state;
 use crate::{
-    BrowserGateway, BrowserGatewayError, BrowserInputRequest, BrowserInputResponse,
-    BrowserKeyEvent, BrowserKeyInput, BrowserMouseButton, BrowserMouseEvent, BrowserMouseInput,
-    BrowserWheelInput,
+    BrowserGateway, BrowserGatewayError, BrowserImeEvent, BrowserImeInput, BrowserInputRequest,
+    BrowserInputResponse, BrowserKeyEvent, BrowserKeyInput, BrowserMouseButton, BrowserMouseEvent,
+    BrowserMouseInput, BrowserPointerState, BrowserWheelInput,
 };
 
 impl BrowserGateway {
@@ -23,6 +23,7 @@ impl BrowserGateway {
             BrowserInputRequest::Mouse(input) => dispatch_mouse_input(&client, input).await?,
             BrowserInputRequest::Wheel(input) => dispatch_wheel_input(&client, input).await?,
             BrowserInputRequest::Key(input) => dispatch_key_input(&client, input).await?,
+            BrowserInputRequest::Ime(input) => dispatch_ime_input(&client, input).await?,
         }
         self.input_response(id, read_cursor, emit_event).await
     }
@@ -36,28 +37,24 @@ impl BrowserGateway {
         if emit_event {
             self.push_event(id, "input", json!({ "session_id": id, "accepted": true }))?;
         }
+        let pointer = if read_cursor {
+            self.read_pointer_state(id).await.unwrap_or_default()
+        } else {
+            BrowserPointerState::default()
+        };
         Ok(BrowserInputResponse {
             ok: true,
-            cursor: if read_cursor {
-                self.read_cursor(id).await.unwrap_or_default()
-            } else {
-                String::new()
-            },
+            cursor: pointer.cursor.clone(),
+            pointer,
         })
     }
 
-    async fn read_cursor(&self, id: &str) -> Result<String, BrowserGatewayError> {
+    pub async fn read_pointer_state(
+        &self,
+        id: &str,
+    ) -> Result<BrowserPointerState, BrowserGatewayError> {
         let client = self.session_client(id).await?;
-        let result = client
-            .send(
-                "Runtime.evaluate",
-                json!({
-                    "expression": "document.elementFromPoint(window.__lastMouseX||0, window.__lastMouseY||0) && getComputedStyle(document.elementFromPoint(window.__lastMouseX||0, window.__lastMouseY||0)).cursor",
-                    "returnByValue": true,
-                }),
-            )
-            .await?;
-        Ok(read_runtime_value(&result))
+        read_pointer_state(&client).await
     }
 }
 
@@ -69,7 +66,7 @@ async fn dispatch_mouse_input(
         .send(
             "Runtime.evaluate",
             json!({
-                "expression": format!("window.__lastMouseX={};window.__lastMouseY={};", input.x, input.y),
+                "expression": format!("window.__mediagenMouseX={};window.__mediagenMouseY={};", input.x, input.y),
                 "returnByValue": true,
             }),
         )
@@ -132,9 +129,49 @@ async fn dispatch_key_input(
                 "windowsVirtualKeyCode": key_code,
                 "nativeVirtualKeyCode": key_code,
                 "modifiers": key_modifiers(&input),
+                "text": input.text,
+                "unmodifiedText": input.unmodified_text,
+                "autoRepeat": input.auto_repeat,
+                "isKeypad": input.is_keypad,
+                "location": input.location,
+                "commands": input.commands,
             }),
         )
         .await?;
+    Ok(())
+}
+
+async fn dispatch_ime_input(
+    client: &Arc<CdpClient>,
+    input: BrowserImeInput,
+) -> Result<(), BrowserGatewayError> {
+    match input.event {
+        BrowserImeEvent::SetComposition => {
+            client
+                .send(
+                    "Input.imeSetComposition",
+                    json!({
+                        "text": input.text,
+                        "selectionStart": input.selection_start,
+                        "selectionEnd": input.selection_end,
+                    }),
+                )
+                .await?;
+        }
+        BrowserImeEvent::Commit => {
+            client
+                .send("Input.insertText", json!({ "text": input.text }))
+                .await?;
+        }
+        BrowserImeEvent::Cancel => {
+            client
+                .send(
+                    "Input.imeSetComposition",
+                    json!({ "text": "", "selectionStart": 0, "selectionEnd": 0 }),
+                )
+                .await?;
+        }
+    }
     Ok(())
 }
 

@@ -6,8 +6,10 @@ mod dom_scripts;
 mod event_store_tests;
 mod fingerprint;
 mod input;
+mod input_types;
 mod manager;
 mod native_dialogs;
+mod pointer_state;
 mod proxy;
 mod rendering;
 mod runtime;
@@ -19,5 +21,6 @@ mod types;
 mod types_tests;
 
 pub use fingerprint::{BrowserFingerprint, BROWSER_OS_METADATA_KEY, BROWSER_VERSION_METADATA_KEY};
+pub use input_types::*;
 pub use manager::*;
 pub use types::*;

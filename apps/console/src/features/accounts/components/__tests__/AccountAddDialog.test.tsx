@@ -131,7 +131,8 @@ describe('AccountAddDialog', () => {
 
     render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
     fireEvent.click(screen.getByLabelText('模拟这个账号的系统和浏览器版本'))
-    fireEvent.change(screen.getByPlaceholderText('126'), { target: { value: '127' } })
+    expect(screen.queryByText('Chrome 主版本')).not.toBeInTheDocument()
+    expect(screen.getByText(/当前的稳定主版本 150/)).toBeInTheDocument()
     fireEvent.click(screen.getByText('打开登录页'))
 
     await waitFor(() => {
@@ -140,7 +141,7 @@ describe('AccountAddDialog', () => {
         undefined,
         '',
         undefined,
-        { browser_os: 'windows', browser_version: '127' },
+        { browser_os: 'windows', browser_version: '150' },
         undefined
       )
     })

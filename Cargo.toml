@@ -17,6 +17,7 @@ authors = ["MediaGen Team"]
 actix-files = "0.6"
 actix-multipart = "0.7"
 actix-web = "4"
+actix-ws = "0.3"
 async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4", features = ["clock", "serde"] }

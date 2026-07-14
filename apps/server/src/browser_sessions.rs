@@ -42,6 +42,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route(
                 "/{id}/events",
                 web::get().to(crate::browser_session_events::browser_session_events),
+            )
+            .route(
+                "/{id}/stream",
+                web::get().to(crate::browser_session_stream::browser_session_stream),
             ),
     );
 }
