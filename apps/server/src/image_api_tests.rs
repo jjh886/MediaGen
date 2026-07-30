@@ -26,6 +26,12 @@ async fn image_generation_failover_switches_to_next_account() {
             .as_deref(),
         Some("acc-backup")
     );
+    let stored_result = state.store.list_tasks(Some("fake"))[0]
+        .result_data
+        .clone()
+        .unwrap_or_default();
+    assert!(!stored_result.contains("data:image/"));
+    assert!(!stored_result.contains("base64,"));
 }
 
 #[actix_web::test]

@@ -10,7 +10,11 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['src/**/*.{test,spec}.{ts,tsx}', 'scripts/**/*.{test,spec}.mjs'],
+    include: [
+      'src/**/*.{test,spec}.{ts,tsx}',
+      'scripts/**/*.{test,spec}.mjs',
+      '../../plugins/**/*.{test,spec}.ts',
+    ],
     environment: 'jsdom',
     environmentOptions: {
       // 给 jsdom 固定来源，避免 localStorage 在 opaque origin 下不可用。

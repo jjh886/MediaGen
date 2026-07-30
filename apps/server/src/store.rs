@@ -32,6 +32,7 @@ impl AppStore {
     pub fn load(path: PathBuf) -> Self {
         let mut snapshot = read_store_snapshot(&path);
         migrate_legacy_api_keys(&mut snapshot);
+        crate::image_api_response::sanitize_persisted_image_tasks(&mut snapshot.tasks);
         let store = Self {
             path,
             accounts: Mutex::new(snapshot.accounts),

@@ -121,6 +121,8 @@ async fn main() -> std::io::Result<()> {
 }
 
 fn ensure_server_dirs(config: &ServerConfig) -> std::io::Result<()> {
+    // 清除异常退出时遗留的参考图，正常任务结束时仍会立即清理。
+    image_assets::cleanup_stale_temp_files();
     std::fs::create_dir_all(&config.data_dir)?;
     std::fs::create_dir_all(&config.logs_dir)?;
     std::fs::create_dir_all(&config.profiles_dir)?;

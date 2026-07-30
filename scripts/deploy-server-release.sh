@@ -426,7 +426,8 @@ server {
   }
 
   location = /clash {
-    return 302 /clash/;
+    # 统一经过自动配置入口，确保面板始终携带 Clash 控制器地址和密钥。
+    return 302 /clash-auto;
   }
 
   location = /clash-auto {
@@ -488,9 +489,11 @@ REMOTE_SCRIPT
 
 verify_clash_anonymous() {
   [[ -n "${CLASH_SECRET}" ]] || return
-  local base_url="$1" panel_status api_status
+  local base_url="$1" entry_url panel_status api_status
+  entry_url="$(curl -sS --http2 -o /dev/null -w '%{redirect_url}' "${base_url}/clash")"
   panel_status="$(curl -sS --http2 -o /dev/null -w '%{http_code}' "${base_url}/clash/")"
   api_status="$(curl -sS --http2 -o /dev/null -w '%{http_code}' "${base_url}/clash-api/version")"
+  [[ "${entry_url}" == "${base_url}/clash-auto" ]] || die "Clash 入口未指向自动配置页：${entry_url}"
   [[ "${panel_status}" == "302" ]] || die "Clash 面板未登录保护异常，返回 ${panel_status}"
   [[ "${api_status}" == "401" ]] || die "Clash API 未登录保护异常，返回 ${api_status}"
 }

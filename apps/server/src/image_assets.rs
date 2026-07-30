@@ -70,6 +70,47 @@ pub(crate) async fn cleanup_temp_files(paths: &[String]) {
     }
 }
 
+pub(crate) fn cleanup_stale_temp_files() {
+    cleanup_temp_files_in(&std::env::temp_dir());
+}
+
+fn cleanup_temp_files_in(root: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let is_reference = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with("mediagen_ref_"));
+        if is_reference {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cleanup_temp_files_in;
+
+    #[test]
+    fn stale_cleanup_only_removes_mediagen_reference_files() {
+        let root = std::env::temp_dir().join("mediagen-stale-image-cleanup-test");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let stale = root.join("mediagen_ref_stale.png");
+        let unrelated = root.join("keep.png");
+        std::fs::write(&stale, b"image").unwrap();
+        std::fs::write(&unrelated, b"image").unwrap();
+
+        cleanup_temp_files_in(&root);
+
+        assert!(!stale.exists());
+        assert!(unrelated.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+}
+
 pub(crate) async fn fetch_optional_data_url(url: Option<&str>, proxy_url: &str) -> Option<String> {
     let url = url?;
     if url.starts_with("data:image/") {

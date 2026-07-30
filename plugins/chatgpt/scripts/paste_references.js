@@ -14,7 +14,9 @@
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
   const getComposer = () =>
+    document.querySelector('[data-mediagen-cgpt-composer="true"]') ||
     document.querySelector('#prompt-textarea[contenteditable="true"]') ||
+    document.querySelector('[role="textbox"][contenteditable="true"]') ||
     document.querySelector('[contenteditable="true"]') ||
     document.querySelector('textarea')
 
@@ -52,18 +54,17 @@
     return event
   }
 
-  const visibleAttachmentCount = () =>
-    document.querySelectorAll(
-      [
-        '[aria-label="以全视图打开图片"]',
-        '[aria-label="Open image in full view"]',
-        '[aria-label*="移除附件"]',
-        '[aria-label*="Remove attachment"]',
-        '[aria-label*="Remove file"]',
-        'img[src^="blob:"]',
-        'img[src^="data:image"]',
-      ].join(', ')
-    ).length
+  // 与最终上传校验使用同一组 DOM 证据；这里只复用选择器结果，不复制整段计数流程。
+  const attachmentSelector = [
+    '[aria-label="以全视图打开图片"]',
+    '[aria-label="Open image in full view"]',
+    '[aria-label*="移除附件"]',
+    '[aria-label*="Remove attachment"]',
+    '[aria-label*="Remove file"]',
+    'img[src^="blob:"]',
+    'img[src^="data:image"]',
+  ].join(', ')
+  const visibleAttachmentCount = () => document.querySelectorAll(attachmentSelector).length
 
   const waitOneAccepted = async (targetCount) => {
     // 优先信任上传拦截器；拦截器没回包时用 DOM 附件卡兜底。

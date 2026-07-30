@@ -7,7 +7,9 @@ use uuid::Uuid;
 use crate::access_control::hash_secret;
 use crate::account_browser_profile::browser_metadata_from_account;
 use crate::flow_runner::FlowRunner;
-use crate::image_api_response::{new_image_task, openai_error, openai_image_stream};
+use crate::image_api_response::{
+    image_result_metadata, new_image_task, openai_error, openai_image_stream,
+};
 use crate::image_assets::{
     cleanup_temp_files, collect_b64_images, fetch_optional_data_url, fetch_ref_images_as_data_urls,
     fetch_ref_images_as_local_files,
@@ -459,7 +461,9 @@ async fn complete_image_task(
             state.store.fail_task(task_id, message.clone());
             (502, "image_result_error", message)
         })?;
-    state.store.complete_task(task_id, result);
+    state
+        .store
+        .complete_task(task_id, image_result_metadata(&result));
     Ok(json!({
         "created": Utc::now().timestamp(),
         "data": images.into_iter().map(|b64| json!({ "b64_json": b64 })).collect::<Vec<_>>(),

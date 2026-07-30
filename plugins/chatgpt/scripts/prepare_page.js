@@ -12,6 +12,9 @@
     '[contenteditable="true"]',
     'textarea',
   ]
+  // composer 可能没有 #prompt-textarea，用运行时标记为后续 CDP 输入提供稳定选择器。
+  const composerMarker = 'data-mediagen-cgpt-composer'
+  const composerSelector = `[${composerMarker}="true"]`
 
   function isVisible(el) {
     if (!el) return false
@@ -32,6 +35,14 @@
       if (found) return found
     }
     return null
+  }
+
+  function markComposer(composer) {
+    document.querySelectorAll(`[${composerMarker}]`).forEach((el) => {
+      el.removeAttribute(composerMarker)
+    })
+    composer.setAttribute(composerMarker, 'true')
+    return composerSelector
   }
 
   function snapshot() {
@@ -78,10 +89,14 @@
 
     for (let i = 0; i < 30; i++) {
       const composer = findComposer()
-      // ChatGPT 新版页面里上传 input 可能延后挂载；composer 可用就可以继续后续步骤。
+      // 上传 input 可能延后挂载；composer 可用就可以继续后续步骤。
       if (composer) {
         composer.focus()
-        return JSON.stringify({ prepared: true, ...snapshot() })
+        return JSON.stringify({
+          prepared: true,
+          composer_selector: markComposer(composer),
+          ...snapshot(),
+        })
       }
       await sleep(500)
     }

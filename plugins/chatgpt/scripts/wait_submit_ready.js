@@ -23,7 +23,9 @@
   }
 
   const findComposerRoot = () => {
-    const textarea = document.querySelector('#prompt-textarea[contenteditable="true"]')
+    const textarea =
+      document.querySelector('[data-mediagen-cgpt-composer="true"]') ||
+      document.querySelector('#prompt-textarea[contenteditable="true"]')
     return (
       textarea?.closest('form') ||
       textarea?.parentElement ||

@@ -225,15 +225,7 @@
     })
   }
 
-  const fatalPhrases = [
-    'Something went wrong',
-    '出了点问题',
-    '无法生成',
-    '错误',
-    'try again',
-    '稍后重试',
-    '违反',
-  ]
+  const fatalPhrases = ['Something went wrong', '无法生成', '错误', 'try again', '稍后重试', '违反']
   for (const phrase of fatalPhrases) {
     if (bodyText.includes(phrase)) {
       return JSON.stringify({
