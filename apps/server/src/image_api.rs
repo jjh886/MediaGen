@@ -1,22 +1,15 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
-use chrono::Utc;
-use mediagen_core::{AdapterMode, ModelDef, PluginManifest};
-use serde_json::{json, Value};
+use mediagen_core::{ModelDef, PluginManifest};
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::access_control::hash_secret;
-use crate::account_browser_profile::browser_metadata_from_account;
-use crate::flow_runner::FlowRunner;
-use crate::image_api_response::{
-    image_result_metadata, new_image_task, openai_error, openai_image_stream,
-};
-use crate::image_assets::{
-    cleanup_temp_files, collect_b64_images, fetch_optional_data_url, fetch_ref_images_as_data_urls,
-    fetch_ref_images_as_local_files,
-};
+use crate::image_api_response::{new_image_task, openai_error, openai_image_stream};
+use crate::image_assets::cleanup_temp_files;
+use crate::image_flow_execution::{execute_image_flow, prepare_flow_request};
 use crate::image_multipart::parse_image_request;
-use crate::image_request::{ImageEndpoint, ImageFlowRequest, OpenAiImageRequest};
-use crate::js_flow_runner::JsFlowRunner;
+use crate::image_request::{ImageEndpoint, OpenAiImageRequest};
+use crate::image_task_completion::{complete_image_task, create_verification_session};
 use crate::routes::{api_key_allowed, api_key_from_request};
 use crate::store::AccountRecord;
 use crate::ServerState;
@@ -93,6 +86,19 @@ async fn handle_image_request(
     if let Err((status, code, message)) = body.validate(endpoint) {
         return openai_error(status, code, &message);
     }
+    if body.async_generation {
+        if endpoint != ImageEndpoint::Generation {
+            return openai_error(
+                400,
+                "unsupported_parameter",
+                "async 排队模式目前只支持图片生成接口",
+            );
+        }
+        let Some(caller_key) = caller_key else {
+            return openai_error(401, "authentication_error", "invalid api key");
+        };
+        return crate::generation_queue::enqueue_image(state, caller_key, body).await;
+    }
     let stream = body.stream == Some(true);
     match run_image_flow(state, body, endpoint, caller_key).await {
         Ok(response_body) => {
@@ -104,6 +110,30 @@ async fn handle_image_request(
         }
         Err((status, code, message)) => openai_error(status, code, &message),
     }
+}
+
+pub(crate) async fn run_queued_image_flow(
+    state: web::Data<ServerState>,
+    body: OpenAiImageRequest,
+    caller_key: String,
+    task_id: &str,
+) -> Result<(), (u16, &'static str, String)> {
+    ensure_task_not_cancelled(&state, task_id)?;
+    let context =
+        resolve_image_flow_context_with_task_id(&state, &body, Some(&caller_key), task_id.into())?;
+    state.store.start_task(task_id);
+    state
+        .store
+        .add_task_event(task_id, "info", "任务开始执行".to_string());
+    run_image_attempts(
+        &state,
+        body,
+        ImageEndpoint::Generation,
+        Some(caller_key),
+        context,
+    )
+    .await
+    .map(|_| ())
 }
 
 async fn run_image_flow(
@@ -146,16 +176,26 @@ async fn run_image_attempts(
     let mut excluded = Vec::<String>::new();
     let mut same_account_failures = 0u32;
     loop {
+        ensure_task_not_cancelled(state, &context.task_id)?;
         state
             .store
             .set_task_account(&context.task_id, &context.account.id);
         match run_single_image_attempt(state, &body, endpoint, &context).await {
-            Ok(result) => return complete_attempt_success(state, &context, result).await,
+            Ok(result) => {
+                ensure_task_not_cancelled(state, &context.task_id)?;
+                return complete_attempt_success(state, &context, result).await;
+            }
             Err(message) => {
                 let decision = apply_failure_strategy(state, &context, &message);
                 if decision.verification_required() {
-                    return create_verification_session(state, &context, decision.original_message)
-                        .await;
+                    return create_verification_session(
+                        state,
+                        context.manifest,
+                        &context.account,
+                        &context.task_id,
+                        decision.original_message,
+                    )
+                    .await;
                 }
                 record_attempt_failure(state, &context, &decision);
                 same_account_failures += 1;
@@ -191,8 +231,9 @@ async fn run_single_image_attempt(
     endpoint: ImageEndpoint,
     context: &ImageFlowContext<'_>,
 ) -> Result<Value, String> {
-    let (flow_request, ref_image_locals) =
+    let (mut flow_request, ref_image_locals) =
         prepare_flow_request(body, context.model, endpoint, &context.account.proxy_url).await;
+    flow_request.task_id = Some(context.task_id.clone());
     let result = execute_image_flow(state, context.manifest, &context.account, flow_request).await;
     cleanup_temp_files(&ref_image_locals).await;
     result
@@ -203,6 +244,7 @@ async fn complete_attempt_success(
     context: &ImageFlowContext<'_>,
     result: Value,
 ) -> Result<Value, (u16, &'static str, String)> {
+    ensure_task_not_cancelled(state, &context.task_id)?;
     state.store.mark_account_usage(&context.account.id);
     state.store.add_audit_log(
         "engine",
@@ -318,6 +360,7 @@ fn fail_image_task(
     context: &ImageFlowContext<'_>,
     message: String,
 ) -> Result<Value, (u16, &'static str, String)> {
+    ensure_task_not_cancelled(state, &context.task_id)?;
     state.store.fail_task(&context.task_id, message.clone());
     Err((502, "plugin_execution_failed", message))
 }
@@ -333,6 +376,20 @@ fn resolve_image_flow_context<'a>(
     state: &'a web::Data<ServerState>,
     body: &OpenAiImageRequest,
     caller_key: Option<&str>,
+) -> Result<ImageFlowContext<'a>, (u16, &'static str, String)> {
+    resolve_image_flow_context_with_task_id(
+        state,
+        body,
+        caller_key,
+        format!("task-{}", Uuid::new_v4()),
+    )
+}
+
+fn resolve_image_flow_context_with_task_id<'a>(
+    state: &'a web::Data<ServerState>,
+    body: &OpenAiImageRequest,
+    caller_key: Option<&str>,
+    task_id: String,
 ) -> Result<ImageFlowContext<'a>, (u16, &'static str, String)> {
     let (manifest, model) = state
         .plugin_loader
@@ -361,111 +418,21 @@ fn resolve_image_flow_context<'a>(
         manifest,
         model,
         account,
-        task_id: format!("task-{}", Uuid::new_v4()),
+        task_id,
     })
 }
 
-async fn prepare_flow_request(
-    body: &OpenAiImageRequest,
-    model: &ModelDef,
-    endpoint: ImageEndpoint,
-    proxy_url: &str,
-) -> (ImageFlowRequest, Vec<String>) {
-    let ref_urls = body.reference_urls();
-    let ref_dataurls = fetch_ref_images_as_data_urls(&ref_urls, proxy_url).await;
-    let ref_image_locals = fetch_ref_images_as_local_files(&ref_urls, proxy_url).await;
-    let mask_dataurl = fetch_optional_data_url(
-        body.mask
-            .as_ref()
-            .and_then(|item| item.image_url.as_deref()),
-        proxy_url,
-    )
-    .await;
-    let mut flow_request = body.to_flow_request(
-        model.display_name.clone(),
-        endpoint,
-        ref_dataurls,
-        mask_dataurl,
-    );
-    flow_request.ref_image_locals = ref_image_locals.clone();
-    (flow_request, ref_image_locals)
-}
-
-async fn execute_image_flow(
-    state: &web::Data<ServerState>,
-    manifest: &PluginManifest,
-    account: &AccountRecord,
-    flow_request: ImageFlowRequest,
-) -> Result<Value, String> {
-    match manifest.adapter_mode {
-        AdapterMode::Browser | AdapterMode::Hybrid => {
-            FlowRunner::new(state.plugin_loader.clone(), state.browser_gateway.clone())
-                .run_image_flow(manifest, account, flow_request)
-                .await
-        }
-        AdapterMode::Api => {
-            JsFlowRunner::new(state.plugin_loader.clone())
-                .run_image_flow(manifest, account, flow_request)
-                .await
-        }
-    }
-}
-
-async fn create_verification_session(
-    state: &web::Data<ServerState>,
-    context: &ImageFlowContext<'_>,
-    message: String,
-) -> Result<Value, (u16, &'static str, String)> {
-    state
-        .store
-        .require_task_verification(&context.task_id, message.clone());
-    let request = mediagen_browser_gateway::BrowserSessionCreateRequest {
-        purpose: mediagen_browser_gateway::BrowserSessionPurpose::HumanVerification,
-        platform: context.manifest.platform_id.clone(),
-        account_id: Some(context.account.id.clone()),
-        task_id: Some(context.task_id.clone()),
-        start_url: context.manifest.workspace_url.clone(),
-        profile_dir: Some(context.account.profile_dir.clone()),
-        headless: Some(true),
-        metadata: browser_metadata_from_account(&context.account),
-        ..mediagen_browser_gateway::BrowserSessionCreateRequest::default()
-    };
-    let response = state
-        .browser_gateway
-        .create_session(request)
-        .await
-        .map_err(|err| (409, "verification_required", err.to_string()))?;
-    state.store.add_audit_log(
-        "account",
-        "warn",
-        "任务需要人工验证".to_string(),
-        message.clone(),
-        Some(context.task_id.clone()),
-    );
-    Err((
-        409,
-        "verification_required",
-        format!("需要人工接管浏览器会话: {}", response.session.id),
-    ))
-}
-
-async fn complete_image_task(
+fn ensure_task_not_cancelled(
     state: &web::Data<ServerState>,
     task_id: &str,
-    proxy_url: &str,
-    result: Value,
-) -> Result<Value, (u16, &'static str, String)> {
-    let images = collect_b64_images(&result, proxy_url)
-        .await
-        .map_err(|message| {
-            state.store.fail_task(task_id, message.clone());
-            (502, "image_result_error", message)
-        })?;
-    state
+) -> Result<(), (u16, &'static str, String)> {
+    if state
         .store
-        .complete_task(task_id, image_result_metadata(&result));
-    Ok(json!({
-        "created": Utc::now().timestamp(),
-        "data": images.into_iter().map(|b64| json!({ "b64_json": b64 })).collect::<Vec<_>>(),
-    }))
+        .task_by_id(task_id)
+        .is_some_and(|task| task.status == "cancelled")
+    {
+        Err((409, "task_cancelled", "用户取消".to_string()))
+    } else {
+        Ok(())
+    }
 }

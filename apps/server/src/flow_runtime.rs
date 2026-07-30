@@ -139,7 +139,10 @@ pub(crate) fn flow_result_is_error(value: &Value) -> bool {
     matches!(
         value.get("status").and_then(Value::as_str),
         Some("error" | "needs_verification")
-    )
+    ) || value
+        .get("error")
+        .and_then(Value::as_str)
+        .is_some_and(|message| !message.trim().is_empty())
 }
 
 pub(crate) fn flow_result_message(value: &Value) -> String {
@@ -183,7 +186,18 @@ mod tests {
 
     use serde_json::json;
 
-    use super::prepare_flow_step;
+    use super::{flow_result_is_error, flow_result_message, prepare_flow_step};
+
+    #[test]
+    fn script_error_field_stops_the_flow_with_its_message() {
+        let result = json!({ "error": "登录已失效，请重新登录 ChatGPT" });
+
+        assert!(flow_result_is_error(&result));
+        assert_eq!(
+            flow_result_message(&result),
+            "登录已失效，请重新登录 ChatGPT"
+        );
+    }
 
     #[test]
     fn prepare_flow_step_uses_input_when_present() {

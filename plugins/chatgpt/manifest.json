@@ -188,7 +188,7 @@
           "_comment": "8. 不依赖创建图片入口，在普通 composer 中直接输入明确的生图指令",
           "action": "browser.type_text",
           "session_id": "{{browser.session_id}}",
-          "selector": "{{prepared.composer_selector}}",
+          "selector": "[data-mediagen-cgpt-composer=\"true\"]",
           "text": "Generate an image based on this prompt: {{prompt}}. Use the aspect ratio {{image_aspect_ratio}}.",
           "clear_first": true,
           "save_as": "typed"

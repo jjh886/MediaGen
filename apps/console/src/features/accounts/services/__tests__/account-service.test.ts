@@ -195,7 +195,7 @@ describe('account-service', () => {
     })
   })
 
-  it('重新登录会话会复用账号 profile_dir 并让后端兜底账号代理', async () => {
+  it('重新登录会话使用新 profile 并让后端兜底账号代理', async () => {
     const session = { id: 'session-2', platform: 'codex', status: 'active' }
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ data: [{ platform_id: 'codex' }] }))
@@ -208,7 +208,7 @@ describe('account-service', () => {
       purpose: 'relogin_account',
       platform: 'codex',
       account_id: 'acc-1',
-      profile_dir: '/profiles/acc-1',
+      profile_dir: null,
       metadata: {
         browser_os: 'windows',
         browser_version: '126',

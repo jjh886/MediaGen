@@ -20,7 +20,10 @@ pub(crate) fn unauthorized_response() -> HttpResponse {
 }
 
 fn requires_admin_access(path: &str) -> bool {
-    path.starts_with("/api/") && path != "/api/oauth/callback" && !path.starts_with("/api/auth/")
+    path.starts_with("/api/")
+        && path != "/api/oauth/callback"
+        && !path.starts_with("/api/auth/")
+        && !path.starts_with("/api/v2/generation-")
 }
 
 fn loopback_request_allowed(request: &ServiceRequest) -> bool {
@@ -80,6 +83,7 @@ mod tests {
         assert!(!requires_admin_access("/v1/images/generations"));
         assert!(!requires_admin_access("/api/oauth/callback"));
         assert!(!requires_admin_access("/api/auth/status"));
+        assert!(!requires_admin_access("/api/v2/generation-queue"));
     }
 
     #[test]

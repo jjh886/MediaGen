@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAccountStore } from '../../features/accounts/hooks/useAccountStore'
 import { useTaskStore } from '../../features/tasks/hooks/useTaskStore'
+import { useGenerationQueueStore } from '../../features/tasks/hooks/useGenerationQueueStore'
 import { checkHealth, getSystemInfo, type SystemInfo } from '../../shared/services/system-service'
 
 interface ServiceStatus {
@@ -16,8 +17,9 @@ function modeText(info: SystemInfo | null) {
 export default function StatusBar() {
   const accounts = useAccountStore((s) => s.accounts)
   const fetchAccounts = useAccountStore((s) => s.fetch)
-  const tasks = useTaskStore((s) => s.tasks)
   const fetchTasks = useTaskStore((s) => s.fetch)
+  const queueCount = useGenerationQueueStore((s) => s.total)
+  const fetchQueue = useGenerationQueueStore((s) => s.load)
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus>({
     ok: false,
     text: '正在连接 API 服务',
@@ -27,7 +29,10 @@ export default function StatusBar() {
   useEffect(() => {
     void fetchAccounts('').catch(() => undefined)
     void fetchTasks('').catch(() => undefined)
-  }, [fetchAccounts, fetchTasks])
+    void fetchQueue().catch(() => undefined)
+    const timer = window.setInterval(() => void fetchQueue().catch(() => undefined), 5000)
+    return () => window.clearInterval(timer)
+  }, [fetchAccounts, fetchQueue, fetchTasks])
 
   useEffect(() => {
     let cancelled = false
@@ -57,11 +62,6 @@ export default function StatusBar() {
     () => accounts.filter((a) => a.login_state === 'available').length,
     [accounts]
   )
-  const queueCount = useMemo(
-    () => tasks.filter((t) => t.status === 'pending' || t.status === 'processing').length,
-    [tasks]
-  )
-
   return (
     <footer className="status-bar">
       <div className="status-bar__left">

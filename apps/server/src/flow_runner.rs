@@ -46,6 +46,7 @@ impl FlowRunner {
             ));
         }
         let flow = generate_image_flow(manifest)?;
+        let task_id = input.task_id.clone();
         let mut context = build_image_flow_context(&self.plugin_loader, manifest, account, input)?;
         let mut results = Vec::new();
 
@@ -54,7 +55,13 @@ impl FlowRunner {
                 continue;
             };
             let result = self
-                .execute_action(&prepared.action, &prepared.params, manifest, account)
+                .execute_action(
+                    &prepared.action,
+                    &prepared.params,
+                    manifest,
+                    account,
+                    task_id.as_deref(),
+                )
                 .await?;
             if flow_result_is_error(&result) {
                 return Err(flow_result_message(&result));
@@ -71,9 +78,10 @@ impl FlowRunner {
         params: &Value,
         manifest: &PluginManifest,
         account: &AccountRecord,
+        task_id: Option<&str>,
     ) -> Result<Value, String> {
         match action {
-            "browser.open" => self.open_browser(params, manifest, account).await,
+            "browser.open" => self.open_browser(params, manifest, account, task_id).await,
             "browser.navigate" => self.navigate(params).await,
             "browser.history" => self.history(params).await,
             "browser.resize" => self.resize(params).await,
@@ -99,6 +107,7 @@ impl FlowRunner {
         params: &Value,
         manifest: &PluginManifest,
         account: &AccountRecord,
+        task_id: Option<&str>,
     ) -> Result<Value, String> {
         let start_url = str_param(params, "restore_url")
             .or_else(|| str_param(params, "url"))
@@ -110,6 +119,7 @@ impl FlowRunner {
             .create_session(BrowserSessionCreateRequest {
                 purpose: BrowserSessionPurpose::TaskTakeover,
                 platform: manifest.platform_id.clone(),
+                task_id: task_id.map(str::to_string),
                 start_url,
                 profile_dir: Some(profile_dir),
                 headless: Some(bool_param(params, "headless").unwrap_or(true)),

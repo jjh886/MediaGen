@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -10,6 +10,8 @@ pub enum ImageEndpoint {
 
 #[derive(Clone, Debug)]
 pub struct ImageFlowRequest {
+    /// 仅用于关联运行时资源与任务，插件不需要自行维护取消映射。
+    pub task_id: Option<String>,
     pub model_id: String,
     pub model_display_name: String,
     pub prompt: String,
@@ -31,7 +33,7 @@ pub struct ImageFlowRequest {
     pub mask_image_dataurl: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct OpenAiImageRequest {
     #[serde(default)]
     pub model: String,
@@ -51,6 +53,8 @@ pub struct OpenAiImageRequest {
     pub background: Option<String>,
     #[serde(default)]
     pub stream: Option<bool>,
+    #[serde(default, rename = "async")]
+    pub async_generation: bool,
     #[serde(default)]
     pub partial_images: Option<u32>,
     #[serde(default)]
@@ -69,7 +73,7 @@ pub struct OpenAiImageRequest {
     pub image_aspect_ratio: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct OpenAiImageRef {
     pub file_id: Option<String>,
     pub image_url: Option<String>,
@@ -87,6 +91,7 @@ impl OpenAiImageRequest {
             output_format: None,
             background: None,
             stream: None,
+            async_generation: false,
             partial_images: None,
             output_compression: None,
             moderation: None,
@@ -162,6 +167,7 @@ impl OpenAiImageRequest {
         mask_dataurl: Option<String>,
     ) -> ImageFlowRequest {
         ImageFlowRequest {
+            task_id: None,
             model_id: self.model.clone(),
             model_display_name,
             prompt: self.prompt_text(),

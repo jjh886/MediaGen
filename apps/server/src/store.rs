@@ -8,8 +8,8 @@ use crate::store_helpers::{
     account_ready_for_dispatch, apply_account_profile, apply_account_update, first_result_url,
 };
 pub use crate::store_models::{
-    AccountRecord, AccountUpdate, ApiKeyRecord, AuditLogRecord, ProxyRecord, StoreSnapshot,
-    TaskEventRecord, TaskRecord,
+    AccountRecord, AccountUpdate, ApiKeyRecord, AuditLogRecord, GenerationJobRecord,
+    GenerationJobState, ProxyRecord, StoreSnapshot, TaskEventRecord, TaskRecord,
 };
 use crate::store_persistence::{read_store_snapshot, write_store_snapshot};
 use chrono::{DateTime, Utc};
@@ -26,6 +26,7 @@ pub struct AppStore {
     pub(crate) proxies: Mutex<Vec<ProxyRecord>>,
     pub(crate) audit_logs: Mutex<Vec<AuditLogRecord>>,
     pub(crate) task_events: Mutex<Vec<TaskEventRecord>>,
+    pub(crate) generation_jobs: Mutex<Vec<GenerationJobRecord>>,
 }
 
 impl AppStore {
@@ -42,6 +43,7 @@ impl AppStore {
             proxies: Mutex::new(snapshot.proxies),
             audit_logs: Mutex::new(snapshot.audit_logs),
             task_events: Mutex::new(snapshot.task_events),
+            generation_jobs: Mutex::new(snapshot.generation_jobs),
         };
         store.save();
         store
@@ -133,6 +135,15 @@ impl AppStore {
             .collect();
         tasks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         tasks
+    }
+
+    pub fn task_by_id(&self, id: &str) -> Option<TaskRecord> {
+        self.tasks
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .iter()
+            .find(|task| task.id == id)
+            .cloned()
     }
 
     pub fn insert_task(&self, task: TaskRecord) {
@@ -336,6 +347,10 @@ impl AppStore {
             .task_events
             .lock()
             .unwrap_or_else(|err| err.into_inner());
+        let generation_jobs = self
+            .generation_jobs
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
         let snapshot = StoreSnapshot {
             accounts: accounts.clone(),
             tasks: tasks.clone(),
@@ -344,6 +359,7 @@ impl AppStore {
             proxies: proxies.clone(),
             audit_logs: audit_logs.clone(),
             task_events: task_events.clone(),
+            generation_jobs: generation_jobs.clone(),
         };
         let _ = write_store_snapshot(&self.path, &snapshot);
     }

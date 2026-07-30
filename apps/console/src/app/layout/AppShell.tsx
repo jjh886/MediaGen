@@ -2,6 +2,7 @@ import type { PageId } from '../../App'
 import Sidebar from './Sidebar'
 import StatusBar from './StatusBar'
 import TaskList from '../../features/tasks/components/TaskList'
+import GenerationQueueList from '../../features/tasks/components/GenerationQueueList'
 import AccountPage from '../../features/accounts/components/AccountPage'
 import { LogPage } from '../../features/logs/components/LogPage'
 import { SettingsPage } from '../../features/settings/components/SettingsPage'
@@ -39,6 +40,7 @@ function PageContent(props: AppShellProps) {
   if (currentPage === 'tasks') {
     return <TaskList onOpenVerification={onOpenVerification} onOpenTaskLogs={onOpenTaskLogs} />
   }
+  if (currentPage === 'generation-queue') return <GenerationQueueList />
   if (currentPage === 'accounts') return <AccountPage />
   if (currentPage === 'api-keys') return <ApiKeysPage />
   if (currentPage === 'proxies') return <ProxiesPage />

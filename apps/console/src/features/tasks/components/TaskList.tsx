@@ -26,6 +26,12 @@ function formatTime(iso: string): string {
   return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function cancelErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message
+  if (typeof error === 'string' && error.trim()) return error
+  return '取消任务失败，请稍后重试'
+}
+
 export default function TaskList({
   onOpenVerification,
   onOpenTaskLogs,
@@ -49,6 +55,8 @@ export default function TaskList({
   const [plugins, setPlugins] = useState<PluginInfo[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [cancelTarget, setCancelTarget] = useState<Task | null>(null)
+  const [cancelingTaskId, setCancelingTaskId] = useState<string | null>(null)
+  const [cancelError, setCancelError] = useState('')
   const [pluginError, setPluginError] = useState('')
 
   const accountMap = useMemo(
@@ -80,9 +88,17 @@ export default function TaskList({
   const platformTabs = plugins.map((p) => ({ key: p.platform_id, label: p.display_name }))
 
   const confirmCancel = async () => {
-    if (!cancelTarget) return
-    await cancel(cancelTarget.id)
-    setCancelTarget(null)
+    if (!cancelTarget || cancelingTaskId) return
+    setCancelError('')
+    setCancelingTaskId(cancelTarget.id)
+    try {
+      await cancel(cancelTarget.id)
+      setCancelTarget(null)
+    } catch (error) {
+      setCancelError(cancelErrorMessage(error))
+    } finally {
+      setCancelingTaskId(null)
+    }
   }
 
   const columns: Column<Task>[] = [
@@ -180,6 +196,7 @@ export default function TaskList({
           <KtButton
             variant="default"
             size="sm"
+            loading={cancelingTaskId === r.id}
             onClick={(e) => {
               e.stopPropagation()
               setCancelTarget(r)
@@ -212,6 +229,14 @@ export default function TaskList({
       </div>
 
       <div style={{ flex: 1, overflow: 'auto' }}>
+        {cancelError && (
+          <div
+            role="alert"
+            style={{ color: 'var(--color-error)', paddingBottom: 12, fontSize: 13 }}
+          >
+            {cancelError}
+          </div>
+        )}
         <KtAsyncState
           loading={loading}
           error={pluginError || error}
@@ -238,6 +263,7 @@ export default function TaskList({
           onOpenVerification={onOpenVerification}
           onOpenTaskLogs={onOpenTaskLogs}
           onClose={() => selectTask(null)}
+          cancelling={cancelingTaskId === selectedTask.id}
         />
       )}
       <KtConfirmDialog
@@ -246,8 +272,11 @@ export default function TaskList({
         message={`确定取消任务 ${cancelTarget?.id.slice(0, 8) || ''} 吗？取消后任务状态会变成已取消。`}
         confirmText="取消任务"
         danger
-        onCancel={() => setCancelTarget(null)}
-        onConfirm={confirmCancel}
+        loading={Boolean(cancelingTaskId)}
+        onCancel={() => {
+          if (!cancelingTaskId) setCancelTarget(null)
+        }}
+        onConfirm={() => void confirmCancel()}
       />
     </div>
   )

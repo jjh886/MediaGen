@@ -90,7 +90,8 @@ async fn relogin_session_uses_saved_proxy_from_account() {
     );
     let session = session_from_body(&state, &body);
     assert_eq!(session.proxy_id.as_deref(), Some("proxy-1"));
-    assert_eq!(session.profile_dir, "/profiles/acc-1");
+    assert_ne!(session.profile_dir, "/profiles/acc-1");
+    assert!(session.profile_dir.ends_with(&session.id));
     assert_eq!(session.metadata["proxy_username"], "user");
     assert_eq!(session.metadata["proxy_password"], "pass");
     assert_eq!(session.metadata["browser_os"], "macos");

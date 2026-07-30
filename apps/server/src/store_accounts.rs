@@ -152,6 +152,10 @@ fn account_tier(profile: &AccountLoginProfile, manifest: Option<&PluginManifest>
 }
 
 fn apply_session_metadata(account: &mut AccountRecord, session: &BrowserSession) {
+    // 重新登录成功后切换到新 profile，后续任务只读取已经验证过的新登录态。
+    if !session.profile_dir.trim().is_empty() {
+        account.profile_dir = session.profile_dir.clone();
+    }
     if let Some(proxy_url) = proxy_url_from_session_metadata(&session.metadata) {
         account.proxy_url = proxy_url;
     }

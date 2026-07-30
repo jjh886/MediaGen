@@ -41,6 +41,28 @@ impl ImageTaskQueue {
             activated: false,
         })
     }
+
+    pub fn direct_waiter_count(&self) -> u32 {
+        self.state
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .queued
+    }
+
+    /// 后台队列只使用空闲并发槽；有同步请求等待时，优先让同步请求执行。
+    pub fn try_acquire_background(
+        self: &Arc<Self>,
+        settings: &AppSettings,
+    ) -> Option<ImageTaskPermit> {
+        let mut state = self.state.lock().unwrap_or_else(|err| err.into_inner());
+        if state.queued > 0 || state.active >= settings.image_task_concurrency.max(1) {
+            return None;
+        }
+        state.active = state.active.saturating_add(1);
+        Some(ImageTaskPermit {
+            queue: self.clone(),
+        })
+    }
 }
 
 impl ImageTaskReservation {

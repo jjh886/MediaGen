@@ -84,21 +84,23 @@ pub(crate) async fn launch_cloakbrowser(
     // 先打开空白页，等 CDP 原生弹窗 guard 安装完成后再导航到目标页，避免页面抢先弹出系统认证框。
     args.push(browser_launch_url().to_string());
 
-    let child = Command::new(&executable)
+    let mut command = Command::new(&executable);
+    command
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
-        .map_err(|err| {
-            BrowserGatewayError::BrowserLaunch(format!(
-                "启动 CloakBrowser 失败: {} ({})",
-                executable.display(),
-                err
-            ))
-        })?;
+        // 会话创建中途失败时也必须终止浏览器，避免残留进程继续锁住 profile。
+        .kill_on_drop(true);
+    let mut child = command.spawn().map_err(|err| {
+        BrowserGatewayError::BrowserLaunch(format!(
+            "启动 CloakBrowser 失败: {} ({})",
+            executable.display(),
+            err
+        ))
+    })?;
 
-    let target = wait_for_page_target(debugging_port).await?;
+    let target = wait_for_page_target(debugging_port, &mut child).await?;
     Ok((BrowserRuntime::new(debugging_port, child), target))
 }
 
@@ -237,10 +239,21 @@ fn cache_runtime_binary(dir: PathBuf) -> PathBuf {
     dir.join("chrome")
 }
 
-async fn wait_for_page_target(debugging_port: u16) -> Result<BrowserTarget, BrowserGatewayError> {
+async fn wait_for_page_target(
+    debugging_port: u16,
+    child: &mut Child,
+) -> Result<BrowserTarget, BrowserGatewayError> {
     for _ in 0..80 {
         if let Ok(target) = get_best_page_target(debugging_port).await {
             return Ok(target);
+        }
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|err| BrowserGatewayError::BrowserLaunch(err.to_string()))?
+        {
+            return Err(BrowserGatewayError::BrowserLaunch(format!(
+                "CloakBrowser 启动后提前退出（{status}），浏览器资料目录可能正被其他进程占用"
+            )));
         }
         sleep(Duration::from_millis(250)).await;
     }

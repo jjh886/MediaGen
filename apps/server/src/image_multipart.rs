@@ -128,6 +128,7 @@ fn apply_text_field(request: &mut OpenAiImageRequest, name: &str, value: &str) {
         "output_format" => request.output_format = Some(value.to_string()),
         "background" => request.background = Some(value.to_string()),
         "stream" => request.stream = Some(matches!(value, "true" | "1")),
+        "async" => request.async_generation = matches!(value, "true" | "1"),
         "partial_images" => request.partial_images = value.parse().ok(),
         "output_compression" => request.output_compression = value.parse().ok(),
         "moderation" => request.moderation = Some(value.to_string()),
@@ -228,6 +229,7 @@ mod tests {
         apply_text_field(&mut request, "prompt", " draw ");
         apply_text_field(&mut request, "n", "2");
         apply_text_field(&mut request, "stream", "1");
+        apply_text_field(&mut request, "async", "true");
         apply_text_field(&mut request, "partial_images", "3");
         apply_text_field(&mut request, "output_compression", "80");
         apply_text_field(&mut request, "image_aspect_ratio", "16:9");
@@ -242,6 +244,7 @@ mod tests {
         );
         assert_eq!(request.n, Some(2));
         assert_eq!(request.stream, Some(true));
+        assert!(request.async_generation);
         assert_eq!(request.partial_images, Some(3));
         assert_eq!(request.output_compression, Some(80));
         assert_eq!(request.image_aspect_ratio.as_deref(), Some("16:9"));

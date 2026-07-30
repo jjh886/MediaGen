@@ -48,6 +48,7 @@ interface Props {
   onOpenVerification?: (taskId: string) => void
   onOpenTaskLogs?: (taskId: string) => void
   onClose: () => void
+  cancelling?: boolean
 }
 
 function formatDuration(task: Task): string {
@@ -94,8 +95,10 @@ export default function TaskDetail({
   onOpenVerification,
   onOpenTaskLogs,
   onClose,
+  cancelling,
 }: Props) {
-  const canCancel = task.status === 'pending' || task.status === 'processing'
+  const canCancel =
+    task.status === 'pending' || task.status === 'queued' || task.status === 'processing'
   const resultData = parseResultData(task)
 
   return (
@@ -119,7 +122,12 @@ export default function TaskDetail({
         </span>
         <div style={{ display: 'flex', gap: 8 }}>
           {canCancel && (
-            <KtButton variant="default" size="sm" onClick={() => onCancel(task)}>
+            <KtButton
+              variant="default"
+              size="sm"
+              loading={cancelling}
+              onClick={() => onCancel(task)}
+            >
               取消任务
             </KtButton>
           )}

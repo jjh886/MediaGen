@@ -4,6 +4,7 @@ use std::sync::Arc;
 use mediagen_browser_gateway::{BrowserGateway, BrowserGatewayConfig};
 use mediagen_plugin_runtime::PluginLoader;
 
+use crate::generation_queue::CredentialCipher;
 use crate::image_task_queue::ImageTaskQueue;
 use crate::store::AppStore;
 use crate::ServerState;
@@ -59,5 +60,8 @@ pub fn server_state(root: std::path::PathBuf, plugin_loader: PluginLoader) -> Se
         oauth_logins: Default::default(),
         file_root: root.join("openai-files"),
         image_task_queue: Arc::new(ImageTaskQueue::default()),
+        credential_cipher: Arc::new(CredentialCipher::ephemeral()),
+        generation_queue_enabled: true,
+        generation_queue_notify: Arc::new(tokio::sync::Notify::new()),
     }
 }

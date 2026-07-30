@@ -48,14 +48,17 @@ export interface TaskAttempt {
   completed_at?: string
 }
 
-export const statusVariant: Record<TaskStatus, 'info' | 'warning' | 'success' | 'error'> = {
+export const statusVariant: Record<
+  TaskStatus,
+  'info' | 'warning' | 'success' | 'error' | 'disabled'
+> = {
   pending: 'info',
   queued: 'info',
   processing: 'warning',
   verification_required: 'warning',
   completed: 'success',
   failed: 'error',
-  cancelled: 'error',
+  cancelled: 'disabled',
 }
 
 export const statusLabel: Record<TaskStatus, string> = {
@@ -72,6 +75,7 @@ export const attemptActionLabel: Record<string, string> = {
   initial: '首次执行',
   same_account_retry: '同账号重试',
   failover: '换账号重试',
+  queue_retry: '队列重试',
 }
 
 export const attemptStatusLabel: Record<string, string> = {

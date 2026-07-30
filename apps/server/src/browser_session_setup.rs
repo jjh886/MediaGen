@@ -30,23 +30,11 @@ fn apply_relogin_defaults(
             "error": "账号不存在，请刷新后重试。"
         })));
     };
-    apply_account_profile_dir(request, &account.profile_dir);
+    // 重新登录使用新 profile，成功后再替换账号目录，避免旧 CloakBrowser 的目录锁导致 CDP 启动超时。
+    request.profile_dir = None;
     apply_account_proxy(request, &account.proxy_id, &account.proxy_url);
     add_missing_browser_profile(request, &account.browser_os, &account.browser_version);
     Ok(())
-}
-
-fn apply_account_profile_dir(request: &mut BrowserSessionCreateRequest, profile_dir: &str) {
-    if request
-        .profile_dir
-        .as_deref()
-        .unwrap_or_default()
-        .trim()
-        .is_empty()
-        && !profile_dir.trim().is_empty()
-    {
-        request.profile_dir = Some(profile_dir.to_string());
-    }
 }
 
 fn apply_account_proxy(request: &mut BrowserSessionCreateRequest, proxy_id: &str, proxy_url: &str) {

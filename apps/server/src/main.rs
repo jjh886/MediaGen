@@ -15,12 +15,15 @@ mod file_api;
 mod flow_runner;
 mod flow_runtime;
 mod flow_templates;
+mod generation_queue;
 mod image_api;
 mod image_api_response;
 mod image_assets;
 mod image_file_refs;
+mod image_flow_execution;
 mod image_multipart;
 mod image_request;
+mod image_task_completion;
 mod image_task_queue;
 mod js_flow_runner;
 mod net_client;
@@ -32,6 +35,7 @@ mod settings;
 mod store;
 mod store_accounts;
 mod store_entities;
+mod store_generation_queue;
 mod store_helpers;
 mod store_models;
 mod store_persistence;
@@ -57,11 +61,13 @@ use std::sync::Arc;
 use actix_files::Files;
 use actix_web::{dev::Service, web, App, HttpServer};
 use futures_util::future::{ready, Either, FutureExt};
+use generation_queue::CredentialCipher;
 use image_task_queue::ImageTaskQueue;
 use mediagen_browser_gateway::{BrowserGateway, BrowserGatewayConfig};
 use mediagen_plugin_runtime::PluginLoader;
 use oauth_login::OAuthLoginStore;
 use store::AppStore;
+use tokio::sync::Notify;
 
 use routes::{
     accounts, cancel_task, check_accounts_login, delete_account, health, models, plugins, settings,
@@ -76,6 +82,9 @@ pub struct ServerState {
     pub oauth_logins: OAuthLoginStore,
     pub file_root: PathBuf,
     pub image_task_queue: Arc<ImageTaskQueue>,
+    pub(crate) credential_cipher: Arc<CredentialCipher>,
+    pub(crate) generation_queue_enabled: bool,
+    pub(crate) generation_queue_notify: Arc<Notify>,
 }
 
 #[actix_web::main]
@@ -83,6 +92,7 @@ async fn main() -> std::io::Result<()> {
     let config = ServerConfig::from_env();
     ensure_server_dirs(&config)?;
     let state = web::Data::new(build_state(&config));
+    generation_queue::start_worker(state.clone());
     let console_dir = config.console_dir.clone();
     let bind = format!("{}:{}", config.host, config.port);
     let callback_server = oauth_login::callback_server(state.clone(), &config.oauth_callback_bind)?;
@@ -134,6 +144,14 @@ fn build_state(config: &ServerConfig) -> ServerState {
         eprintln!("[mediagen-server] 插件加载失败: {err}");
         PluginLoader::empty()
     });
+    let (credential_cipher, generation_queue_enabled) =
+        match CredentialCipher::new(&config.data_dir) {
+            Ok(cipher) => (cipher, true),
+            Err(error) => {
+                eprintln!("[mediagen-server] 异步生成队列已禁用: {error}");
+                (CredentialCipher::ephemeral(), false)
+            }
+        };
     ServerState {
         plugin_loader: Arc::new(plugin_loader),
         browser_gateway: Arc::new(BrowserGateway::new(BrowserGatewayConfig {
@@ -144,6 +162,9 @@ fn build_state(config: &ServerConfig) -> ServerState {
         oauth_logins: OAuthLoginStore::default(),
         file_root: config.data_dir.join("openai-files"),
         image_task_queue: Arc::new(ImageTaskQueue::default()),
+        credential_cipher: Arc::new(credential_cipher),
+        generation_queue_enabled,
+        generation_queue_notify: Arc::new(Notify::new()),
     }
 }
 
@@ -166,6 +187,14 @@ fn configure_management_routes(cfg: &mut web::ServiceConfig) {
         .route("/api/accounts/{id}/toggle", web::post().to(toggle_account))
         .route("/api/tasks", web::get().to(tasks))
         .route("/api/tasks/{id}/cancel", web::post().to(cancel_task))
+        .route(
+            "/api/generation-queue",
+            web::get().to(generation_queue::admin_list_queue),
+        )
+        .route(
+            "/api/generation-queue/actions",
+            web::post().to(generation_queue::admin_queue_action),
+        )
         .route("/api/settings", web::get().to(settings))
         .route("/api/settings", web::post().to(update_settings))
         .route(
@@ -204,6 +233,22 @@ fn configure_openai_routes(cfg: &mut web::ServiceConfig) {
         .route(
             "/v1/images/variations",
             web::post().to(image_api::variation_image),
+        )
+        .route(
+            "/api/v2/generation-queue",
+            web::get().to(generation_queue::list_queue),
+        )
+        .route(
+            "/api/v2/generation-queue/actions",
+            web::post().to(generation_queue::queue_action),
+        )
+        .route(
+            "/api/v2/generation-tasks/batch",
+            web::post().to(generation_queue::batch_task_details),
+        )
+        .route(
+            "/api/v2/generation-tasks/{task_id}",
+            web::get().to(generation_queue::task_detail),
         );
 }
 

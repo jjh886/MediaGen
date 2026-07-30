@@ -6,6 +6,7 @@ export type PageId =
   | 'accounts'
   | 'api-keys'
   | 'tasks'
+  | 'generation-queue'
   | 'proxies'
   | 'verifications'
   | 'logs'

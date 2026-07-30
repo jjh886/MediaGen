@@ -8,6 +8,91 @@ use crate::test_fixtures::{account_record, server_state};
 use crate::ServerState;
 
 #[actix_web::test]
+async fn async_generation_returns_task_id_and_persists_encrypted_queue_item() {
+    let state = queue_state("image-async-api");
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .configure(crate::configure_routes),
+    )
+    .await;
+    let response = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::post()
+            .uri("/v1/images/generations")
+            .insert_header(("authorization", "Bearer image-key"))
+            .set_json(json!({ "model": "fake-image", "prompt": "draw", "async": true }))
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(response.status(), actix_web::http::StatusCode::ACCEPTED);
+    let payload: serde_json::Value = actix_test::read_body_json(response).await;
+    assert_eq!(payload["data"]["status"], "queued");
+    let task_id = payload["data"]["taskId"].as_str().unwrap();
+    assert!(task_id.starts_with("task-"));
+
+    let queue_response = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::get()
+            .uri("/api/v2/generation-queue?limit=20&offset=0")
+            .insert_header(("authorization", "Bearer image-key"))
+            .to_request(),
+    )
+    .await;
+    assert!(queue_response.status().is_success());
+    let queue: serde_json::Value = actix_test::read_body_json(queue_response).await;
+    assert_eq!(queue["data"]["total"], 1);
+    assert_eq!(queue["data"]["items"][0]["taskId"], task_id);
+
+    let jobs = state
+        .store
+        .generation_jobs
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let job = jobs.iter().find(|job| job.task_id == task_id).unwrap();
+    assert!(!job.credential_ciphertext.contains("image-key"));
+}
+
+#[actix_web::test]
+async fn async_generation_worker_executes_persisted_job() {
+    let state = queue_state("image-async-worker");
+    let data = web::Data::new(state.clone());
+    crate::generation_queue::start_worker(data.clone());
+    let app =
+        actix_test::init_service(App::new().app_data(data).configure(crate::configure_routes))
+            .await;
+    let response = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::post()
+            .uri("/v1/images/generations")
+            .insert_header(("authorization", "Bearer image-key"))
+            .set_json(json!({ "model": "fake-image", "prompt": "draw", "async": true }))
+            .to_request(),
+    )
+    .await;
+    let payload: serde_json::Value = actix_test::read_body_json(response).await;
+    let task_id = payload["data"]["taskId"].as_str().unwrap();
+
+    for _ in 0..100 {
+        if state
+            .store
+            .task_by_id(task_id)
+            .is_some_and(|task| task.status == "completed")
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    assert_eq!(state.store.task_by_id(task_id).unwrap().status, "completed");
+    assert_eq!(
+        state.store.generation_job(task_id, None).unwrap().state,
+        crate::store::GenerationJobState::Completed
+    );
+}
+
+#[actix_web::test]
 async fn image_generation_failover_switches_to_next_account() {
     let state = failover_state();
     let app = actix_test::init_service(
@@ -128,6 +213,23 @@ fn verification_state() -> ServerState {
     state
         .store
         .insert_account(account_record("acc-verify", "fake", "Verify Account", ""));
+    state
+}
+
+fn queue_state(prefix: &str) -> ServerState {
+    let name = format!("{prefix}-{}", uuid::Uuid::new_v4());
+    let plugins_dir = write_failover_plugin(&name);
+    let state = server_state(
+        test_root(&name),
+        PluginLoader::load_from(&plugins_dir).unwrap(),
+    );
+    state.store.update_settings(SettingsUpdate {
+        api_keys: Some("image-key".to_string()),
+        ..SettingsUpdate::default()
+    });
+    state
+        .store
+        .insert_account(account_record("acc-queue", "fake", "Queue", ""));
     state
 }
 

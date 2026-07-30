@@ -47,6 +47,39 @@ pub struct TaskRecord {
     pub completed_at: Option<String>,
 }
 
+/// 持久化生成任务的调度状态，与 aiduanju 的 generation_jobs 状态保持一致。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GenerationJobState {
+    Queued,
+    RetryWait,
+    Leased,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerationJobRecord {
+    pub task_id: String,
+    pub owner_key: String,
+    pub task_kind: String,
+    pub request_json: String,
+    pub credential_ciphertext: String,
+    pub state: GenerationJobState,
+    pub priority: i32,
+    pub queue_seq: i64,
+    pub next_attempt_at: String,
+    pub retry_count: i32,
+    pub last_failure_category: Option<String>,
+    pub last_error_summary: Option<String>,
+    pub lease_until: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AccountUpdate {
     pub tier: Option<String>,
@@ -120,4 +153,6 @@ pub struct StoreSnapshot {
     pub audit_logs: Vec<AuditLogRecord>,
     #[serde(default)]
     pub task_events: Vec<TaskEventRecord>,
+    #[serde(default)]
+    pub generation_jobs: Vec<GenerationJobRecord>,
 }

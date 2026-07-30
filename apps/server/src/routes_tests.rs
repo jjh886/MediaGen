@@ -3,12 +3,15 @@ use actix_web::{
     dev::{Service, ServiceResponse},
     test as actix_test,
 };
+use mediagen_browser_gateway::{
+    BrowserSessionCreateRequest, BrowserSessionPurpose, BrowserSessionStatus,
+};
 use mediagen_plugin_runtime::PluginLoader;
 use serde_json::json;
 
 use crate::access_control::hash_account_keys;
 use crate::routes::api_key_allowed;
-use crate::store::AccountRecord;
+use crate::store::{AccountRecord, TaskRecord};
 use crate::test_fixtures::{account_record, server_state};
 use crate::ServerState;
 
@@ -97,6 +100,57 @@ async fn health_exposes_install_root_for_local_launcher() {
         .as_str()
         .is_some_and(|value| !value.is_empty()));
     assert!(body["pid"].as_u64().is_some());
+}
+
+#[actix_web::test]
+async fn cancelling_task_closes_its_active_browser_session() {
+    let state = test_state("cancel-task-browser");
+    state.store.insert_task(TaskRecord {
+        id: "task-browser".to_string(),
+        platform: "fake".to_string(),
+        task_kind: "image".to_string(),
+        model_id: "fake-image".to_string(),
+        prompt: "draw".to_string(),
+        account_id: Some("account-1".to_string()),
+        status: "processing".to_string(),
+        result_url: None,
+        storage_key: None,
+        error_message: None,
+        result_data: None,
+        created_at: "2026-07-30T00:00:00Z".to_string(),
+        completed_at: None,
+    });
+    let session = state
+        .browser_gateway
+        .create_session(BrowserSessionCreateRequest {
+            purpose: BrowserSessionPurpose::TaskTakeover,
+            platform: "fake".to_string(),
+            task_id: Some("task-browser".to_string()),
+            start_url: "https://example.test".to_string(),
+            ..BrowserSessionCreateRequest::default()
+        })
+        .await
+        .unwrap()
+        .session;
+    let app = crate::init_admin_test_app!(state.clone());
+
+    let response = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::post()
+            .uri("/api/tasks/task-browser/cancel")
+            .to_request(),
+    )
+    .await;
+
+    assert!(response.status().is_success());
+    assert_eq!(
+        state
+            .browser_gateway
+            .get_session(&session.id)
+            .unwrap()
+            .status,
+        BrowserSessionStatus::Cancelled
+    );
 }
 
 #[actix_web::test]

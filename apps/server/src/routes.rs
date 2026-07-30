@@ -195,9 +195,35 @@ pub async fn tasks(
 }
 
 pub async fn cancel_task(state: web::Data<ServerState>, path: web::Path<String>) -> impl Responder {
-    match state.store.cancel_task(&path.into_inner()) {
-        Some(task) => HttpResponse::Ok().json(serde_json::json!({ "data": task })),
-        None => HttpResponse::NotFound().json(serde_json::json!({ "error": "task not found" })),
+    let task_id = path.into_inner();
+    match state.store.cancel_task_or_generation_job(&task_id) {
+        Ok(task) => {
+            state.generation_queue_notify.notify_waiters();
+            cancel_task_browser_sessions(&state, &task_id).await;
+            HttpResponse::Ok().json(serde_json::json!({ "data": task }))
+        }
+        Err(error) if error == "task not found" => {
+            HttpResponse::NotFound().json(serde_json::json!({ "error": error }))
+        }
+        Err(error) => HttpResponse::Conflict().json(serde_json::json!({ "error": error })),
+    }
+}
+
+async fn cancel_task_browser_sessions(state: &ServerState, task_id: &str) {
+    let session_ids = state
+        .browser_gateway
+        .list_sessions()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|session| {
+            session.task_id.as_deref() == Some(task_id)
+                && session.status == mediagen_browser_gateway::BrowserSessionStatus::Active
+        })
+        .map(|session| session.id)
+        .collect::<Vec<_>>();
+    for session_id in session_ids {
+        // 浏览器可能恰好已经自行结束；这时无需把取消接口变成失败。
+        let _ = state.browser_gateway.cancel_session(&session_id).await;
     }
 }
 

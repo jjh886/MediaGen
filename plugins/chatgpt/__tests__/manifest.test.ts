@@ -33,7 +33,7 @@ describe('chatgpt generate_image manifest', () => {
     expect(referencedScripts).not.toContain('wait_ratio_menu_option.js')
 
     const typeStep = steps.find((step) => step.action === 'browser.type_text')
-    expect(typeStep?.selector).toBe('{{prepared.composer_selector}}')
+    expect(typeStep?.selector).toBe('[data-mediagen-cgpt-composer="true"]')
     expect(typeStep?.text).toContain('Generate an image')
     expect(typeStep?.text).toContain('{{image_aspect_ratio}}')
   })

@@ -9,6 +9,7 @@ actix-files = { workspace = true }
 actix-multipart = { workspace = true }
 actix-web = { workspace = true }
 actix-ws = { workspace = true }
+aes-gcm = "0.10"
 async-trait = { workspace = true }
 base64 = "0.22"
 bytes = { workspace = true }
