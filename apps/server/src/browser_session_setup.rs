@@ -1,5 +1,7 @@
 use actix_web::HttpResponse;
-use mediagen_browser_gateway::{BrowserSessionCreateRequest, BrowserSessionPurpose};
+use mediagen_browser_gateway::{
+    BrowserGatewayError, BrowserSessionCreateRequest, BrowserSessionPurpose,
+};
 use serde_json::{json, Value};
 
 use crate::account_browser_profile::add_browser_profile_metadata;
@@ -30,11 +32,38 @@ fn apply_relogin_defaults(
             "error": "账号不存在，请刷新后重试。"
         })));
     };
-    // 重新登录使用新 profile，成功后再替换账号目录，避免旧 CloakBrowser 的目录锁导致 CDP 启动超时。
-    request.profile_dir = None;
+    apply_account_profile_dir(request, &account.profile_dir);
     apply_account_proxy(request, &account.proxy_id, &account.proxy_url);
     add_missing_browser_profile(request, &account.browser_os, &account.browser_version);
     Ok(())
+}
+
+/// 重新登录需要独占原资料目录；先关闭占用它的旧会话，再原样复用其中的登录数据。
+pub(crate) async fn release_relogin_profile(
+    state: &ServerState,
+    request: &BrowserSessionCreateRequest,
+) -> Result<usize, BrowserGatewayError> {
+    if request.purpose != BrowserSessionPurpose::ReloginAccount {
+        return Ok(0);
+    }
+    let profile_dir = request.profile_dir.as_deref().unwrap_or_default().trim();
+    state
+        .browser_gateway
+        .cancel_active_profile_sessions(profile_dir)
+        .await
+}
+
+fn apply_account_profile_dir(request: &mut BrowserSessionCreateRequest, profile_dir: &str) {
+    if request
+        .profile_dir
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .is_empty()
+        && !profile_dir.trim().is_empty()
+    {
+        request.profile_dir = Some(profile_dir.to_string());
+    }
 }
 
 fn apply_account_proxy(request: &mut BrowserSessionCreateRequest, proxy_id: &str, proxy_url: &str) {

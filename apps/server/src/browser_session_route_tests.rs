@@ -1,4 +1,7 @@
 use actix_web::{body::MessageBody, dev::ServiceResponse, test as actix_test};
+use mediagen_browser_gateway::{
+    BrowserSessionCreateRequest, BrowserSessionPurpose, BrowserSessionStatus,
+};
 use mediagen_plugin_runtime::PluginLoader;
 use serde_json::json;
 
@@ -70,6 +73,16 @@ async fn relogin_session_uses_saved_proxy_from_account() {
     account.browser_os = "macos".to_string();
     account.browser_version = "145".to_string();
     state.store.insert_account(account);
+    let occupied = state
+        .browser_gateway
+        .create_session(BrowserSessionCreateRequest {
+            purpose: BrowserSessionPurpose::DebugPreview,
+            profile_dir: Some("/profiles/acc-1".to_string()),
+            ..BrowserSessionCreateRequest::default()
+        })
+        .await
+        .unwrap()
+        .session;
     let app = crate::init_admin_test_app!(state.clone());
 
     let response = post_browser_session!(
@@ -90,8 +103,15 @@ async fn relogin_session_uses_saved_proxy_from_account() {
     );
     let session = session_from_body(&state, &body);
     assert_eq!(session.proxy_id.as_deref(), Some("proxy-1"));
-    assert_ne!(session.profile_dir, "/profiles/acc-1");
-    assert!(session.profile_dir.ends_with(&session.id));
+    assert_eq!(session.profile_dir, "/profiles/acc-1");
+    assert_eq!(
+        state
+            .browser_gateway
+            .get_session(&occupied.id)
+            .unwrap()
+            .status,
+        BrowserSessionStatus::Cancelled
+    );
     assert_eq!(session.metadata["proxy_username"], "user");
     assert_eq!(session.metadata["proxy_password"], "pass");
     assert_eq!(session.metadata["browser_os"], "macos");

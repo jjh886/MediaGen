@@ -315,11 +315,10 @@ fn browser_session_upsert_creates_and_relogs_accounts() {
     assert_eq!(created.browser_os, "windows");
     assert_eq!(created.browser_version, "126");
 
-    let mut relogin_session = session(
+    let relogin_session = session(
         BrowserSessionPurpose::ReloginAccount,
         Some(created.id.clone()),
     );
-    relogin_session.profile_dir = "/tmp/relogin-profile".to_string();
     let relogged = store
         .upsert_from_browser_session_with_profile(
             &relogin_session,
@@ -334,7 +333,6 @@ fn browser_session_upsert_creates_and_relogs_accounts() {
 
     assert_eq!(relogged.name, "Bobby");
     assert_eq!(relogged.tier, "enterprise");
-    assert_eq!(relogged.profile_dir, "/tmp/relogin-profile");
     assert!(store
         .upsert_from_browser_session(&session(BrowserSessionPurpose::DebugPreview, None))
         .is_none());

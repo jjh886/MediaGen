@@ -92,8 +92,8 @@ export async function startAccountLoginSession(
     platform,
     account_id: accountId || null,
     start_url: plugin.login_url || plugin.workspace_url || 'https://example.com',
-    // 重新登录必须使用新目录；旧目录可能仍被过期会话或常驻浏览器占用。
-    profile_dir: null,
+    // 重新登录沿用账号目录，保留 Cookie、本地存储和已有浏览器资料。
+    profile_dir: account?.profile_dir || null,
     proxy_id: resolvedProxyId || null,
     metadata,
     width: 1365,

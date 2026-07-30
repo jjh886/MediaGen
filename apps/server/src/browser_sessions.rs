@@ -10,7 +10,9 @@ use crate::account_login;
 use crate::browser_session_public::{
     public_browser_response, public_browser_session, public_browser_sessions,
 };
-use crate::browser_session_setup::prepare_browser_session_create_request;
+use crate::browser_session_setup::{
+    prepare_browser_session_create_request, release_relogin_profile,
+};
 use crate::oauth_login;
 use crate::routes::public_account;
 use crate::value_utils::file_paths_from_value;
@@ -101,6 +103,9 @@ pub async fn create_browser_session(
         if let Err(message) = oauth_login::prepare_oauth_request(manifest, &mut request) {
             return HttpResponse::BadRequest().json(json!({ "ok": false, "error": message }));
         }
+    }
+    if let Err(err) = release_relogin_profile(&state, &request).await {
+        return gateway_error_response(err);
     }
     match state.browser_gateway.create_session(request).await {
         Ok(response) => HttpResponse::Ok().json(public_browser_response(response)),

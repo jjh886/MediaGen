@@ -10,6 +10,7 @@ mod input_types;
 mod manager;
 mod native_dialogs;
 mod pointer_state;
+mod profile_sessions;
 mod proxy;
 mod rendering;
 mod runtime;
