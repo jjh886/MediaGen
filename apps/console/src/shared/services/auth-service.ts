@@ -1,6 +1,7 @@
 import { apiGet, apiPost } from './http-api-client'
 
 export interface AuthStatus {
+  supported: boolean
   configured: boolean
   authenticated: boolean
   username?: string

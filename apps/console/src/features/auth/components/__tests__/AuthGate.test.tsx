@@ -16,6 +16,7 @@ describe('AuthGate', () => {
 
   it('已登录时直接显示控制台内容', async () => {
     vi.mocked(getAuthStatus).mockResolvedValue({
+      supported: true,
       configured: true,
       authenticated: true,
       username: 'admin',
@@ -31,8 +32,13 @@ describe('AuthGate', () => {
   })
 
   it('未登录时先显示登录页，登录成功后进入控制台', async () => {
-    vi.mocked(getAuthStatus).mockResolvedValue({ configured: true, authenticated: false })
+    vi.mocked(getAuthStatus).mockResolvedValue({
+      supported: true,
+      configured: true,
+      authenticated: false,
+    })
     vi.mocked(loginAdmin).mockResolvedValue({
+      supported: true,
       configured: true,
       authenticated: true,
       username: 'admin',
@@ -54,5 +60,22 @@ describe('AuthGate', () => {
       expect(loginAdmin).toHaveBeenCalledWith({ username: 'admin', password: 'secret' })
     )
     await expect(screen.findByText('账号管理')).resolves.toBeInTheDocument()
+  })
+
+  it('macOS 和 Windows 不进入管理员登录页', async () => {
+    vi.mocked(getAuthStatus).mockResolvedValue({
+      supported: false,
+      configured: false,
+      authenticated: false,
+    })
+
+    render(
+      <AuthGate>
+        <div>本机控制台</div>
+      </AuthGate>
+    )
+
+    await expect(screen.findByText('本机控制台')).resolves.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '登录 MediaGen' })).not.toBeInTheDocument()
   })
 })

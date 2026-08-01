@@ -285,7 +285,13 @@ fn task_runtime_events_usage_and_verification_are_recorded() {
     assert!(resumed.error_message.is_none());
 
     let reloaded = AppStore::load(store_path("task-runtime"));
-    assert_eq!(reloaded.list_tasks(Some("codex"))[0].status, "queued");
+    let interrupted = &reloaded.list_tasks(Some("codex"))[0];
+    // 同步任务没有持久化 worker，服务重启后不能继续执行，必须结束并释放账号并发。
+    assert_eq!(interrupted.status, "failed");
+    assert_eq!(
+        interrupted.error_message.as_deref(),
+        Some("MediaGen 上次退出时任务仍在执行，请重新提交")
+    );
 }
 
 #[test]

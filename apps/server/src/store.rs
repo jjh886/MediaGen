@@ -6,6 +6,7 @@ use crate::settings::apply_settings_update;
 use crate::store_entities::migrate_legacy_api_keys;
 use crate::store_helpers::{
     account_ready_for_dispatch, apply_account_profile, apply_account_update, first_result_url,
+    recover_interrupted_direct_tasks,
 };
 pub use crate::store_models::{
     AccountRecord, AccountUpdate, ApiKeyRecord, AuditLogRecord, GenerationJobRecord,
@@ -19,6 +20,7 @@ pub use crate::settings::{AppSettings, SettingsUpdate};
 
 pub struct AppStore {
     pub(crate) path: PathBuf,
+    account_dispatch: Mutex<()>,
     pub(crate) accounts: Mutex<Vec<AccountRecord>>,
     pub(crate) tasks: Mutex<Vec<TaskRecord>>,
     pub(crate) settings: Mutex<AppSettings>,
@@ -34,8 +36,17 @@ impl AppStore {
         let mut snapshot = read_store_snapshot(&path);
         migrate_legacy_api_keys(&mut snapshot);
         crate::image_api_response::sanitize_persisted_image_tasks(&mut snapshot.tasks);
+        let recovered = recover_interrupted_direct_tasks(
+            &mut snapshot.tasks,
+            &snapshot.generation_jobs,
+            &Utc::now().to_rfc3339(),
+        );
+        if recovered > 0 {
+            eprintln!("[mediagen-server] 已结束 {recovered} 个上次退出时中断的同步生成任务");
+        }
         let store = Self {
             path,
+            account_dispatch: Mutex::new(()),
             accounts: Mutex::new(snapshot.accounts),
             tasks: Mutex::new(snapshot.tasks),
             settings: Mutex::new(snapshot.settings),
@@ -104,6 +115,15 @@ impl AppStore {
         } else {
             candidates.next().cloned()
         }
+    }
+
+    /// 把“选择账号”和“记录账号占用”包在同一个临界区，避免并发请求超发同一账号。
+    pub(crate) fn with_account_dispatch<T>(&self, action: impl FnOnce() -> T) -> T {
+        let _guard = self
+            .account_dispatch
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        action()
     }
 
     pub fn settings(&self) -> AppSettings {

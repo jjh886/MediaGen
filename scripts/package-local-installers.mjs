@@ -70,10 +70,13 @@ async function createMacApp() {
 async function createDmg(appPath) {
   if (!commandAvailable('hdiutil')) throw new Error('缺少 hdiutil，无法生成 macOS DMG')
   if (!commandAvailable('osascript')) throw new Error('缺少 osascript，无法写入 macOS DMG 布局')
+  if (!commandAvailable('diskutil')) throw new Error('缺少 diskutil，无法设置 macOS DMG 卷名')
   const dmgPath = path.join(installersDir, `MediaGen-${platformName}.dmg`)
   const rwDmgPath = path.join(installersDir, `rw.MediaGen-${platformName}.dmg`)
   const stagingRoot = await mkdtemp(path.join(os.tmpdir(), 'mediagen-dmg-'))
   const mountPoint = await mkdtemp(path.join(os.tmpdir(), 'mediagen-dmg-mount-'))
+  // 构建时使用唯一卷名，避免 Finder 把布局写进用户已经挂载的旧版 MediaGen 镜像。
+  const buildVolumeName = `MediaGen Build ${process.pid}`
   let mounted = false
 
   try {
@@ -85,7 +88,7 @@ async function createDmg(appPath) {
     await run('hdiutil', [
       'create',
       '-volname',
-      'MediaGen',
+      buildVolumeName,
       '-srcfolder',
       stagingRoot,
       '-ov',
@@ -103,6 +106,8 @@ async function createDmg(appPath) {
     ])
     mounted = true
     await applyMacDmgFinderLayout(mountPoint)
+    await waitForPath(path.join(mountPoint, '.DS_Store'), 5000)
+    await run('diskutil', ['rename', mountPoint, 'MediaGen'])
     await run('sync', [])
     await run('hdiutil', ['detach', mountPoint])
     mounted = false
@@ -156,6 +161,16 @@ async function applyMacDmgFinderLayout(mountPoint) {
     'osascript',
     script.flatMap((line) => ['-e', line])
   )
+}
+
+async function waitForPath(file, timeoutMs) {
+  const deadline = Date.now() + timeoutMs
+  while (!existsSync(file)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Finder 布局文件生成超时: ${file}`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
 }
 
 async function createWindowsZip(

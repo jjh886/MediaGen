@@ -122,7 +122,9 @@
   const matchAnyPattern = (text, patterns) =>
     patterns.map((pattern) => text.match(pattern)).find(Boolean)?.[0] || ''
 
-  const elapsed = Date.now() - (state.startTime || Date.now())
+  // 生成超时从真正提交开始计算，页面准备和参考图上传不应占用生成时间。
+  const generationStartedAt = Number(state.submit_started_at || state.startTime || Date.now())
+  const elapsed = Math.max(0, Date.now() - generationStartedAt)
   const hasFreshDoneResult =
     state.status === 'done' &&
     !!state.download_url &&
@@ -144,13 +146,25 @@
     })
   }
 
-  const bodyText = document.body?.innerText || document.body?.textContent || ''
-  const dialogTexts = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')]
-    .map((node) => node.innerText || node.textContent || '')
+  const textOf = (node) => (node.innerText || node.textContent || '').trim()
+  const dialogNodes = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')]
+  const responseNodes = [
+    ...document.querySelectorAll('[data-message-author-role="assistant"]'),
+    ...[...document.querySelectorAll('main [data-testid^="conversation-turn-"]')].filter(
+      (turn) => !turn.querySelector('[data-message-author-role="user"]')
+    ),
+  ]
+  const noticeNodes = [
+    ...document.querySelectorAll('[role="alert"], [data-sonner-toast], [data-testid*="error"]'),
+  ]
+  // 只读取 ChatGPT 回复、弹窗和错误通知，不能把用户提示词里的“错误结构”等文字当成平台报错。
+  const errorSurfaceTexts = [...new Set([...responseNodes, ...dialogNodes, ...noticeNodes])]
+    .map(textOf)
     .filter(Boolean)
-  const rateLimitSources = [...dialogTexts, bodyText].filter(Boolean)
+  const errorSurfaceText = errorSurfaceTexts.join('\n')
+  const rateLimitSources = errorSurfaceTexts
   const dismissRateLimitModal = () => {
-    const buttons = [...document.querySelectorAll('button')]
+    const buttons = dialogNodes.flatMap((node) => [...node.querySelectorAll('button')])
     const target = buttons.find((button) => {
       const text = (button.innerText || button.textContent || '').replace(/\s+/g, '').trim()
       return ['明白了', '知道了', '我知道了', '好的', '确定', 'OK'].includes(text)
@@ -193,7 +207,7 @@
     /limit resets in/i,
   ]
   for (const pattern of quotaPatterns) {
-    const match = bodyText.match(pattern)
+    const match = errorSurfaceText.match(pattern)
     if (match) {
       const message = (match[0] || '').replace(/\s+/g, ' ').trim().slice(0, 220)
       return JSON.stringify({
@@ -214,7 +228,7 @@
     /不当画面生成请求/,
     /I can(?:not|['’]t) help (?:generate|create|describe)[\s\S]{0,120}(?:violent|criminal|harmful)/i,
   ]
-  const refusalMessage = matchAnyPattern(bodyText, refusalPatterns)
+  const refusalMessage = matchAnyPattern(errorSurfaceText, refusalPatterns)
   if (refusalMessage) {
     return JSON.stringify({
       status: 'error',
@@ -227,7 +241,7 @@
 
   const fatalPhrases = ['Something went wrong', '无法生成', '错误', 'try again', '稍后重试', '违反']
   for (const phrase of fatalPhrases) {
-    if (bodyText.includes(phrase)) {
+    if (errorSurfaceText.includes(phrase)) {
       return JSON.stringify({
         status: 'error',
         error_code: phrase.includes('违反') ? 'content_policy_refusal' : 'platform_busy',
@@ -314,11 +328,11 @@
     if (done) return done
   }
 
-  if (elapsed > 600000) {
+  if (elapsed > 900000) {
     return JSON.stringify({
       status: 'error',
       error_code: 'generation_timeout',
-      message: '生成超时（10min）',
+      message: '生成超时（15min）',
       conversation_id: state.conversation_id || '',
       retryable: true,
       usage_consumed: false,

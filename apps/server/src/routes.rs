@@ -1,10 +1,11 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 
 use crate::access_control::mask_account_keys;
-use crate::account_login;
 use crate::net_client::proxy_url_without_auth;
+use crate::store_helpers::task_is_active;
 use crate::{
     store::{AccountRecord, AccountUpdate, SettingsUpdate},
     ServerState,
@@ -150,39 +151,55 @@ pub(crate) fn public_account(account: AccountRecord) -> Value {
 }
 
 pub async fn check_accounts_login(state: web::Data<ServerState>) -> impl Responder {
+    use crate::account_login_check::AccountLoginCheckOutcome;
+
     let mut checked = 0usize;
     let mut expired = 0usize;
     let mut inconclusive = 0usize;
+    let mut skipped_busy = 0usize;
+    let busy_accounts = state
+        .store
+        .list_tasks(None)
+        .into_iter()
+        .filter(task_is_active)
+        .filter_map(|task| task.account_id)
+        .collect::<HashSet<_>>();
     for account in state.store.list_accounts(None) {
         if account.login_state == "disabled" {
             continue;
         }
+        if busy_accounts.contains(&account.id) {
+            // 账号正在生成时以任务实际运行态为准，绝不再打开检查 Tab 干扰任务。
+            skipped_busy += 1;
+            continue;
+        }
         let runtime_account = state.store.account_with_runtime_proxy(account.clone());
-        match account_login::check_saved_account_login(&state, &runtime_account).await {
-            Ok(profile) => {
+        match crate::account_login_check::check_saved_account_login(&state, &runtime_account).await
+        {
+            AccountLoginCheckOutcome::Available(profile) => {
                 checked += 1;
                 state
                     .store
                     .mark_login_check_result(&account.id, "available", Some(profile));
             }
-            Err(message) => {
+            AccountLoginCheckOutcome::Expired(_reason) => {
                 checked += 1;
-                if message.contains("没有配置登录检测") || message.contains("暂不支持服务端")
-                {
-                    inconclusive += 1;
-                    continue;
-                }
                 expired += 1;
                 state
                     .store
                     .mark_login_check_result(&account.id, "login_expired", None);
+            }
+            AccountLoginCheckOutcome::Inconclusive(_reason) => {
+                checked += 1;
+                inconclusive += 1;
             }
         }
     }
     HttpResponse::Ok().json(serde_json::json!({
         "checked": checked,
         "expired": expired,
-        "inconclusive": inconclusive
+        "inconclusive": inconclusive,
+        "skipped_busy": skipped_busy
     }))
 }
 

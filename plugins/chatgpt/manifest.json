@@ -231,7 +231,7 @@
           "script_file": "generate_image_poll.js",
           "until": "status == 'done'",
           "interval_ms": 3000,
-          "timeout_ms": 600000,
+          "timeout_ms": 960000,
           "await_promise": true,
           "save_as": "poll"
         },

@@ -11,6 +11,7 @@ mod manager;
 mod native_dialogs;
 mod pointer_state;
 mod profile_sessions;
+mod profile_tabs;
 mod proxy;
 mod rendering;
 mod runtime;

@@ -4,13 +4,10 @@ use std::sync::{Arc, Mutex};
 use chrono::Utc;
 use serde_json::{json, Value};
 use tokio::sync::Mutex as AsyncMutex;
-use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
 use crate::cdp::CdpClient;
-use crate::runtime::{
-    get_best_page_target, is_useful_page_url, launch_cloakbrowser, BrowserRuntime, BrowserTarget,
-};
+use crate::runtime::{is_useful_page_url, launch_cloakbrowser, BrowserRuntime, BrowserTarget};
 use crate::{native_dialogs, rendering};
 use crate::{
     BrowserGatewayConfig, BrowserGatewayError, BrowserSession, BrowserSessionCreateRequest,
@@ -19,15 +16,15 @@ use crate::{
 };
 
 #[derive(Clone)]
-struct BrowserSessionRuntime {
-    browser: BrowserRuntime,
-    client: Arc<AsyncMutex<Option<Arc<CdpClient>>>>,
+pub(crate) struct BrowserSessionRuntime {
+    pub(crate) browser: BrowserRuntime,
+    pub(crate) client: Arc<AsyncMutex<Option<Arc<CdpClient>>>>,
 }
 
 #[derive(Default)]
-struct BrowserGatewayState {
-    sessions: HashMap<String, BrowserSession>,
-    runtimes: HashMap<String, BrowserSessionRuntime>,
+pub(crate) struct BrowserGatewayState {
+    pub(crate) sessions: HashMap<String, BrowserSession>,
+    pub(crate) runtimes: HashMap<String, BrowserSessionRuntime>,
     events: HashMap<String, Vec<BrowserSessionEvent>>,
     clipboards: HashMap<String, String>,
     next_sequence: u64,
@@ -39,6 +36,7 @@ const MAX_EVENTS_PER_SESSION: usize = 220;
 pub struct BrowserGateway {
     config: BrowserGatewayConfig,
     state: Arc<Mutex<BrowserGatewayState>>,
+    pub(crate) profile_open_locks: Arc<Mutex<HashMap<String, Arc<AsyncMutex<()>>>>>,
 }
 
 impl BrowserGateway {
@@ -46,6 +44,7 @@ impl BrowserGateway {
         Self {
             config,
             state: Arc::new(Mutex::new(BrowserGatewayState::default())),
+            profile_open_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -102,9 +101,8 @@ impl BrowserGateway {
         id: &str,
     ) -> Result<BrowserSessionResponse, BrowserGatewayError> {
         let response = self.close_session(id, BrowserSessionStatus::Cancelled, "status")?;
-        if let Some(runtime) = self.remove_runtime(id)? {
-            runtime.browser.stop().await;
-        }
+        self.stop_session_runtime(id, &response.session.target_id)
+            .await?;
         Ok(response)
     }
 
@@ -113,9 +111,8 @@ impl BrowserGateway {
         id: &str,
     ) -> Result<BrowserSessionResponse, BrowserGatewayError> {
         let response = self.close_session(id, BrowserSessionStatus::Completed, "status")?;
-        if let Some(runtime) = self.remove_runtime(id)? {
-            runtime.browser.stop().await;
-        }
+        self.stop_session_runtime(id, &response.session.target_id)
+            .await?;
         Ok(response)
     }
 
@@ -138,7 +135,7 @@ impl BrowserGateway {
             .collect())
     }
 
-    fn build_session(&self, request: BrowserSessionCreateRequest) -> BrowserSession {
+    pub(crate) fn build_session(&self, request: BrowserSessionCreateRequest) -> BrowserSession {
         let now = Utc::now();
         let session_id = Uuid::new_v4().to_string();
         let url = request.resolved_url();
@@ -186,7 +183,7 @@ impl BrowserGateway {
         }
     }
 
-    async fn attach_target(
+    pub(crate) async fn attach_target(
         &self,
         id: &str,
         runtime: BrowserSessionRuntime,
@@ -288,27 +285,6 @@ impl BrowserGateway {
         }
     }
 
-    fn start_target_watcher(&self, id: String, runtime: BrowserSessionRuntime) {
-        let gateway = self.clone();
-        tokio::spawn(async move {
-            loop {
-                sleep(Duration::from_secs(1)).await;
-                let Ok(session) = gateway.get_session(&id) else {
-                    break;
-                };
-                if !session.status.is_active() {
-                    break;
-                }
-                let Ok(target) = get_best_page_target(runtime.browser.debugging_port).await else {
-                    continue;
-                };
-                if target.id != session.target_id {
-                    let _ = gateway.attach_target(&id, runtime.clone(), target).await;
-                }
-            }
-        });
-    }
-
     pub(crate) async fn session_client(
         &self,
         id: &str,
@@ -330,7 +306,10 @@ impl BrowserGateway {
         client.ok_or_else(|| BrowserGatewayError::Cdp("CDP 尚未连接".to_string()))
     }
 
-    fn insert_session(&self, session: BrowserSession) -> Result<(), BrowserGatewayError> {
+    pub(crate) fn insert_session(
+        &self,
+        session: BrowserSession,
+    ) -> Result<(), BrowserGatewayError> {
         let mut state = self.lock_state()?;
         let session_id = session.id.clone();
         state.sessions.insert(session_id.clone(), session.clone());
@@ -338,7 +317,7 @@ impl BrowserGateway {
         Ok(())
     }
 
-    fn insert_runtime(
+    pub(crate) fn insert_runtime(
         &self,
         id: &str,
         runtime: BrowserSessionRuntime,
@@ -347,7 +326,7 @@ impl BrowserGateway {
         Ok(())
     }
 
-    fn remove_runtime(
+    pub(crate) fn remove_runtime(
         &self,
         id: &str,
     ) -> Result<Option<BrowserSessionRuntime>, BrowserGatewayError> {
@@ -370,7 +349,11 @@ impl BrowserGateway {
         Ok(session)
     }
 
-    fn mark_session_failed(&self, id: &str, message: &str) -> Result<(), BrowserGatewayError> {
+    pub(crate) fn mark_session_failed(
+        &self,
+        id: &str,
+        message: &str,
+    ) -> Result<(), BrowserGatewayError> {
         self.update_session(id, |session| {
             session.status = BrowserSessionStatus::Failed;
             session.message = message.to_string();
@@ -433,7 +416,7 @@ impl BrowserGateway {
         Ok(())
     }
 
-    fn lock_state(
+    pub(crate) fn lock_state(
         &self,
     ) -> Result<std::sync::MutexGuard<'_, BrowserGatewayState>, BrowserGatewayError> {
         self.state
@@ -441,7 +424,7 @@ impl BrowserGateway {
             .map_err(|_| BrowserGatewayError::StatePoisoned)
     }
 
-    fn push_event_locked(
+    pub(crate) fn push_event_locked(
         state: &mut BrowserGatewayState,
         session_id: &str,
         event: &str,

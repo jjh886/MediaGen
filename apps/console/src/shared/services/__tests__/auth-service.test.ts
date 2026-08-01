@@ -22,10 +22,11 @@ describe('auth-service', () => {
 
   it('读取管理台登录状态', async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse({ data: { configured: true, authenticated: false } })
+      jsonResponse({ data: { supported: true, configured: true, authenticated: false } })
     )
 
     await expect(getAuthStatus()).resolves.toEqual({
+      supported: true,
       configured: true,
       authenticated: false,
     })
@@ -36,7 +37,9 @@ describe('auth-service', () => {
 
   it('提交管理员账号密码登录', async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse({ data: { configured: true, authenticated: true, username: 'admin' } })
+      jsonResponse({
+        data: { supported: true, configured: true, authenticated: true, username: 'admin' },
+      })
     )
 
     await expect(loginAdmin({ username: 'admin', password: 'secret' })).resolves.toMatchObject({

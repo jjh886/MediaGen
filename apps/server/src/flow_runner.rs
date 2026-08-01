@@ -3,14 +3,14 @@ use std::time::Duration;
 
 use mediagen_browser_gateway::{
     BrowserClipboardRequest, BrowserGateway, BrowserHistoryRequest, BrowserInputRequest,
-    BrowserResizeRequest, BrowserScreenshotRequest, BrowserSessionCreateRequest,
-    BrowserSessionPurpose,
+    BrowserResizeRequest, BrowserScreenshotRequest,
 };
 use mediagen_core::PluginManifest;
 use mediagen_plugin_runtime::PluginLoader;
 use serde_json::{json, Value};
 
-use crate::account_browser_profile::browser_metadata_from_account;
+use crate::flow_browser_lifecycle::{is_persistent_browser, FlowBrowserLifecycle};
+use crate::flow_browser_open::open_browser;
 use crate::flow_runtime::{
     build_image_flow_context, find_image_result, flow_result_is_error, flow_result_message,
     generate_image_flow, prepare_flow_step, record_flow_result,
@@ -49,27 +49,39 @@ impl FlowRunner {
         let task_id = input.task_id.clone();
         let mut context = build_image_flow_context(&self.plugin_loader, manifest, account, input)?;
         let mut results = Vec::new();
-
-        for step in &flow.steps {
-            let Some(prepared) = prepare_flow_step(step, &mut context, &mut results)? else {
-                continue;
-            };
-            let result = self
-                .execute_action(
-                    &prepared.action,
-                    &prepared.params,
-                    manifest,
-                    account,
-                    task_id.as_deref(),
-                )
-                .await?;
-            if flow_result_is_error(&result) {
-                return Err(flow_result_message(&result));
+        let mut browser_lifecycle = FlowBrowserLifecycle::new(
+            self.browser_gateway.clone(),
+            is_persistent_browser(manifest),
+        );
+        let execution = async {
+            for step in &flow.steps {
+                let Some(prepared) = prepare_flow_step(step, &mut context, &mut results)? else {
+                    continue;
+                };
+                let result = self
+                    .execute_action(
+                        &prepared.action,
+                        &prepared.params,
+                        manifest,
+                        account,
+                        task_id.as_deref(),
+                    )
+                    .await?;
+                browser_lifecycle.remember_open(&prepared.action, &result);
+                if flow_result_is_error(&result) {
+                    return Err(flow_result_message(&result));
+                }
+                record_flow_result(&mut context, &mut results, &prepared.params, result);
             }
-            record_flow_result(&mut context, &mut results, &prepared.params, result);
-        }
 
-        find_image_result(&results).ok_or_else(|| "插件执行完成，但没有返回图片结果".to_string())
+            find_image_result(&results)
+                .ok_or_else(|| "插件执行完成，但没有返回图片结果".to_string())
+        }
+        .await;
+
+        // 与 aiduanju 一致：成功时释放或结束会话，任何提前失败都强制回收本任务会话。
+        browser_lifecycle.finish(execution.is_ok()).await;
+        execution
     }
 
     async fn execute_action(
@@ -81,7 +93,16 @@ impl FlowRunner {
         task_id: Option<&str>,
     ) -> Result<Value, String> {
         match action {
-            "browser.open" => self.open_browser(params, manifest, account, task_id).await,
+            "browser.open" => {
+                open_browser(
+                    self.browser_gateway.clone(),
+                    params,
+                    manifest,
+                    account,
+                    task_id,
+                )
+                .await
+            }
             "browser.navigate" => self.navigate(params).await,
             "browser.history" => self.history(params).await,
             "browser.resize" => self.resize(params).await,
@@ -100,39 +121,6 @@ impl FlowRunner {
             "http.download" => http_download(params, &account.proxy_url).await,
             other => Err(format!("服务端暂不支持 flow action: {other}")),
         }
-    }
-
-    async fn open_browser(
-        &self,
-        params: &Value,
-        manifest: &PluginManifest,
-        account: &AccountRecord,
-        task_id: Option<&str>,
-    ) -> Result<Value, String> {
-        let start_url = str_param(params, "restore_url")
-            .or_else(|| str_param(params, "url"))
-            .unwrap_or_else(|| manifest.workspace_url.clone());
-        let profile_dir =
-            str_param(params, "profile_dir").unwrap_or_else(|| account.profile_dir.clone());
-        let response = self
-            .browser_gateway
-            .create_session(BrowserSessionCreateRequest {
-                purpose: BrowserSessionPurpose::TaskTakeover,
-                platform: manifest.platform_id.clone(),
-                task_id: task_id.map(str::to_string),
-                start_url,
-                profile_dir: Some(profile_dir),
-                headless: Some(bool_param(params, "headless").unwrap_or(true)),
-                metadata: browser_metadata_from_account(account),
-                ..BrowserSessionCreateRequest::default()
-            })
-            .await
-            .map_err(|err| err.to_string())?;
-        Ok(json!({
-            "session_id": response.session.id,
-            "profile_dir": response.session.profile_dir,
-            "url": response.session.url,
-        }))
     }
 
     async fn navigate(&self, params: &Value) -> Result<Value, String> {
@@ -327,15 +315,17 @@ impl FlowRunner {
         manifest: &PluginManifest,
     ) -> Result<Value, String> {
         let session_id = required_str(params, "session_id")?;
-        if manifest
-            .extra
-            .get("browser_lifecycle")
-            .and_then(Value::as_str)
-            == Some("persistent")
-        {
+        if is_persistent_browser(manifest) {
+            self.browser_gateway
+                .release_session(&session_id)
+                .await
+                .map_err(|err| err.to_string())?;
             return Ok(json!({ "closed": false, "kept_alive": true }));
         }
-        let _ = self.browser_gateway.complete_session(&session_id).await;
+        self.browser_gateway
+            .complete_session(&session_id)
+            .await
+            .map_err(|err| err.to_string())?;
         Ok(json!({ "closed": true }))
     }
 }
@@ -384,27 +374,5 @@ async fn sleep_ms(ms: Option<u64>) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::screenshot_request_from_params;
-    use serde_json::json;
-
-    #[test]
-    fn screenshot_request_accepts_flow_params_and_defaults() {
-        let default = screenshot_request_from_params(&json!({ "session_id": "browser-1" }))
-            .expect("default screenshot params");
-        assert_eq!(default.format, "jpeg");
-        assert_eq!(default.quality, None);
-        assert!(!default.full_page);
-
-        let custom = screenshot_request_from_params(&json!({
-            "session_id": "browser-1",
-            "format": "png",
-            "quality": 80,
-            "full_page": true
-        }))
-        .expect("custom screenshot params");
-        assert_eq!(custom.format, "png");
-        assert_eq!(custom.quality, Some(80));
-        assert!(custom.full_page);
-    }
-}
+#[path = "flow_runner_tests.rs"]
+mod tests;

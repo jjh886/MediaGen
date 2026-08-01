@@ -4,7 +4,9 @@ use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
 
 use crate::account_login::AccountLoginProfile;
-use crate::store_models::{AccountRecord, AccountUpdate, TaskRecord};
+use crate::store_models::{
+    AccountRecord, AccountUpdate, GenerationJobRecord, GenerationJobState, TaskRecord,
+};
 
 // AppStore 的纯计算辅助逻辑集中放这里，避免 store.rs 继续承担过多职责。
 pub(crate) fn account_ready_for_dispatch(account: &AccountRecord, tasks: &[TaskRecord]) -> bool {
@@ -137,9 +139,44 @@ fn under_concurrency(account: &AccountRecord, tasks: &[TaskRecord]) -> bool {
     let running = tasks
         .iter()
         .filter(|task| task.account_id.as_deref() == Some(account.id.as_str()))
-        .filter(|task| matches!(task.status.as_str(), "queued" | "processing"))
+        .filter(|task| task_is_active(task))
         .count() as u32;
     running < account.concurrency_limit.max(1)
+}
+
+/// 排队或执行中的任务仍占用账号，登录检查不能在此时操作同一浏览器资料目录。
+pub(crate) fn task_is_active(task: &TaskRecord) -> bool {
+    matches!(task.status.as_str(), "queued" | "processing")
+}
+
+/// 服务重启后，同步接口遗留的任务已经无法继续执行，必须释放它占用的账号并发。
+pub(crate) fn recover_interrupted_direct_tasks(
+    tasks: &mut [TaskRecord],
+    jobs: &[GenerationJobRecord],
+    completed_at: &str,
+) -> usize {
+    let has_recoverable_job = |task_id: &str| {
+        jobs.iter().any(|job| {
+            job.task_id == task_id
+                && matches!(
+                    job.state,
+                    GenerationJobState::Queued
+                        | GenerationJobState::RetryWait
+                        | GenerationJobState::Leased
+                )
+        })
+    };
+    let mut recovered = 0;
+    for task in tasks.iter_mut().filter(|task| task_is_active(task)) {
+        if has_recoverable_job(&task.id) {
+            continue;
+        }
+        task.status = "failed".to_string();
+        task.error_message = Some("MediaGen 上次退出时任务仍在执行，请重新提交".to_string());
+        task.completed_at = Some(completed_at.to_string());
+        recovered += 1;
+    }
+    recovered
 }
 
 fn interval_elapsed(account: &AccountRecord, tasks: &[TaskRecord], now: DateTime<Utc>) -> bool {
@@ -176,8 +213,8 @@ fn parse_time(value: &str) -> Option<DateTime<Utc>> {
 mod tests {
     use chrono::{Duration, TimeZone, Utc};
 
-    use super::account_ready_for_dispatch_at;
-    use crate::store_models::TaskRecord;
+    use super::{account_ready_for_dispatch_at, recover_interrupted_direct_tasks};
+    use crate::store_models::{GenerationJobRecord, GenerationJobState, TaskRecord};
     use crate::test_fixtures::account_record;
 
     #[test]
@@ -219,6 +256,60 @@ mod tests {
             error_message: None,
             result_data: None,
             created_at,
+            completed_at: None,
+        }
+    }
+
+    #[test]
+    fn startup_fails_only_interrupted_direct_tasks() {
+        let mut direct =
+            task_for_account("task-direct", "acc-1", "2026-07-30T00:00:00Z".to_string());
+        direct.status = "processing".to_string();
+        let mut queued =
+            task_for_account("task-queued", "acc-1", "2026-07-30T00:00:00Z".to_string());
+        queued.status = "queued".to_string();
+        let completed = task_for_account(
+            "task-completed",
+            "acc-1",
+            "2026-07-30T00:00:00Z".to_string(),
+        );
+        let mut tasks = vec![direct, queued, completed];
+        let jobs = vec![generation_job("task-queued")];
+
+        let recovered = recover_interrupted_direct_tasks(&mut tasks, &jobs, "2026-07-30T01:00:00Z");
+
+        assert_eq!(recovered, 1);
+        assert_eq!(tasks[0].status, "failed");
+        assert_eq!(
+            tasks[0].error_message.as_deref(),
+            Some("MediaGen 上次退出时任务仍在执行，请重新提交")
+        );
+        assert_eq!(
+            tasks[0].completed_at.as_deref(),
+            Some("2026-07-30T01:00:00Z")
+        );
+        assert_eq!(tasks[1].status, "queued");
+        assert_eq!(tasks[2].status, "completed");
+    }
+
+    fn generation_job(task_id: &str) -> GenerationJobRecord {
+        GenerationJobRecord {
+            task_id: task_id.to_string(),
+            owner_key: "owner".to_string(),
+            task_kind: "image".to_string(),
+            request_json: "{}".to_string(),
+            credential_ciphertext: "cipher".to_string(),
+            state: GenerationJobState::Queued,
+            priority: 100,
+            queue_seq: 1,
+            next_attempt_at: "2026-07-30T00:00:00Z".to_string(),
+            retry_count: 0,
+            last_failure_category: None,
+            last_error_summary: None,
+            lease_until: None,
+            created_at: "2026-07-30T00:00:00Z".to_string(),
+            updated_at: "2026-07-30T00:00:00Z".to_string(),
+            started_at: None,
             completed_at: None,
         }
     }

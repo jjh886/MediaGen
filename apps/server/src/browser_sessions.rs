@@ -107,9 +107,20 @@ pub async fn create_browser_session(
     if let Err(err) = release_relogin_profile(&state, &request).await {
         return gateway_error_response(err);
     }
+    let oauth_state = oauth_login::oauth_meta(&request.metadata).map(|meta| meta.state);
+    if let Some(oauth_state) = oauth_state.as_deref() {
+        if let Err(message) = state.oauth_logins.start_login(state.clone(), oauth_state) {
+            return HttpResponse::Conflict().json(json!({ "ok": false, "error": message }));
+        }
+    }
     match state.browser_gateway.create_session(request).await {
         Ok(response) => HttpResponse::Ok().json(public_browser_response(response)),
-        Err(err) => gateway_error_response(err),
+        Err(err) => {
+            if let Some(oauth_state) = oauth_state {
+                state.oauth_logins.finish_login(&oauth_state).await;
+            }
+            gateway_error_response(err)
+        }
     }
 }
 
@@ -130,11 +141,18 @@ pub async fn cancel_browser_session(
     state: web::Data<ServerState>,
     path: web::Path<String>,
 ) -> impl Responder {
-    match state
+    let session_id = path.into_inner();
+    let oauth_state = state
         .browser_gateway
-        .cancel_session(&path.into_inner())
-        .await
-    {
+        .get_session(&session_id)
+        .ok()
+        .and_then(|session| oauth_login::oauth_meta(&session.metadata))
+        .map(|meta| meta.state);
+    let result = state.browser_gateway.cancel_session(&session_id).await;
+    if let Some(oauth_state) = oauth_state {
+        state.oauth_logins.finish_login(&oauth_state).await;
+    }
+    match result {
         Ok(response) => HttpResponse::Ok().json(public_browser_response(response)),
         Err(err) => gateway_error_response(err),
     }
@@ -170,9 +188,13 @@ pub async fn complete_browser_session(
             .get_plugin(&current_session.platform)
             .cloned()
     });
+    let oauth_state = oauth_login::oauth_meta(&current_session.metadata).map(|meta| meta.state);
 
     match state.browser_gateway.complete_session(&session_id).await {
         Ok(response) => {
+            if let Some(oauth_state) = oauth_state {
+                state.oauth_logins.finish_login(&oauth_state).await;
+            }
             if let Some((task_id, account_id)) = verification_context {
                 finish_human_verification(&state, &task_id, &account_id);
                 return HttpResponse::Ok().json(serde_json::json!({

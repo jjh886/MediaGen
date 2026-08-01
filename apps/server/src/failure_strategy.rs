@@ -216,6 +216,17 @@ mod tests {
     }
 
     #[test]
+    fn transient_cdp_failure_never_marks_login_expired() {
+        let decision = classify_failure(
+            &manifest_with_rules(json!([])),
+            r#"cdp error: {"code":-32000,"message":"Inspected target navigated or closed"}"#,
+        );
+
+        assert_eq!(decision.category, "unknown");
+        assert_eq!(decision.account_state, None);
+    }
+
+    #[test]
     fn reads_same_account_retry_thresholds() {
         let manifest = manifest_with_rules(json!([
             {

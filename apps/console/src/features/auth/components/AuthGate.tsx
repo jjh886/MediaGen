@@ -17,7 +17,9 @@ export default function AuthGate({ children }: AuthGateProps) {
     getAuthStatus()
       .then((status) => {
         if (cancelled) return
-        setViewState(status.authenticated || !status.configured ? 'ready' : 'login')
+        setViewState(
+          !status.supported || status.authenticated || !status.configured ? 'ready' : 'login'
+        )
       })
       .catch(() => {
         if (!cancelled) setViewState('login')
@@ -73,24 +75,12 @@ function LoginScreen({ onLogin }: { onLogin: (status: AuthStatus) => void }) {
         </div>
         <h1>登录 MediaGen</h1>
         <p>服务端管理台已开启登录保护，请先登录后再添加账号和 API Key。</p>
-        <label className="auth-field">
-          <span>账号</span>
-          <KtInput
-            autoFocus
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            placeholder="请输入管理员账号"
-          />
-        </label>
-        <label className="auth-field">
-          <span>密码</span>
-          <KtInput
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="请输入管理员密码"
-          />
-        </label>
+        <LoginFields
+          username={username}
+          password={password}
+          onUsernameChange={setUsername}
+          onPasswordChange={setPassword}
+        />
         {error && <div className="auth-error">{error}</div>}
         <KtButton
           type="submit"
@@ -104,5 +94,37 @@ function LoginScreen({ onLogin }: { onLogin: (status: AuthStatus) => void }) {
         </KtButton>
       </form>
     </div>
+  )
+}
+
+interface LoginFieldsProps {
+  username: string
+  password: string
+  onUsernameChange: (value: string) => void
+  onPasswordChange: (value: string) => void
+}
+
+function LoginFields({ username, password, onUsernameChange, onPasswordChange }: LoginFieldsProps) {
+  return (
+    <>
+      <label className="auth-field">
+        <span>账号</span>
+        <KtInput
+          autoFocus
+          value={username}
+          onChange={(event) => onUsernameChange(event.target.value)}
+          placeholder="请输入管理员账号"
+        />
+      </label>
+      <label className="auth-field">
+        <span>密码</span>
+        <KtInput
+          type="password"
+          value={password}
+          onChange={(event) => onPasswordChange(event.target.value)}
+          placeholder="请输入管理员密码"
+        />
+      </label>
+    </>
   )
 }

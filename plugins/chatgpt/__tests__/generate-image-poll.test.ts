@@ -13,15 +13,73 @@ describe('chatgpt generate_image_poll', () => {
     vi.useRealTimers()
   })
 
-  it('ignores unrelated Chinese page text saying something went wrong', async () => {
+  it('ignores error phrases inside the user prompt', async () => {
     document.body.innerHTML = `
       <aside>历史记录：出了点问题</aside>
-      <main>正在生成图片</main>
+      <main>
+        <section data-testid="conversation-turn-1">
+          <div data-message-author-role="user">
+            排除错误结构、无法生成、违反规则的画面，稍后重试也不要改变提示词。
+          </div>
+        </section>
+        <section data-testid="conversation-turn-2">正在生成图片</section>
+      </main>
     `
 
     const result = await runScriptJson('generate_image_poll.js')
 
     expect(result.status).toBe('generating')
     expect(result.message).toBeUndefined()
+  })
+
+  it('detects an actual error inside the assistant response', async () => {
+    document.body.innerHTML = `
+      <main>
+        <section data-testid="conversation-turn-1">
+          <div data-message-author-role="user">生成一张图片</div>
+        </section>
+        <section data-testid="conversation-turn-2">
+          <div data-message-author-role="assistant">Something went wrong</div>
+        </section>
+      </main>
+    `
+
+    const result = await runScriptJson('generate_image_poll.js')
+
+    expect(result.status).toBe('error')
+    expect(result.error_code).toBe('platform_busy')
+  })
+
+  it('starts the fifteen-minute timeout from actual submission', async () => {
+    const now = Date.now()
+    setCgptState({
+      status: 'generating',
+      startTime: now - 20 * 60 * 1000,
+      submit_started_at: now - (15 * 60 * 1000 - 1_000),
+      fetchLog: [],
+      uploaded_refs: [],
+    })
+
+    const result = await runScriptJson('generate_image_poll.js')
+
+    expect(result.status).toBe('generating')
+    expect(result.elapsed).toBeGreaterThanOrEqual(899)
+  })
+
+  it('reports timeout after fifteen minutes of actual generation', async () => {
+    const now = Date.now()
+    setCgptState({
+      status: 'generating',
+      startTime: now - 20 * 60 * 1000,
+      submit_started_at: now - (15 * 60 * 1000 + 1_000),
+      fetchLog: [],
+      uploaded_refs: [],
+    })
+
+    const result = await runScriptJson('generate_image_poll.js')
+
+    expect(result.status).toBe('error')
+    expect(result.error_code).toBe('generation_timeout')
+    expect(result.message).toBe('生成超时（15min）')
   })
 })

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use mediagen_browser_gateway::{
     BrowserClipboardAction, BrowserClipboardRequest, BrowserGateway, BrowserGatewayConfig,
     BrowserGatewayError, BrowserInputRequest, BrowserResizeRequest, BrowserSessionCreateRequest,
-    BrowserViewport, BrowserWheelInput,
+    BrowserSessionPurpose, BrowserViewport, BrowserWheelInput,
 };
 use serde_json::json;
 
@@ -120,4 +120,117 @@ async fn default_proxy_is_used_only_without_session_override() {
         .unwrap()
         .session;
     assert!(direct.metadata.get("proxy_server").is_none());
+}
+
+/// 真实 CloakBrowser 冒烟测试：同一 profile 的多个任务必须共享进程并各用独立 Tab。
+///
+/// 默认忽略，避免普通 CI 依赖本机浏览器；发布安装包前通过 CLOAK_BROWSER_PATH 显式运行。
+#[tokio::test]
+#[ignore = "需要本机 CloakBrowser"]
+async fn same_profile_tasks_use_independent_tabs_in_one_browser() {
+    let root = std::env::temp_dir().join(format!("mediagen-profile-tabs-{}", uuid::Uuid::new_v4()));
+    let profile_dir = root.join("shared");
+    let gateway = BrowserGateway::new(BrowserGatewayConfig {
+        profile_root: root.clone(),
+        ..BrowserGatewayConfig::default()
+    });
+    let first = gateway
+        .create_session(BrowserSessionCreateRequest {
+            purpose: BrowserSessionPurpose::TaskTakeover,
+            task_id: Some("task-1".to_string()),
+            profile_dir: Some(profile_dir.to_string_lossy().to_string()),
+            start_url: "about:blank".to_string(),
+            ..BrowserSessionCreateRequest::default()
+        })
+        .await
+        .expect("第一个任务应启动浏览器")
+        .session;
+    let second = gateway
+        .create_profile_tab_session(BrowserSessionCreateRequest {
+            purpose: BrowserSessionPurpose::TaskTakeover,
+            task_id: Some("task-2".to_string()),
+            profile_dir: Some(profile_dir.to_string_lossy().to_string()),
+            start_url: "about:blank".to_string(),
+            ..BrowserSessionCreateRequest::default()
+        })
+        .await
+        .expect("第二个任务应创建 Tab")
+        .expect("已有 profile 浏览器时必须复用")
+        .session;
+
+    assert_ne!(first.id, second.id);
+    assert_eq!(
+        gateway
+            .evaluate_script(&first.id, "1 + 1", false)
+            .await
+            .unwrap(),
+        json!(2)
+    );
+    assert_eq!(
+        gateway
+            .evaluate_script(&second.id, "2 + 2", false)
+            .await
+            .unwrap(),
+        json!(4)
+    );
+
+    // 关闭第一个 Tab 后，第二个任务仍应正常执行，不能把整个浏览器进程一起杀掉。
+    gateway.complete_session(&first.id).await.unwrap();
+    assert_eq!(
+        gateway
+            .evaluate_script(&second.id, "3 + 3", false)
+            .await
+            .unwrap(),
+        json!(6)
+    );
+    gateway.complete_session(&second.id).await.unwrap();
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// 模拟服务重启：新的 Gateway 没有旧内存状态，也必须通过 profile 端口登记接管浏览器。
+#[tokio::test]
+#[ignore = "需要本机 CloakBrowser"]
+async fn restarted_gateway_reuses_registered_profile_browser() {
+    let root =
+        std::env::temp_dir().join(format!("mediagen-restart-reuse-{}", uuid::Uuid::new_v4()));
+    let profile_dir = root.join("shared");
+    let config = BrowserGatewayConfig {
+        profile_root: root.clone(),
+        ..BrowserGatewayConfig::default()
+    };
+    let first_gateway = BrowserGateway::new(config.clone());
+    let first = first_gateway
+        .create_session(BrowserSessionCreateRequest {
+            profile_dir: Some(profile_dir.to_string_lossy().to_string()),
+            start_url: "about:blank".to_string(),
+            ..BrowserSessionCreateRequest::default()
+        })
+        .await
+        .expect("原服务应启动浏览器")
+        .session;
+
+    let restarted_gateway = BrowserGateway::new(config);
+    let reused = restarted_gateway
+        .create_session(BrowserSessionCreateRequest {
+            profile_dir: Some(profile_dir.to_string_lossy().to_string()),
+            start_url: "about:blank".to_string(),
+            ..BrowserSessionCreateRequest::default()
+        })
+        .await
+        .expect("重启后的服务应接管已有浏览器")
+        .session;
+
+    assert_eq!(
+        restarted_gateway
+            .evaluate_script(&reused.id, "21 * 2", false)
+            .await
+            .unwrap(),
+        json!(42)
+    );
+    restarted_gateway
+        .complete_session(&reused.id)
+        .await
+        .unwrap();
+    first_gateway.complete_session(&first.id).await.unwrap();
+    let _ = std::fs::remove_dir_all(root);
 }

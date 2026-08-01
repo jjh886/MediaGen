@@ -1,6 +1,7 @@
 mod access_control;
 mod account_browser_profile;
 mod account_login;
+mod account_login_check;
 mod admin_access;
 mod admin_auth;
 mod admin_routes;
@@ -12,6 +13,8 @@ mod browser_sessions;
 mod callback_host;
 mod failure_strategy;
 mod file_api;
+mod flow_browser_lifecycle;
+mod flow_browser_open;
 mod flow_runner;
 mod flow_runtime;
 mod flow_templates;
@@ -49,7 +52,11 @@ mod file_api_tests;
 #[cfg(test)]
 mod image_api_tests;
 #[cfg(test)]
+mod routes_login_tests;
+#[cfg(test)]
 mod routes_tests;
+#[cfg(test)]
+mod store_dispatch_tests;
 #[cfg(test)]
 mod store_tests;
 #[cfg(test)]
@@ -95,14 +102,9 @@ async fn main() -> std::io::Result<()> {
     generation_queue::start_worker(state.clone());
     let console_dir = config.console_dir.clone();
     let bind = format!("{}:{}", config.host, config.port);
-    let callback_server = oauth_login::callback_server(state.clone(), &config.oauth_callback_bind)?;
 
     println!("[mediagen-server] listening on http://{bind}");
-    println!(
-        "[mediagen-server] OAuth callback listening on http://{}",
-        config.oauth_callback_bind
-    );
-    let main_server = HttpServer::new(move || {
+    HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
             .wrap_fn(|request, service| {
@@ -124,10 +126,8 @@ async fn main() -> std::io::Result<()> {
             .service(Files::new("/", &console_dir).index_file("index.html"))
     })
     .bind(bind)?
-    .run();
-    futures_util::future::try_join(main_server, callback_server)
-        .await
-        .map(|_| ())
+    .run()
+    .await
 }
 
 fn ensure_server_dirs(config: &ServerConfig) -> std::io::Result<()> {
@@ -159,7 +159,8 @@ fn build_state(config: &ServerConfig) -> ServerState {
             ..BrowserGatewayConfig::default()
         })),
         store: Arc::new(AppStore::load(config.data_dir.join("mediagen.sqlite"))),
-        oauth_logins: OAuthLoginStore::default(),
+        // 固定回调端口只在添加或重新登录 Codex 账号期间按需监听。
+        oauth_logins: OAuthLoginStore::new(config.oauth_callback_bind.clone()),
         file_root: config.data_dir.join("openai-files"),
         image_task_queue: Arc::new(ImageTaskQueue::default()),
         credential_cipher: Arc::new(credential_cipher),

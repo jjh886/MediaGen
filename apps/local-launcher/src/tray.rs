@@ -20,6 +20,15 @@ struct TrayMenuIds {
 
 pub fn run(session: LaunchSession) -> Result<(), String> {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    #[cfg(target_os = "macos")]
+    let mut event_loop = event_loop;
+    #[cfg(target_os = "macos")]
+    {
+        use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
+
+        // Tao 默认会切回普通前台应用；菜单栏启动器必须显式隐藏 Dock 图标。
+        event_loop.set_activation_policy(ActivationPolicy::Accessory);
+    }
     let proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |event| {
         let _ = proxy.send_event(UserEvent::Menu(event));

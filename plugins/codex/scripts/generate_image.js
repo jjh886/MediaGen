@@ -177,80 +177,8 @@ function requestImage(accessToken, accountId, payload) {
     timeout_ms: 1800000,
   })
   const result = extractImage(sse.events || [])
+  if (!result.image && !result.error && sse.ok === false) applyHttpError(result, sse)
   return result
-}
-
-function extractImage(events) {
-  const out = {
-    image: '',
-    revised_prompt: '',
-    usage: null,
-    error: '',
-    error_code: '',
-    types: [],
-    partial_images: [],
-  }
-  const types = []
-  for (const event of events) {
-    collectEventType(types, event)
-    applyEvent(out, event)
-  }
-  if (!out.image && !out.error && types.length) {
-    out.error = 'No image_generation_call.result found. events: ' + types.join(', ')
-  }
-  out.types = types
-  return out
-}
-
-function collectEventType(types, event) {
-  if (event && event.type) types.push(event.type)
-}
-
-function applyEvent(out, event) {
-  if (!event) return
-  if (event.type === 'error') applyError(out, event)
-  if (event.type === 'response.failed') applyError(out, get(event, ['response', 'error']) || {})
-  if (event.type === 'response.image_generation_call.partial_image') applyPartialImage(out, event)
-  if (event.type === 'response.output_item.done') applyImageCall(out, event.item || {})
-  if (event.type === 'response.completed') applyCompletedResponse(out, event.response || {})
-}
-
-function applyCompletedResponse(out, response) {
-  if (response.usage) out.usage = response.usage
-  if (response.error) applyError(out, response.error)
-  if (!Array.isArray(response.output)) return
-  for (const item of response.output) applyImageCall(out, item)
-}
-
-function applyImageCall(out, item) {
-  if (!item || item.type !== 'image_generation_call') return
-  if (item.result) out.image = item.result
-  if (item.revised_prompt) out.revised_prompt = item.revised_prompt
-}
-
-function applyPartialImage(out, event) {
-  const b64 = String(event.partial_image_b64 || '').trim()
-  if (!b64) return
-  out.partial_images.push({
-    partial_image_index: optionalNumber(event.partial_image_index, 0, 1000) || 0,
-    b64_json: b64,
-    output_format: optionalString(event.output_format),
-  })
-}
-
-function applyError(out, error) {
-  if (!error) return
-  const message = error.message || error.error || error.code || ''
-  if (!message) return
-  const code = error.code || error.type || ''
-  out.error_code = code
-  out.error = code && code !== message ? code + ': ' + message : message
-}
-
-function resultError(result) {
-  if (result.error) return result.error
-  const types = unique(result.types || []).join(', ')
-  return 'No image_generation_call.result found.' + (types ? ' events: ' + types : '')
 }
 
 function resolveSize(ctx) {

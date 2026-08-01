@@ -119,9 +119,17 @@ pub(crate) async fn run_queued_image_flow(
     task_id: &str,
 ) -> Result<(), (u16, &'static str, String)> {
     ensure_task_not_cancelled(&state, task_id)?;
-    let context =
-        resolve_image_flow_context_with_task_id(&state, &body, Some(&caller_key), task_id.into())?;
-    state.store.start_task(task_id);
+    let context = state.store.with_account_dispatch(|| {
+        let context = resolve_image_flow_context_with_task_id(
+            &state,
+            &body,
+            Some(&caller_key),
+            task_id.into(),
+        )?;
+        state.store.set_task_account(task_id, &context.account.id);
+        state.store.start_task(task_id);
+        Ok(context)
+    })?;
     state
         .store
         .add_task_event(task_id, "info", "任务开始执行".to_string());
@@ -142,19 +150,22 @@ async fn run_image_flow(
     endpoint: ImageEndpoint,
     caller_key: Option<String>,
 ) -> Result<Value, (u16, &'static str, String)> {
-    let context = resolve_image_flow_context(&state, &body, caller_key.as_deref())?;
     let settings = state.store.settings();
     let reservation = state
         .image_task_queue
         .reserve(&settings)
         .map_err(|message| (429, "queue_full", message))?;
-    state.store.insert_task(new_image_task(
-        &context.task_id,
-        context.manifest,
-        &context.model.model_id,
-        &body,
-        &context.account.id,
-    ));
+    let context = state.store.with_account_dispatch(|| {
+        let context = resolve_image_flow_context(&state, &body, caller_key.as_deref())?;
+        state.store.insert_task(new_image_task(
+            &context.task_id,
+            context.manifest,
+            &context.model.model_id,
+            &body,
+            &context.account.id,
+        ));
+        Ok(context)
+    })?;
     state
         .store
         .add_task_event(&context.task_id, "info", "任务进入队列".to_string());
@@ -331,17 +342,22 @@ fn next_failover_context<'a>(
     caller_key: Option<&str>,
     excluded: &[String],
 ) -> Result<Option<ImageFlowContext<'a>>, (u16, &'static str, String)> {
-    let Some(account) = state.store.first_available_account_for_key_excluding(
-        &current.manifest.platform_id,
-        caller_key,
-        excluded,
-    ) else {
+    let selected = state.store.with_account_dispatch(|| {
+        let account = state.store.first_available_account_for_key_excluding(
+            &current.manifest.platform_id,
+            caller_key,
+            excluded,
+        )?;
+        let account = state.store.account_with_required_runtime_proxy(account);
+        if let Ok(account) = &account {
+            state.store.set_task_account(&current.task_id, &account.id);
+        }
+        Some(account)
+    });
+    let Some(account) = selected else {
         return Ok(None);
     };
-    let account = state
-        .store
-        .account_with_required_runtime_proxy(account)
-        .map_err(|message| (409, "proxy_unavailable", message))?;
+    let account = account.map_err(|message| (409, "proxy_unavailable", message))?;
     state.store.add_task_event(
         &current.task_id,
         "info",

@@ -88,18 +88,30 @@ impl BrowserGateway {
         script: &str,
         await_promise: bool,
     ) -> Result<Value, BrowserGatewayError> {
-        let client = self.session_client(id).await?;
-        let result = client
-            .send(
-                "Runtime.evaluate",
-                json!({
-                    "expression": script,
-                    "awaitPromise": await_promise,
-                    "returnByValue": true,
-                }),
-            )
-            .await?;
-        runtime_result_to_value(&result)
+        let mut retry = 0usize;
+        loop {
+            // 每次重试重新读取 client，目标被页面替换时可使用 watcher 刚重连的新 client。
+            let client = self.session_client(id).await?;
+            let result = client
+                .send(
+                    "Runtime.evaluate",
+                    json!({
+                        "expression": script,
+                        "awaitPromise": await_promise,
+                        "returnByValue": true,
+                    }),
+                )
+                .await;
+            match result {
+                Ok(value) => return runtime_result_to_value(&value),
+                Err(error) if retry < 2 && is_transient_navigation_error(&error) => {
+                    let delay_ms = [400, 900][retry];
+                    retry += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
     }
 
     pub async fn click_selector(
@@ -350,4 +362,37 @@ fn normalize_url(raw: &str) -> Result<String, BrowserGatewayError> {
         return Ok(value.to_string());
     }
     Ok(format!("https://{value}"))
+}
+
+fn is_transient_navigation_error(error: &BrowserGatewayError) -> bool {
+    let BrowserGatewayError::Cdp(message) = error else {
+        return false;
+    };
+    let message = message.to_ascii_lowercase();
+    [
+        "inspected target navigated or closed",
+        "execution context was destroyed",
+        "cannot find context with specified id",
+    ]
+    .iter()
+    .any(|marker| message.contains(marker))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_transient_navigation_error;
+    use crate::BrowserGatewayError;
+
+    #[test]
+    fn navigation_race_is_retryable_but_normal_script_errors_are_not() {
+        assert!(is_transient_navigation_error(&BrowserGatewayError::Cdp(
+            r#"{"code":-32000,"message":"Inspected target navigated or closed"}"#.to_string()
+        )));
+        assert!(is_transient_navigation_error(&BrowserGatewayError::Cdp(
+            "Execution context was destroyed".to_string()
+        )));
+        assert!(!is_transient_navigation_error(&BrowserGatewayError::Cdp(
+            "ReferenceError: missing is not defined".to_string()
+        )));
+    }
 }

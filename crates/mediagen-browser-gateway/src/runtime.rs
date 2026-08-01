@@ -15,6 +15,7 @@ use crate::proxy;
 use crate::{BrowserGatewayConfig, BrowserGatewayError, BrowserSession};
 
 const SAFE_LAUNCH_URL: &str = "about:blank";
+const RUNTIME_PORT_FILE: &str = ".mediagen-browser-port";
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct BrowserTarget {
@@ -30,20 +31,35 @@ pub(crate) struct BrowserTarget {
 #[derive(Clone)]
 pub(crate) struct BrowserRuntime {
     pub debugging_port: u16,
-    child: Arc<Mutex<Child>>,
+    child: Arc<Mutex<Option<Child>>>,
+    port_file: PathBuf,
 }
 
 impl BrowserRuntime {
-    pub(crate) fn new(debugging_port: u16, child: Child) -> Self {
+    pub(crate) fn owned(debugging_port: u16, child: Child, profile_dir: &str) -> Self {
         Self {
             debugging_port,
-            child: Arc::new(Mutex::new(child)),
+            child: Arc::new(Mutex::new(Some(child))),
+            port_file: runtime_port_file(profile_dir),
+        }
+    }
+
+    fn attached(debugging_port: u16, profile_dir: &str) -> Self {
+        Self {
+            debugging_port,
+            child: Arc::new(Mutex::new(None)),
+            port_file: runtime_port_file(profile_dir),
         }
     }
 
     pub(crate) async fn stop(&self) {
         let mut child = self.child.lock().await;
-        let _ = child.kill().await;
+        // 只有当前服务亲自启动的进程才能直接 kill；跨重启接管的进程保留端口登记，
+        // 后续任务仍可继续接管，不会再次因为资料目录锁报 exit status 21。
+        if let Some(mut child) = child.take() {
+            let _ = child.kill().await;
+            let _ = tokio::fs::remove_file(&self.port_file).await;
+        }
     }
 }
 
@@ -51,11 +67,14 @@ pub(crate) async fn launch_cloakbrowser(
     config: &BrowserGatewayConfig,
     session: &BrowserSession,
 ) -> Result<(BrowserRuntime, BrowserTarget), BrowserGatewayError> {
-    let executable = resolve_cloakbrowser_path(config)?;
     tokio::fs::create_dir_all(&session.profile_dir)
         .await
         .map_err(|err| BrowserGatewayError::BrowserLaunch(err.to_string()))?;
+    if let Some(runtime) = attach_registered_runtime(&session.profile_dir).await {
+        return Ok(runtime);
+    }
 
+    let executable = resolve_cloakbrowser_path(config)?;
     let debugging_port = get_free_port().await?;
     let viewport = session.viewport;
     let mut args = vec![
@@ -100,8 +119,62 @@ pub(crate) async fn launch_cloakbrowser(
         ))
     })?;
 
-    let target = wait_for_page_target(debugging_port, &mut child).await?;
-    Ok((BrowserRuntime::new(debugging_port, child), target))
+    let target = match wait_for_page_target(debugging_port, &mut child).await {
+        Ok(target) => target,
+        Err(error) => {
+            // 两个服务实例同时启动时，另一个实例可能刚写好端口登记；失败后再接管一次。
+            if let Some(runtime) = attach_registered_runtime(&session.profile_dir).await {
+                return Ok(runtime);
+            }
+            return Err(error);
+        }
+    };
+    write_runtime_port(&session.profile_dir, debugging_port).await?;
+    Ok((
+        BrowserRuntime::owned(debugging_port, child, &session.profile_dir),
+        target,
+    ))
+}
+
+async fn attach_registered_runtime(profile_dir: &str) -> Option<(BrowserRuntime, BrowserTarget)> {
+    let port_file = runtime_port_file(profile_dir);
+    let raw = tokio::fs::read_to_string(&port_file).await.ok()?;
+    let Some(debugging_port) = parse_runtime_port(&raw) else {
+        let _ = tokio::fs::remove_file(port_file).await;
+        return None;
+    };
+
+    // 端口文件可能比 DevTools HTTP 服务先落盘，短暂重试可覆盖并发启动和服务重启竞态。
+    for _ in 0..8 {
+        if let Ok(target) = get_best_page_target(debugging_port).await {
+            return Some((
+                BrowserRuntime::attached(debugging_port, profile_dir),
+                target,
+            ));
+        }
+        sleep(Duration::from_millis(250)).await;
+    }
+    let _ = tokio::fs::remove_file(port_file).await;
+    None
+}
+
+async fn write_runtime_port(
+    profile_dir: &str,
+    debugging_port: u16,
+) -> Result<(), BrowserGatewayError> {
+    tokio::fs::write(runtime_port_file(profile_dir), debugging_port.to_string())
+        .await
+        .map_err(|err| {
+            BrowserGatewayError::BrowserLaunch(format!("记录 CloakBrowser 调试端口失败: {err}"))
+        })
+}
+
+fn runtime_port_file(profile_dir: &str) -> PathBuf {
+    Path::new(profile_dir).join(RUNTIME_PORT_FILE)
+}
+
+fn parse_runtime_port(raw: &str) -> Option<u16> {
+    raw.trim().parse::<u16>().ok().filter(|port| *port > 0)
 }
 
 fn browser_launch_url() -> &'static str {
@@ -111,14 +184,65 @@ fn browser_launch_url() -> &'static str {
 pub(crate) async fn get_best_page_target(
     debugging_port: u16,
 ) -> Result<BrowserTarget, BrowserGatewayError> {
+    let targets = get_page_targets(debugging_port).await?;
+    best_page_target(&targets)
+}
+
+pub(crate) async fn get_page_target(
+    debugging_port: u16,
+    target_id: &str,
+) -> Result<Option<BrowserTarget>, BrowserGatewayError> {
+    Ok(get_page_targets(debugging_port)
+        .await?
+        .into_iter()
+        .find(|target| target.id == target_id))
+}
+
+pub(crate) async fn create_page_target(
+    debugging_port: u16,
+) -> Result<BrowserTarget, BrowserGatewayError> {
+    reqwest::Client::new()
+        .put(format!(
+            "http://127.0.0.1:{debugging_port}/json/new?{SAFE_LAUNCH_URL}"
+        ))
+        .send()
+        .await
+        .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))?
+        .error_for_status()
+        .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))?
+        .json::<BrowserTarget>()
+        .await
+        .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))
+}
+
+pub(crate) async fn close_page_target(
+    debugging_port: u16,
+    target_id: &str,
+) -> Result<(), BrowserGatewayError> {
+    if target_id.trim().is_empty() {
+        return Ok(());
+    }
+    reqwest::get(format!(
+        "http://127.0.0.1:{debugging_port}/json/close/{target_id}"
+    ))
+    .await
+    .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))?
+    .error_for_status()
+    .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))?;
+    Ok(())
+}
+
+async fn get_page_targets(debugging_port: u16) -> Result<Vec<BrowserTarget>, BrowserGatewayError> {
     let url = format!("http://127.0.0.1:{debugging_port}/json/list");
-    let targets = reqwest::get(url)
+    reqwest::get(url)
         .await
         .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))?
         .json::<Vec<BrowserTarget>>()
         .await
-        .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))?;
+        .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))
+}
 
+fn best_page_target(targets: &[BrowserTarget]) -> Result<BrowserTarget, BrowserGatewayError> {
     targets
         .iter()
         .find(|target| is_useful_page_url(&target.url))
@@ -281,10 +405,17 @@ fn path_exists(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::browser_launch_url;
+    use super::{browser_launch_url, parse_runtime_port};
 
     #[test]
     fn browser_starts_blank_before_cdp_guards_are_ready() {
         assert_eq!(browser_launch_url(), "about:blank");
+    }
+
+    #[test]
+    fn runtime_port_parser_rejects_invalid_registry_values() {
+        assert_eq!(parse_runtime_port("52500\n"), Some(52500));
+        assert_eq!(parse_runtime_port("0"), None);
+        assert_eq!(parse_runtime_port("not-a-port"), None);
     }
 }

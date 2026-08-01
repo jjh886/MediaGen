@@ -249,7 +249,10 @@
     if (!message) return
     rememberPatchConversation(patch)
     rememberImageTask(message)
-    rememberTextError(messageText(message))
+    // 用户提示词可能正常包含“错误、无法生成”等约束词，只允许平台回复触发失败。
+    if (message?.author?.role !== 'user') {
+      rememberTextError(messageText(message))
+    }
   }
 
   const parseSseLine = (line, taskToken) => {

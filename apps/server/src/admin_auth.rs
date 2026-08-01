@@ -31,6 +31,7 @@ pub struct LoginPayload {
 
 #[derive(Serialize)]
 struct AuthStatus {
+    supported: bool,
     configured: bool,
     authenticated: bool,
     username: Option<String>,
@@ -43,7 +44,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 }
 
 pub(crate) fn admin_login_configured() -> bool {
-    credentials().is_some()
+    active_credentials().is_some()
 }
 
 pub(crate) fn request_has_session(request: &actix_web::dev::ServiceRequest) -> bool {
@@ -59,9 +60,9 @@ async fn status(request: HttpRequest) -> impl Responder {
 }
 
 async fn login(request: HttpRequest, payload: web::Json<LoginPayload>) -> impl Responder {
-    let Some(credentials) = credentials() else {
+    let Some(credentials) = active_credentials() else {
         return HttpResponse::ServiceUnavailable().json(json!({
-            "error": "服务端未配置管理员登录账号，请先设置 MEDIAGEN_ADMIN_PASSWORD_HASH"
+            "error": "管理员登录只在 Linux 服务端启用，请检查服务端登录配置"
         }));
     };
     if !credentials.matches(&payload.username, &payload.password) {
@@ -73,6 +74,7 @@ async fn login(request: HttpRequest, payload: web::Json<LoginPayload>) -> impl R
         .cookie(session_cookie(&session, cookie_secure(&request)))
         .json(json!({
             "data": AuthStatus {
+                supported: true,
                 configured: true,
                 authenticated: true,
                 username: Some(credentials.username),
@@ -90,7 +92,15 @@ async fn logout(request: HttpRequest) -> impl Responder {
 }
 
 fn status_payload(request: &HttpRequest) -> AuthStatus {
-    let credentials = credentials();
+    let supported = admin_login_supported_for_os(std::env::consts::OS);
+    status_payload_with_credentials(request, supported, supported.then(credentials).flatten())
+}
+
+fn status_payload_with_credentials(
+    request: &HttpRequest,
+    supported: bool,
+    credentials: Option<AdminCredentials>,
+) -> AuthStatus {
     let configured = credentials.is_some();
     let authenticated = configured
         && request
@@ -99,17 +109,25 @@ fn status_payload(request: &HttpRequest) -> AuthStatus {
             .and_then(session_value)
             .is_some_and(session_exists);
     AuthStatus {
+        supported,
         configured,
         authenticated,
         username: authenticated.then(|| credentials.unwrap().username),
     }
 }
 
+/// 桌面端由本机权限保护，管理员账号登录只用于 Linux 服务端部署。
+fn active_credentials() -> Option<AdminCredentials> {
+    admin_login_supported_for_os(std::env::consts::OS)
+        .then(credentials)
+        .flatten()
+}
+
+fn admin_login_supported_for_os(os: &str) -> bool {
+    os == "linux"
+}
+
 fn credentials() -> Option<AdminCredentials> {
-    #[cfg(test)]
-    if let Some(credentials) = test_credentials() {
-        return Some(credentials);
-    }
     credentials_from_env()
 }
 
@@ -198,37 +216,6 @@ fn forwarded_proto(request: &HttpRequest) -> Option<&str> {
 }
 
 #[cfg(test)]
-fn test_credentials() -> Option<AdminCredentials> {
-    TEST_CREDENTIALS
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .unwrap()
-        .clone()
-}
-
-#[cfg(test)]
-fn set_test_credentials(username: &str, password: &str) {
-    *TEST_CREDENTIALS
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .unwrap() = Some(AdminCredentials {
-        username: username.to_string(),
-        password_hash: hash_secret(password),
-    });
-}
-
-#[cfg(test)]
-fn clear_test_credentials() {
-    *TEST_CREDENTIALS
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .unwrap() = None;
-}
-
-#[cfg(test)]
-static TEST_CREDENTIALS: OnceLock<Mutex<Option<AdminCredentials>>> = OnceLock::new();
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use actix_web::test as actix_test;
@@ -266,16 +253,26 @@ mod tests {
 
     #[test]
     fn status_reports_authenticated_user() {
-        set_test_credentials("admin", "secret");
+        let credentials = AdminCredentials {
+            username: "admin".to_string(),
+            password_hash: hash_secret("secret"),
+        };
         let session = create_session();
         let request = actix_test::TestRequest::default()
             .cookie(Cookie::new(ADMIN_SESSION_COOKIE, session.clone()))
             .to_http_request();
-        let status = status_payload(&request);
+        let status = status_payload_with_credentials(&request, true, Some(credentials));
 
+        assert!(status.supported);
         assert!(status.authenticated);
         assert_eq!(status.username.as_deref(), Some("admin"));
         remove_session(&session);
-        clear_test_credentials();
+    }
+
+    #[test]
+    fn admin_login_is_supported_only_on_linux() {
+        assert!(admin_login_supported_for_os("linux"));
+        assert!(!admin_login_supported_for_os("macos"));
+        assert!(!admin_login_supported_for_os("windows"));
     }
 }

@@ -57,7 +57,8 @@ pub fn server_state(root: std::path::PathBuf, plugin_loader: PluginLoader) -> Se
             ..BrowserGatewayConfig::default()
         })),
         store: Arc::new(AppStore::load(root.join("server-state.json"))),
-        oauth_logins: Default::default(),
+        // 测试若显式开启 OAuth 回调，应使用系统分配端口，避免影响其他本机客户端。
+        oauth_logins: crate::oauth_login::OAuthLoginStore::new("127.0.0.1:0".to_string()),
         file_root: root.join("openai-files"),
         image_task_queue: Arc::new(ImageTaskQueue::default()),
         credential_cipher: Arc::new(CredentialCipher::ephemeral()),
