@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -62,11 +63,16 @@ impl ServerPluginHost {
             "file.read_json" => self.read_json(params).await,
             "file.write_json" => self.write_json(params).await,
             "file.read_base64" => self.read_base64(params).await,
+            "file.inspect_image" => self.inspect_image(params).await,
             "http.request" => self.http_request(params, false).await,
             "http.sse_request" => self.http_request(params, true).await,
             "crypto.random_base64url" => random_base64url(params),
             "crypto.sha256_base64url" => sha256_base64url(params),
+            "crypto.base64_encode_utf8" => base64_encode_utf8(params),
+            "crypto.base64_encode_latin1" => base64_encode_latin1(params),
             "crypto.base64url_decode_utf8" => base64url_decode_utf8(params),
+            "crypto.base64_decode_latin1" => base64_decode_latin1(params),
+            "time.sleep" => sleep_for(params).await,
             "process.kill_port" => port_process::kill_port(params),
             action if action.starts_with("callback_server.") => {
                 self.callbacks.execute(action, params).await
@@ -123,12 +129,37 @@ impl ServerPluginHost {
         }))
     }
 
+    async fn inspect_image(&self, params: &Value) -> Result<Value, String> {
+        let path = required_str(params, "path")?;
+        let bytes = read_limited_file(&path, params["max_bytes"].as_u64()).await?;
+        // 这里只读取图片头部尺寸，不解码整张像素图，避免大图额外占用内存。
+        let reader = image::ImageReader::new(Cursor::new(bytes))
+            .with_guessed_format()
+            .map_err(|err| format!("file.inspect_image 无法识别图片 {path}: {err}"))?;
+        let (width, height) = reader
+            .into_dimensions()
+            .map_err(|err| format!("file.inspect_image 读取尺寸失败 {path}: {err}"))?;
+        Ok(json!({ "path": path, "width": width, "height": height }))
+    }
+
     async fn http_request(&self, params: &Value, sse: bool) -> Result<Value, String> {
         let request = self.build_request(params).await?;
         let response = request.send().await.map_err(|err| err.to_string())?;
         let status = response.status().as_u16();
         let success = response.status().is_success();
         let headers = response_headers(response.headers());
+        if params["response_body_format"].as_str() == Some("base64") {
+            let bytes = response.bytes().await.map_err(|err| err.to_string())?;
+            if bytes.len() as u64 > MAX_FILE_BYTES {
+                return Err(format!("HTTP 二进制响应超过限制 {} bytes", MAX_FILE_BYTES));
+            }
+            return Ok(json!({
+                "status": status,
+                "body_base64": BASE64_STANDARD.encode(bytes),
+                "headers": headers,
+                "ok": success,
+            }));
+        }
         let body_text = response.text().await.map_err(|err| err.to_string())?;
         let body = serde_json::from_str::<Value>(&body_text)
             .unwrap_or_else(|_| Value::String(body_text.clone()));
@@ -293,8 +324,28 @@ fn apply_body(
             Ok(request.form(&pairs))
         }
         "text" | "raw" => Ok(request.body(value_to_string(body))),
+        "base64" => {
+            let encoded = body
+                .as_str()
+                .ok_or_else(|| "base64 body 必须是字符串".to_string())?;
+            let bytes = BASE64_STANDARD
+                .decode(encoded)
+                .map_err(|err| format!("base64 body 解码失败: {err}"))?;
+            Ok(request.body(bytes))
+        }
         _ => Ok(request.json(body)),
     }
+}
+
+async fn read_limited_file(path: &str, max_bytes: Option<u64>) -> Result<Vec<u8>, String> {
+    let metadata = tokio::fs::metadata(path)
+        .await
+        .map_err(|err| format!("找不到文件 {path}: {err}"))?;
+    let limit = max_bytes.unwrap_or(MAX_FILE_BYTES);
+    if metadata.len() > limit {
+        return Err(format!("文件超过限制 {limit} bytes: {path}"));
+    }
+    tokio::fs::read(path).await.map_err(|err| err.to_string())
 }
 
 fn proxy_url(params: &Value, account_proxy: &str) -> Option<String> {
@@ -337,6 +388,39 @@ fn base64url_decode_utf8(params: &Value) -> Result<Value, String> {
     Ok(json!({ "value": value }))
 }
 
+fn base64_encode_utf8(params: &Value) -> Result<Value, String> {
+    let text = required_str(params, "text")?;
+    Ok(json!({ "value": BASE64_STANDARD.encode(text.as_bytes()) }))
+}
+
+fn base64_encode_latin1(params: &Value) -> Result<Value, String> {
+    let text = required_str(params, "text")?;
+    let bytes = text
+        .chars()
+        .map(|value| {
+            u8::try_from(value as u32)
+                .map_err(|_| "base64 latin1 编码遇到超出 0-255 的字符".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(json!({ "value": BASE64_STANDARD.encode(bytes) }))
+}
+
+fn base64_decode_latin1(params: &Value) -> Result<Value, String> {
+    let text = required_str(params, "text")?;
+    let bytes = BASE64_URL_SAFE_NO_PAD
+        .decode(&text)
+        .or_else(|_| BASE64_STANDARD.decode(&text))
+        .map_err(|err| format!("base64 latin1 解码失败: {err}"))?;
+    let value = bytes.into_iter().map(char::from).collect::<String>();
+    Ok(json!({ "value": value }))
+}
+
+async fn sleep_for(params: &Value) -> Result<Value, String> {
+    let milliseconds = params["milliseconds"].as_u64().unwrap_or(0).min(60_000);
+    tokio::time::sleep(Duration::from_millis(milliseconds)).await;
+    Ok(json!({ "milliseconds": milliseconds }))
+}
+
 fn mime_type(path: &str) -> &'static str {
     match Path::new(path)
         .extension()
@@ -372,71 +456,5 @@ fn value_to_string(value: &Value) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use serde_json::json;
-
-    use super::{proxy_url, ServerPluginHost};
-
-    #[test]
-    fn http_request_defaults_to_account_proxy() {
-        assert_eq!(
-            proxy_url(&json!({}), "127.0.0.1:1080"),
-            Some("socks5://127.0.0.1:1080".to_string())
-        );
-    }
-
-    #[test]
-    fn http_request_can_opt_out_of_account_proxy() {
-        assert_eq!(
-            proxy_url(&json!({ "proxy": "direct" }), "socks5://127.0.0.1:1080"),
-            None
-        );
-        assert_eq!(
-            proxy_url(
-                &json!({ "use_account_proxy": false }),
-                "socks5://127.0.0.1:1080"
-            ),
-            None
-        );
-    }
-
-    #[test]
-    fn account_fingerprint_fills_default_http_headers() {
-        let mut metadata = HashMap::new();
-        metadata.insert("browser_os".to_string(), json!("windows"));
-        metadata.insert("browser_version".to_string(), json!("126"));
-        let host = ServerPluginHost::new_with_metadata(String::new(), &metadata);
-
-        let headers = host.request_headers(&json!({})).unwrap();
-
-        assert!(headers
-            .get("user-agent")
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .contains("Chrome/126.0.0.0"));
-        assert_eq!(
-            headers.get("sec-ch-ua-platform").unwrap().to_str().unwrap(),
-            "\"Windows\""
-        );
-    }
-
-    #[test]
-    fn explicit_plugin_user_agent_is_not_overwritten() {
-        let mut metadata = HashMap::new();
-        metadata.insert("browser_os".to_string(), json!("windows"));
-        metadata.insert("browser_version".to_string(), json!("126"));
-        let host = ServerPluginHost::new_with_metadata(String::new(), &metadata);
-
-        let headers = host
-            .request_headers(&json!({ "headers": { "user-agent": "PluginUA" } }))
-            .unwrap();
-
-        assert_eq!(
-            headers.get("user-agent").unwrap().to_str().unwrap(),
-            "PluginUA"
-        );
-    }
-}
+#[path = "server_plugin_host_tests.rs"]
+mod tests;

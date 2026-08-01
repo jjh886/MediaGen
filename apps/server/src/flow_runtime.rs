@@ -25,6 +25,7 @@ pub(crate) fn build_image_flow_context(
     manifest: &PluginManifest,
     account: &AccountRecord,
     input: ImageFlowRequest,
+    platform_config: Value,
 ) -> Result<Value, String> {
     let scripts_dir = plugin_loader
         .get_plugin_dir(&manifest.platform_id)
@@ -40,6 +41,7 @@ pub(crate) fn build_image_flow_context(
         "max_images": input.max_images,
         "model_id": input.model_id,
         "model_display_name": input.model_display_name,
+        "platform_config": platform_config,
         "scripts_dir": scripts_dir.to_string_lossy(),
         "account_cookies": "",
         "ref_image_local": input.ref_image_locals.first().cloned().unwrap_or_default(),
@@ -190,12 +192,12 @@ mod tests {
 
     #[test]
     fn script_error_field_stops_the_flow_with_its_message() {
-        let result = json!({ "error": "登录已失效，请重新登录 ChatGPT" });
+        let result = json!({ "error": "登录已失效，请重新登录目标平台" });
 
         assert!(flow_result_is_error(&result));
         assert_eq!(
             flow_result_message(&result),
-            "登录已失效，请重新登录 ChatGPT"
+            "登录已失效，请重新登录目标平台"
         );
     }
 

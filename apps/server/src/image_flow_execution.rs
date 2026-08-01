@@ -44,15 +44,19 @@ pub(crate) async fn execute_image_flow(
     account: &AccountRecord,
     flow_request: ImageFlowRequest,
 ) -> Result<Value, String> {
+    let platform_config = state
+        .store
+        .settings()
+        .platform_generation_config(&manifest.platform_id);
     match manifest.adapter_mode {
         AdapterMode::Browser | AdapterMode::Hybrid => {
             FlowRunner::new(state.plugin_loader.clone(), state.browser_gateway.clone())
-                .run_image_flow(manifest, account, flow_request)
+                .run_image_flow(manifest, account, flow_request, platform_config)
                 .await
         }
         AdapterMode::Api => {
             JsFlowRunner::new(state.plugin_loader.clone())
-                .run_image_flow(manifest, account, flow_request)
+                .run_image_flow(manifest, account, flow_request, platform_config)
                 .await
         }
     }

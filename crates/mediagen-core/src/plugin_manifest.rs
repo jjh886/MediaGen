@@ -101,8 +101,8 @@ mod tests {
     #[test]
     fn manifest_deserializes_defaults_and_extra_fields() {
         let manifest: PluginManifest = serde_json::from_value(json!({
-            "platform_id": "codex",
-            "display_name": "Codex",
+            "platform_id": "platform-a",
+            "display_name": "Platform A",
             "custom_flag": true,
             "models": [{ "model_id": "image", "display_name": "Image" }],
             "tiers": { "free": { "display_name": "Free" } },
@@ -110,7 +110,7 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(manifest.platform_id, "codex");
+        assert_eq!(manifest.platform_id, "platform-a");
         assert_eq!(manifest.sort_order, 1000);
         assert_eq!(manifest.adapter_mode, AdapterMode::Browser);
         assert_eq!(manifest.models[0].task_kind, TaskKind::Image);

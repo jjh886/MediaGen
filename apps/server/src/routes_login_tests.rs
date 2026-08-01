@@ -33,7 +33,7 @@ async fn active_task_skips_login_check_without_opening_another_browser() {
     let state = test_state("active-task");
     state
         .store
-        .insert_account(account_record("acc-busy", "chatgpt", "运行中账号", ""));
+        .insert_account(account_record("acc-busy", "platform-a", "运行中账号", ""));
     state.store.insert_task(active_task("acc-busy"));
     let app = crate::init_admin_test_app!(state.clone());
 
@@ -67,9 +67,9 @@ fn account_state(state: &crate::ServerState, id: &str) -> String {
 fn active_task(account_id: &str) -> TaskRecord {
     TaskRecord {
         id: "task-active".to_string(),
-        platform: "chatgpt".to_string(),
+        platform: "platform-a".to_string(),
         task_kind: "image".to_string(),
-        model_id: "ChatGPT".to_string(),
+        model_id: "example-model".to_string(),
         prompt: "draw".to_string(),
         account_id: Some(account_id.to_string()),
         status: "processing".to_string(),

@@ -29,6 +29,7 @@ const defaultSettings: AppSettings = {
   cooldown_default_seconds: 120,
   cache_dir: '/tmp/test-cache',
   platform_tier_overrides: '{"doubao_free":{"daily_limit":10}}',
+  platform_generation_configs: '{}',
 }
 
 beforeEach(() => {

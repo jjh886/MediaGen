@@ -2,6 +2,7 @@ mod access_control;
 mod account_browser_profile;
 mod account_login;
 mod account_login_check;
+mod account_login_credentials;
 mod admin_access;
 mod admin_auth;
 mod admin_routes;
@@ -159,7 +160,7 @@ fn build_state(config: &ServerConfig) -> ServerState {
             ..BrowserGatewayConfig::default()
         })),
         store: Arc::new(AppStore::load(config.data_dir.join("mediagen.sqlite"))),
-        // 固定回调端口只在添加或重新登录 Codex 账号期间按需监听。
+        // 固定回调端口只在插件声明的 OAuth 登录流程期间按需监听。
         oauth_logins: OAuthLoginStore::new(config.oauth_callback_bind.clone()),
         file_root: config.data_dir.join("openai-files"),
         image_task_queue: Arc::new(ImageTaskQueue::default()),

@@ -14,6 +14,8 @@ export interface AppSettings {
   cache_dir: string
   // 平台默认配额覆盖（JSON 格式存储，key=platform_tier，如 "doubao_free"）
   platform_tier_overrides: string
+  // 平台生成参数（JSON 格式存储，key=platform_id，字段由插件解释）
+  platform_generation_configs: string
 }
 
 export interface TierOverride {
@@ -37,6 +39,7 @@ const DEFAULTS: AppSettings = {
   cooldown_default_seconds: 300,
   cache_dir: '',
   platform_tier_overrides: '{}',
+  platform_generation_configs: '{}',
 }
 
 function deserializeValue<K extends keyof AppSettings>(key: K, raw: unknown): AppSettings[K] {

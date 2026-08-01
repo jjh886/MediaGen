@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn dispatch_respects_account_task_interval() {
-        let mut account = account_record("acc-1", "codex", "Codex", "");
+        let mut account = account_record("acc-1", "platform-a", "Platform A", "");
         account.task_interval_seconds = 60;
         let now = Utc.with_ymd_and_hms(2026, 7, 2, 10, 0, 0).unwrap();
         let recent = task_for_account(
@@ -245,7 +245,7 @@ mod tests {
     fn task_for_account(id: &str, account_id: &str, created_at: String) -> TaskRecord {
         TaskRecord {
             id: id.to_string(),
-            platform: "codex".to_string(),
+            platform: "platform-a".to_string(),
             task_kind: "image".to_string(),
             model_id: "model".to_string(),
             prompt: "draw".to_string(),

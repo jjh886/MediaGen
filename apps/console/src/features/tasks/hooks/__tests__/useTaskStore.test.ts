@@ -23,9 +23,9 @@ const SAMPLE_TASKS: Task[] = [
   },
   {
     id: 'task-002',
-    platform: 'flow',
+    platform: 'chatgpt-api',
     task_kind: 'video',
-    model_id: 'flow-gen2',
+    model_id: 'ChatGPT API',
     prompt: '测试2',
     status: 'completed',
     created_at: '2026-04-13T10:05:00Z',
@@ -83,13 +83,13 @@ describe('useTaskStore', () => {
 
     it('未指定 platform 时使用 activePlatform', async () => {
       mockFetchTasks.mockResolvedValue([])
-      useTaskStore.setState({ activePlatform: 'flow' })
+      useTaskStore.setState({ activePlatform: 'chatgpt-api' })
 
       await act(async () => {
         await useTaskStore.getState().fetch()
       })
 
-      expect(mockFetchTasks).toHaveBeenCalledWith('flow')
+      expect(mockFetchTasks).toHaveBeenCalledWith('chatgpt-api')
     })
 
     it('fetch 失败时 loading 恢复为 false', async () => {
@@ -136,11 +136,11 @@ describe('useTaskStore', () => {
       useTaskStore.setState({ selectedTaskId: 'task-001' })
 
       await act(async () => {
-        useTaskStore.getState().setActivePlatform('flow')
+        useTaskStore.getState().setActivePlatform('chatgpt-api')
       })
 
       const state = useTaskStore.getState()
-      expect(state.activePlatform).toBe('flow')
+      expect(state.activePlatform).toBe('chatgpt-api')
       expect(state.selectedTaskId).toBeNull()
     })
 

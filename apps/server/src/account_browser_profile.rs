@@ -43,7 +43,7 @@ mod tests {
 
     #[test]
     fn account_metadata_keeps_proxy_and_browser_profile() {
-        let mut account = account_record("acc-1", "codex", "Codex", "");
+        let mut account = account_record("acc-1", "platform-a", "Platform A", "");
         account.proxy_url = "socks5h://proxy.example:1080".to_string();
         account.browser_os = "windows".to_string();
         account.browser_version = "126".to_string();

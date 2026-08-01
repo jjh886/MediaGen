@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn image_metadata_removes_full_and_partial_base64() {
         let result = json!({
-            "source": "codex",
+            "source": "plugin-a",
             "status": "done",
             "images": [{ "url": "data:image/png;base64,large", "width": 1024, "height": 1536 }],
             "partial_images": [{ "b64_json": "partial" }]

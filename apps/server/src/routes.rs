@@ -47,6 +47,8 @@ pub async fn plugins(state: web::Data<ServerState>) -> impl Responder {
                 "workspace_url": manifest.workspace_url,
                 "models": manifest.models,
                 "tiers": manifest.tiers,
+                // 配置结构由插件声明；服务端只按公共协议原样透传，不解释字段含义。
+                "generation_settings": manifest.extra.get("generation_settings").cloned().unwrap_or(Value::Null),
                 "model_count": manifest.models.len(),
                 "supports_registration": manifest.extra
                     .get("registration")

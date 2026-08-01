@@ -1,0 +1,162 @@
+{
+  "platform_id": "chatgpt-api",
+  "display_name": "ChatGPT API",
+  "sort_order": 15,
+  "adapter_mode": "api",
+  "login_url": "https://chatgpt.com/",
+  "workspace_url": "https://chatgpt.com/",
+  "models": [
+    {
+      "model_id": "ChatGPT API",
+      "display_name": "ChatGPT API 生图",
+      "task_kind": "image",
+      "aliases": ["chatgpt-api", "gpt-image-1-chatgpt-api"],
+      "alias_priority": 20
+    }
+  ],
+  "tiers": {
+    "free": {
+      "display_name": "默认用户",
+      "is_default": true,
+      "concurrency_limit": 2,
+      "daily_limit": 40,
+      "total_limit": 0,
+      "cooldown_seconds": 30,
+      "task_interval_seconds": 0
+    }
+  },
+  "image_capabilities": {
+    "supports_generation": true,
+    "supports_edit": true,
+    "supports_mask": false,
+    "max_reference_images": 16,
+    "supported_output_formats": ["png", "jpeg", "webp"]
+  },
+  "generation_settings": {
+    "title": "ChatGPT API 生成配置",
+    "description": "保存后用于新的图片任务。模型留空时由 ChatGPT 按当前账号自动选择；指定模型会在任务开始时与账号可用模型列表核对。",
+    "notice": "当前真实网页协议已验证 Standard 和 Extended；未验证或账号无权限的档位不会显示，避免请求被 ChatGPT 拒绝。",
+    "fields": [
+      {
+        "key": "model",
+        "type": "text",
+        "label": "模型标识",
+        "hint": "留空最稳妥，例如 gpt-5-5",
+        "placeholder": "留空，跟随 ChatGPT 自动选择",
+        "default": ""
+      },
+      {
+        "key": "thinking_effort",
+        "type": "select",
+        "label": "思考深度",
+        "hint": "深度越高，通常等待越久",
+        "default": "extended",
+        "options": [
+          { "value": "", "label": "跟随 ChatGPT 默认策略" },
+          { "value": "standard", "label": "标准思考（Medium）" },
+          { "value": "extended", "label": "深度思考（High）" }
+        ]
+      }
+    ]
+  },
+  "failure_policy": [
+    {
+      "contains_any": ["rate_limit_exceeded", "HTTP 429", "生成过于频繁"],
+      "state": "cooldown",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1
+    },
+    {
+      "contains_any": ["quota_exhausted", "image generations requests", "limit resets in"],
+      "state": "disabled"
+    }
+  ],
+  "failure_strategy": [
+    {
+      "contains_any": ["LOGIN_EXPIRED", "HTTP 401", "HTTP 403"],
+      "category": "login_expired",
+      "retry_action": "failover",
+      "account_state": "login_expired",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["rate_limit_exceeded", "HTTP 429", "生成过于频繁"],
+      "category": "account_rate_limited",
+      "retry_action": "failover",
+      "account_state": "cooldown",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["quota_exhausted", "image generations requests", "limit resets in"],
+      "category": "quota_exhausted",
+      "retry_action": "failover",
+      "account_state": "daily_quota_exhausted",
+      "cooldown_from_message": true,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["AUTH_INCONCLUSIVE", "timeout", "connection reset"],
+      "category": "transient_network",
+      "retry_action": "same_account_retry",
+      "same_error_threshold": 3,
+      "threshold_cooldown_seconds": 600,
+      "usage_consumed": false
+    }
+  ],
+  "verification": {
+    "trigger_contains_any": [],
+    "ignore_contains_any": [],
+    "captcha_selectors": []
+  },
+  "login_detection": {
+    "method": "js_script",
+    "script_file": "check_login.js",
+    "await_promise": true
+  },
+  "login_credential_capture": {
+    "script_file": "capture_auth.js",
+    "await_promise": true,
+    "file_name": "auth.json",
+    "cookie_urls": ["https://chatgpt.com/"]
+  },
+  "watermark": {
+    "has_watermark": false,
+    "removal_strategy": "none"
+  },
+  "flows": {
+    "generate_image": {
+      "steps": [
+        {
+          "_comment": "纯 HTTP 执行 ChatGPT 普通会话生图；浏览器仅在添加或重新登录账号时使用",
+          "action": "plugin.run_js",
+          "script_files": [
+            "auth.js",
+            "startup.js",
+            "sentinel_vm.js",
+            "sentinel.js",
+            "reference_upload.js",
+            "conversation.js",
+            "generate_image.js"
+          ],
+          "timeout_ms": 660000,
+          "save_as": "result"
+        }
+      ]
+    },
+    "check_account": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "check_account.js"],
+          "timeout_ms": 60000,
+          "save_as": "health"
+        }
+      ]
+    }
+  },
+  "registration": {
+    "enabled": false
+  }
+}

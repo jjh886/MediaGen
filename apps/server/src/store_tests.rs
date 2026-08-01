@@ -25,24 +25,24 @@ fn api_key_selects_accounts_by_global_or_explicit_key() {
 
     assert_eq!(
         store
-            .first_available_account_for_key("codex", Some("global-key"))
+            .first_available_account_for_key("platform-a", Some("global-key"))
             .map(|item| item.id),
         Some("acc-default".to_string())
     );
     assert_eq!(
         store
-            .first_available_account_for_key("codex", Some("plain-key"))
+            .first_available_account_for_key("platform-a", Some("plain-key"))
             .map(|item| item.id),
         Some("acc-default".to_string())
     );
     assert_eq!(
         store
-            .first_available_account_for_key("codex", Some("account-only-key"))
+            .first_available_account_for_key("platform-a", Some("account-only-key"))
             .map(|item| item.id),
         Some("acc-explicit".to_string())
     );
     assert!(store
-        .first_available_account_for_key("codex", Some("unknown-key"))
+        .first_available_account_for_key("platform-a", Some("unknown-key"))
         .is_none());
 }
 
@@ -210,7 +210,7 @@ fn task_lifecycle_updates_result_error_and_sort_order() {
     store.insert_task(task("task-old", "running", "2026-06-28T00:00:00Z"));
     store.insert_task(task("task-new", "running", "2026-06-29T00:00:00Z"));
 
-    let tasks = store.list_tasks(Some("codex"));
+    let tasks = store.list_tasks(Some("platform-a"));
     assert_eq!(
         tasks
             .iter()
@@ -246,7 +246,7 @@ fn task_lifecycle_updates_result_error_and_sort_order() {
     );
     assert_eq!(
         store
-            .list_tasks(Some("codex"))
+            .list_tasks(Some("platform-a"))
             .into_iter()
             .find(|task| task.id == "task-cancel")
             .unwrap()
@@ -268,7 +268,7 @@ fn task_runtime_events_usage_and_verification_are_recorded() {
 
     store.add_task_event("task-runtime", "info", "开始执行".to_string());
     store.mark_account_usage("acc-runtime");
-    let account = store.list_accounts(Some("codex")).remove(0);
+    let account = store.list_accounts(Some("platform-a")).remove(0);
     assert_eq!(account.used_today, 1);
     assert_eq!(account.used_total, 1);
 
@@ -285,7 +285,7 @@ fn task_runtime_events_usage_and_verification_are_recorded() {
     assert!(resumed.error_message.is_none());
 
     let reloaded = AppStore::load(store_path("task-runtime"));
-    let interrupted = &reloaded.list_tasks(Some("codex"))[0];
+    let interrupted = &reloaded.list_tasks(Some("platform-a"))[0];
     // 同步任务没有持久化 worker，服务重启后不能继续执行，必须结束并释放账号并发。
     assert_eq!(interrupted.status, "failed");
     assert_eq!(
@@ -312,7 +312,7 @@ fn browser_session_upsert_creates_and_relogs_accounts() {
         )
         .unwrap();
 
-    assert_eq!(created.platform, "codex");
+    assert_eq!(created.platform, "platform-a");
     assert_eq!(created.name, "Bob");
     assert_eq!(created.email, "bob@example.test");
     assert_eq!(created.tier, "pro");
@@ -360,7 +360,7 @@ fn store_path(name: &str) -> std::path::PathBuf {
 }
 
 fn account(id: &str, api_key: &str) -> AccountRecord {
-    account_record(id, "codex", id, api_key)
+    account_record(id, "platform-a", id, api_key)
 }
 
 fn proxy(id: &str) -> ProxyRecord {
@@ -378,9 +378,9 @@ fn proxy(id: &str) -> ProxyRecord {
 fn task(id: &str, status: &str, created_at: &str) -> TaskRecord {
     TaskRecord {
         id: id.to_string(),
-        platform: "codex".to_string(),
+        platform: "platform-a".to_string(),
         task_kind: "image".to_string(),
-        model_id: "gpt-image-1".to_string(),
+        model_id: "image-model".to_string(),
         prompt: "draw".to_string(),
         account_id: None,
         status: status.to_string(),
@@ -402,7 +402,7 @@ fn session(purpose: BrowserSessionPurpose, account_id: Option<String>) -> Browse
         id: "session-1".to_string(),
         purpose,
         status: BrowserSessionStatus::Active,
-        platform: "codex".to_string(),
+        platform: "platform-a".to_string(),
         account_id,
         task_id: None,
         proxy_id: Some("proxy-1".to_string()),
@@ -432,8 +432,8 @@ fn session(purpose: BrowserSessionPurpose, account_id: Option<String>) -> Browse
 
 fn manifest_with_default_tier() -> PluginManifest {
     let mut manifest = PluginManifest {
-        platform_id: "codex".to_string(),
-        display_name: "Codex".to_string(),
+        platform_id: "platform-a".to_string(),
+        display_name: "Platform A".to_string(),
         sort_order: 1,
         adapter_mode: Default::default(),
         login_url: String::new(),

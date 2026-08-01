@@ -67,8 +67,12 @@
     return match ? match[1] : ''
   }
 
-  // 记录网页端真实请求头，后续删除会话时复用，避免接口因缺少 oai-* 头而只“看似成功”。
+  // 记录网页端真实请求头，后续轮询和删除会话时复用。
+  // ChatGPT 的 backend-api 不只校验 Cookie，还要求 Bearer token 和账号 ID；漏掉它们会把
+  // 已登录账号误判成 conversation_inaccessible。
   const TRACKED_API_HEADERS = [
+    'authorization',
+    'chatgpt-account-id',
     'oai-client-build-number',
     'oai-client-version',
     'oai-device-id',
@@ -93,6 +97,39 @@
       const value = headers.get(name)
       if (value) saved[name] = value
     }
+  }
+
+  const mergeApiHeaders = (headers) => {
+    const merged = new Headers(headers || {})
+    for (const [name, value] of Object.entries(state.api_headers || {})) {
+      if (value && !merged.has(name)) merged.set(name, String(value))
+    }
+    return merged
+  }
+
+  const ensureApiAuth = async () => {
+    const saved = (state.api_headers = state.api_headers || {})
+    if (saved.authorization && saved['chatgpt-account-id']) return
+
+    // accessToken 会过期，因此只在内存中按需从官方 session 接口刷新，不写入页面存储。
+    const response = await origFetch('/api/auth/session', {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { accept: 'application/json' },
+    })
+    if (!response.ok) throw new Error(`ChatGPT session HTTP ${response.status}`)
+    const session = await response.json()
+    if (!session?.accessToken || !session?.account?.id) {
+      throw new Error('ChatGPT session 缺少 accessToken 或 account.id')
+    }
+    saved.authorization = `Bearer ${session.accessToken}`
+    saved['chatgpt-account-id'] = session.account.id
+  }
+
+  // 统一给插件自己的后台请求补齐登录头，避免每个轮询脚本各写一套鉴权逻辑。
+  const authenticatedFetch = async (input, options = {}) => {
+    await ensureApiAuth()
+    return origFetch(input, { ...options, headers: mergeApiHeaders(options.headers) })
   }
 
   const parseConversationIdFromUrl = (url) => {
@@ -319,6 +356,8 @@
 
   window.fetch.toString = () => origFetchToString
   Object.defineProperty(window.fetch, 'toString', { enumerable: false })
+
+  state.authenticatedFetch = authenticatedFetch
 
   const origOpen = XMLHttpRequest.prototype.open
   const origSend = XMLHttpRequest.prototype.send

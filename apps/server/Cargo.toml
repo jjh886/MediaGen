@@ -20,6 +20,7 @@ mediagen-core = { path = "../../crates/mediagen-core" }
 mediagen-plugin-runtime = { path = "../../crates/mediagen-plugin-runtime" }
 rand = { workspace = true }
 reqwest = { workspace = true }
+image = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

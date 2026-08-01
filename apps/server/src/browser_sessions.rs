@@ -2,8 +2,9 @@ use actix_web::{web, HttpResponse, Responder};
 use mediagen_browser_gateway::{
     BrowserCdpRequest, BrowserClipboardRequest, BrowserGatewayError, BrowserHistoryRequest,
     BrowserInputRequest, BrowserNavigateRequest, BrowserResizeRequest, BrowserScreenshotRequest,
-    BrowserSessionCreateRequest, BrowserSessionPurpose,
+    BrowserSession, BrowserSessionCreateRequest, BrowserSessionPurpose,
 };
+use mediagen_core::PluginManifest;
 use serde_json::{json, Value};
 
 use crate::account_login;
@@ -168,26 +169,10 @@ pub async fn complete_browser_session(
         Err(err) => return gateway_error_response(err),
     };
     let verification_context = verification_completion_context(&current_session);
-    let login_profile = match current_session.purpose {
-        BrowserSessionPurpose::AddAccount | BrowserSessionPurpose::ReloginAccount => {
-            match account_login::verify_browser_session_login(&state, &current_session).await {
-                Ok(profile) => Some(profile),
-                Err(message) => {
-                    return HttpResponse::Conflict().json(serde_json::json!({
-                        "ok": false,
-                        "error": message,
-                    }));
-                }
-            }
-        }
-        _ => None,
+    let (login_profile, manifest) = match prepare_login_completion(&state, &current_session).await {
+        Ok(context) => context,
+        Err(response) => return response,
     };
-    let manifest = login_profile.as_ref().and_then(|_| {
-        state
-            .plugin_loader
-            .get_plugin(&current_session.platform)
-            .cloned()
-    });
     let oauth_state = oauth_login::oauth_meta(&current_session.metadata).map(|meta| meta.state);
 
     match state.browser_gateway.complete_session(&session_id).await {
@@ -222,9 +207,44 @@ pub async fn complete_browser_session(
     }
 }
 
-fn verification_completion_context(
-    session: &mediagen_browser_gateway::BrowserSession,
-) -> Option<(String, Option<String>)> {
+/// 登录会话完成前统一校验登录态并采集插件声明的凭据，避免完成会话后再访问已关闭的浏览器。
+async fn prepare_login_completion(
+    state: &ServerState,
+    session: &BrowserSession,
+) -> Result<
+    (
+        Option<account_login::AccountLoginProfile>,
+        Option<PluginManifest>,
+    ),
+    HttpResponse,
+> {
+    let profile = match session.purpose {
+        BrowserSessionPurpose::AddAccount | BrowserSessionPurpose::ReloginAccount => Some(
+            account_login::verify_browser_session_login(state, session)
+                .await
+                .map_err(login_conflict_response)?,
+        ),
+        _ => None,
+    };
+    let manifest = profile
+        .as_ref()
+        .and_then(|_| state.plugin_loader.get_plugin(&session.platform).cloned());
+    if let Some(manifest) = manifest.as_ref() {
+        crate::account_login_credentials::capture_if_configured(state, session, manifest)
+            .await
+            .map_err(login_conflict_response)?;
+    }
+    Ok((profile, manifest))
+}
+
+fn login_conflict_response(message: String) -> HttpResponse {
+    HttpResponse::Conflict().json(serde_json::json!({
+        "ok": false,
+        "error": message,
+    }))
+}
+
+fn verification_completion_context(session: &BrowserSession) -> Option<(String, Option<String>)> {
     if session.purpose != BrowserSessionPurpose::HumanVerification {
         return None;
     }

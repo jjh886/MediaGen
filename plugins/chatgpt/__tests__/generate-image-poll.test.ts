@@ -50,12 +50,12 @@ describe('chatgpt generate_image_poll', () => {
     expect(result.error_code).toBe('platform_busy')
   })
 
-  it('starts the fifteen-minute timeout from actual submission', async () => {
+  it('starts the ten-minute timeout from actual submission', async () => {
     const now = Date.now()
     setCgptState({
       status: 'generating',
       startTime: now - 20 * 60 * 1000,
-      submit_started_at: now - (15 * 60 * 1000 - 1_000),
+      submit_started_at: now - (10 * 60 * 1000 - 1_000),
       fetchLog: [],
       uploaded_refs: [],
     })
@@ -63,15 +63,15 @@ describe('chatgpt generate_image_poll', () => {
     const result = await runScriptJson('generate_image_poll.js')
 
     expect(result.status).toBe('generating')
-    expect(result.elapsed).toBeGreaterThanOrEqual(899)
+    expect(result.elapsed).toBeGreaterThanOrEqual(599)
   })
 
-  it('reports timeout after fifteen minutes of actual generation', async () => {
+  it('reports timeout after ten minutes of actual generation', async () => {
     const now = Date.now()
     setCgptState({
       status: 'generating',
       startTime: now - 20 * 60 * 1000,
-      submit_started_at: now - (15 * 60 * 1000 + 1_000),
+      submit_started_at: now - (10 * 60 * 1000 + 1_000),
       fetchLog: [],
       uploaded_refs: [],
     })
@@ -80,6 +80,29 @@ describe('chatgpt generate_image_poll', () => {
 
     expect(result.status).toBe('error')
     expect(result.error_code).toBe('generation_timeout')
-    expect(result.message).toBe('生成超时（15min）')
+    expect(result.message).toBe('生成超时（10分钟）')
+  })
+
+  it('轮询会话时使用拦截器提供的鉴权请求方法', async () => {
+    const authenticatedFetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ status: 'IS_STREAMING' }))
+      .mockResolvedValueOnce(Response.json({ mapping: {}, async_status: null }))
+    setCgptState({
+      status: 'generating',
+      startTime: Date.now(),
+      conversation_id: 'conv-authenticated',
+      fetchLog: [],
+      uploaded_refs: [],
+      authenticatedFetch,
+    })
+
+    const result = await runScriptJson('generate_image_poll.js')
+
+    expect(result.status).toBe('generating')
+    expect(authenticatedFetch).toHaveBeenCalledWith(
+      '/backend-api/conversation/conv-authenticated',
+      { credentials: 'include' }
+    )
   })
 })

@@ -39,12 +39,12 @@ describe('chatgpt generate_image manifest', () => {
     expect(typeStep?.text).toContain('{{image_aspect_ratio}}')
   })
 
-  it('keeps the outer poll timeout longer than the fifteen-minute generation timeout', () => {
+  it('keeps one minute for reporting the ten-minute generation timeout', () => {
     const pollStep = generateImageSteps().find(
       (step) =>
         step.action === 'browser.poll_script' && step.script_file === 'generate_image_poll.js'
     )
 
-    expect(pollStep?.timeout_ms).toBe(16 * 60 * 1000)
+    expect(pollStep?.timeout_ms).toBe(11 * 60 * 1000)
   })
 })

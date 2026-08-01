@@ -1,4 +1,4 @@
-// ChatGPT：通过 paste 事件把参考图注入 composer，沿用 Flow 的 data URL 路径。
+// ChatGPT：通过 paste 事件把参考图注入 composer，沿用浏览器插件的 data URL 路径。
 //
 // 直接设置隐藏 file input 时，ChatGPT 的 React 上传链路偶发不会完整触发，
 // 页面看起来有文件但发送按钮一直不可用。本脚本模拟真实粘贴：

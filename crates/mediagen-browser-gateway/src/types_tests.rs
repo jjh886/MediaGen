@@ -25,7 +25,7 @@ fn create_request_resolves_defaults_and_alias_urls() {
     );
 
     let request = BrowserSessionCreateRequest {
-        platform: " chatgpt ".to_string(),
+        platform: " platform-a ".to_string(),
         start_url: "https://start.test".to_string(),
         url: Some("https://url.test".to_string()),
         initial_url: Some(" https://initial.test ".to_string()),
@@ -37,7 +37,7 @@ fn create_request_resolves_defaults_and_alias_urls() {
     };
 
     assert_eq!(request.resolved_url(), "https://initial.test");
-    assert_eq!(request.resolved_platform(), "chatgpt");
+    assert_eq!(request.resolved_platform(), "platform-a");
     assert_eq!(request.resolved_runtime_id(), "cloakbrowser");
     assert_eq!(request.resolved_device_scale_factor(), 2.0);
     assert_eq!(

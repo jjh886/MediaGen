@@ -4,9 +4,15 @@
 // 2. 从 fetchLog 中发现结果下载接口，再主动拉一次
 // 3. conversation_id + DOM 状态兜底
 ;(async () => {
+  const GENERATION_TIMEOUT_MS = 10 * 60 * 1000
   const SK = Symbol.for('_cgpt')
   const state = window[SK] || { status: 'generating', startTime: Date.now() }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+  // setup_interceptor 会按需刷新 session，并给插件自己的 backend-api 请求补齐鉴权头。
+  const apiFetch = (url, options = {}) =>
+    typeof state.authenticatedFetch === 'function'
+      ? state.authenticatedFetch(url, options)
+      : fetch(url, options)
   const asAbsoluteUrl = (url) => {
     try {
       return new URL(url, location.origin).href
@@ -47,7 +53,7 @@
       state.conversation_id
     )}&inline=false`
     try {
-      const resp = await fetch(url, { credentials: 'include' })
+      const resp = await apiFetch(url, { credentials: 'include' })
       const data = await resp.json()
       if (data?.download_url) return rememberDone(data.download_url, fileId, source)
     } catch (_) {}
@@ -85,9 +91,10 @@
   const updateStreamStatus = async (imageCardCount) => {
     if (!state.conversation_id) return
     try {
-      const resp = await fetch(`/backend-api/conversation/${state.conversation_id}/stream_status`, {
-        credentials: 'include',
-      })
+      const resp = await apiFetch(
+        `/backend-api/conversation/${state.conversation_id}/stream_status`,
+        { credentials: 'include' }
+      )
       const data = await resp.json()
       if (data?.status && data.status !== 'IS_STREAMING' && imageCardCount === 0) {
         state.stream_status = data.status
@@ -99,7 +106,7 @@
     // 拦截器漏掉 files/download 时，轻量拉取当前 conversation 找新 file_id。
     if (!state.conversation_id) return null
     try {
-      const resp = await fetch(`/backend-api/conversation/${state.conversation_id}`, {
+      const resp = await apiFetch(`/backend-api/conversation/${state.conversation_id}`, {
         credentials: 'include',
       })
       const conv = await resp.json()
@@ -328,11 +335,11 @@
     if (done) return done
   }
 
-  if (elapsed > 900000) {
+  if (elapsed > GENERATION_TIMEOUT_MS) {
     return JSON.stringify({
       status: 'error',
       error_code: 'generation_timeout',
-      message: '生成超时（15min）',
+      message: '生成超时（10分钟）',
       conversation_id: state.conversation_id || '',
       retryable: true,
       usage_consumed: false,

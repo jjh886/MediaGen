@@ -6,6 +6,7 @@ import { ApiServiceCard } from './ApiServiceCard'
 import { LoginManageCard } from './LoginManageCard'
 import { PlatformQuotaCard } from './PlatformQuotaCard'
 import { DataManageCard } from './DataManageCard'
+import { PlatformGenerationConfigCard } from './PlatformGenerationConfigCard'
 
 type SettingsUpdate = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void
 
@@ -32,6 +33,9 @@ function SettingsCardGrid({ settings, update }: { settings: AppSettings; update:
     >
       <ApiServiceCard settings={settings} update={update} />
       <LoginManageCard settings={settings} update={update} />
+      <div style={{ gridColumn: '1 / -1' }}>
+        <PlatformGenerationConfigCard settings={settings} update={update} />
+      </div>
       <div style={{ gridColumn: '1 / -1' }}>
         <PlatformQuotaCard settings={settings} update={update} />
       </div>

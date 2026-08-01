@@ -38,6 +38,7 @@ impl FlowRunner {
         manifest: &PluginManifest,
         account: &AccountRecord,
         input: ImageFlowRequest,
+        platform_config: Value,
     ) -> Result<Value, String> {
         if manifest.adapter_mode == mediagen_core::AdapterMode::Api {
             return Err(format!(
@@ -47,7 +48,13 @@ impl FlowRunner {
         }
         let flow = generate_image_flow(manifest)?;
         let task_id = input.task_id.clone();
-        let mut context = build_image_flow_context(&self.plugin_loader, manifest, account, input)?;
+        let mut context = build_image_flow_context(
+            &self.plugin_loader,
+            manifest,
+            account,
+            input,
+            platform_config,
+        )?;
         let mut results = Vec::new();
         let mut browser_lifecycle = FlowBrowserLifecycle::new(
             self.browser_gateway.clone(),

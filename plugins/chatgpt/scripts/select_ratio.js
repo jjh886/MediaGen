@@ -1,6 +1,6 @@
 // ChatGPT: locate and mark the aspect-ratio trigger button.
 // The actual clicks are done by browser.click / browser.click_text so they use CDP
-// trusted mouse events, matching the current project convention used by Doubao/Flow.
+// trusted mouse events, matching the current project convention used by browser plugins.
 ;(async () => {
   const SK = Symbol.for('_cgpt')
   const state = window[SK] || (window[SK] = {})

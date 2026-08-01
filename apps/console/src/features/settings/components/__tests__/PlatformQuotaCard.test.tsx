@@ -16,6 +16,7 @@ const settings: AppSettings = {
   cooldown_default_seconds: 42,
   cache_dir: '/tmp/mediagen-test-cache',
   platform_tier_overrides: JSON.stringify({}),
+  platform_generation_configs: '{}',
 }
 
 describe('PlatformQuotaCard', () => {
@@ -36,8 +37,8 @@ describe('PlatformQuotaCard', () => {
         JSON.stringify({
           data: [
             {
-              platform_id: 'flow',
-              display_name: 'Flow',
+              platform_id: 'chatgpt-api',
+              display_name: 'ChatGPT API',
               tiers: {
                 free: {
                   daily_limit: 50,
@@ -67,7 +68,7 @@ describe('PlatformQuotaCard', () => {
     render(<PlatformQuotaCard settings={settings} update={vi.fn()} />)
 
     const expectedRows = [
-      { label: 'Flow 免费', values: ['50', '0', '1', '0'] },
+      { label: 'ChatGPT API 免费', values: ['50', '0', '1', '0'] },
       { label: 'ChatGPT 免费', values: ['40', '0', '1', '5'] },
     ]
 

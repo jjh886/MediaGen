@@ -6,7 +6,7 @@ use crate::test_fixtures::account_record;
 #[test]
 fn concurrent_dispatch_never_exceeds_account_limit() {
     let store = Arc::new(AppStore::load(test_store_path()));
-    let mut account = account_record("acc-shared", "chatgpt", "Shared", "");
+    let mut account = account_record("acc-shared", "platform-a", "Shared", "");
     account.concurrency_limit = 2;
     store.insert_account(account);
 
@@ -31,14 +31,14 @@ fn concurrent_dispatch_never_exceeds_account_limit() {
 }
 
 fn reserve_task(store: &AppStore, index: usize) -> bool {
-    let Some(account) = store.first_available_account_for_key("chatgpt", None) else {
+    let Some(account) = store.first_available_account_for_key("platform-a", None) else {
         return false;
     };
     store.insert_task(TaskRecord {
         id: format!("task-{index}"),
-        platform: "chatgpt".to_string(),
+        platform: "platform-a".to_string(),
         task_kind: "image".to_string(),
-        model_id: "ChatGPT".to_string(),
+        model_id: "example-model".to_string(),
         prompt: "draw".to_string(),
         account_id: Some(account.id),
         status: "queued".to_string(),

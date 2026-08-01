@@ -1,6 +1,8 @@
 // 生成结果下载完成后，按 ChatGPT 网页端的真实接口隐藏本次图片生成对话。
 // 注意：ChatGPT 的“删除”是软删除，网页端实际发送 PATCH { is_visible: false }。
 const KNOWN_API_HEADERS = [
+  'authorization',
+  'chatgpt-account-id',
   'oai-client-build-number',
   'oai-client-version',
   'oai-device-id',
@@ -75,15 +77,25 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function apiFetch(state, url, options = {}) {
+  return typeof state.authenticatedFetch === 'function'
+    ? state.authenticatedFetch(url, options)
+    : fetch(url, options)
+}
+
 async function hideConversation(conversationId, state) {
-  const resp = await fetch(`/backend-api/conversation/${encodeURIComponent(conversationId)}`, {
-    method: 'PATCH',
-    credentials: 'include',
-    cache: 'no-store',
-    referrer: `${location.origin}/c/${encodeURIComponent(conversationId)}`,
-    headers: patchHeaders(conversationId, state),
-    body: JSON.stringify({ is_visible: false }),
-  })
+  const resp = await apiFetch(
+    state,
+    `/backend-api/conversation/${encodeURIComponent(conversationId)}`,
+    {
+      method: 'PATCH',
+      credentials: 'include',
+      cache: 'no-store',
+      referrer: `${location.origin}/c/${encodeURIComponent(conversationId)}`,
+      headers: patchHeaders(conversationId, state),
+      body: JSON.stringify({ is_visible: false }),
+    }
+  )
   const body = await safeJson(resp)
   const bodyError = responseErrorText(body, resp)
 
@@ -97,7 +109,7 @@ async function verifyConversationHidden(conversationId, state) {
   let verified = false
 
   for (const offset of VERIFY_OFFSETS) {
-    const resp = await fetch(conversationsUrl(offset), {
+    const resp = await apiFetch(state, conversationsUrl(offset), {
       credentials: 'include',
       cache: 'no-store',
       headers: baseHeaders(state, '/backend-api/conversations', '/backend-api/conversations'),
@@ -114,7 +126,7 @@ async function verifyConversationHidden(conversationId, state) {
 
 async function initEmptyComposer(state) {
   try {
-    await fetch('/backend-api/conversation/init', {
+    await apiFetch(state, '/backend-api/conversation/init', {
       method: 'POST',
       credentials: 'include',
       cache: 'no-store',
