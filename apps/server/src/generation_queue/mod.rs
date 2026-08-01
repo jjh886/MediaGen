@@ -1,4 +1,5 @@
 mod api;
+mod callback;
 mod credential;
 mod records;
 #[cfg(test)]

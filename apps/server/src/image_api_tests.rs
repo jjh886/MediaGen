@@ -93,6 +93,83 @@ async fn async_generation_worker_executes_persisted_job() {
 }
 
 #[actix_web::test]
+async fn async_generation_posts_callback_with_openai_image_data() {
+    let (callback_url, received) = callback_receiver().await;
+    let state = queue_state("image-async-callback");
+    let data = web::Data::new(state.clone());
+    crate::generation_queue::start_worker(data.clone());
+    let app =
+        actix_test::init_service(App::new().app_data(data).configure(crate::configure_routes))
+            .await;
+    let response = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::post()
+            .uri("/v1/images/generations")
+            .insert_header(("authorization", "Bearer image-key"))
+            .set_json(json!({
+                "model": "fake-image",
+                "prompt": "draw",
+                "async": true,
+                "callback_url": callback_url
+            }))
+            .to_request(),
+    )
+    .await;
+    let payload: serde_json::Value = actix_test::read_body_json(response).await;
+    let task_id = payload["data"]["taskId"].as_str().unwrap();
+
+    let callback = read_callback_json(received).await;
+    assert_eq!(callback["event"], "image_generation.completed");
+    assert_eq!(callback["task_id"], task_id);
+    assert_eq!(callback["status"], "completed");
+    assert_eq!(callback["data"]["data"][0]["b64_json"], "aGVsbG8=");
+}
+
+#[actix_web::test]
+async fn cancelling_queued_generation_posts_callback() {
+    let (callback_url, received) = callback_receiver().await;
+    let state = queue_state("image-async-cancel-callback");
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .configure(crate::configure_routes),
+    )
+    .await;
+    let response = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::post()
+            .uri("/v1/images/generations")
+            .insert_header(("authorization", "Bearer image-key"))
+            .set_json(json!({
+                "model": "fake-image",
+                "prompt": "draw",
+                "async": true,
+                "callback_url": callback_url
+            }))
+            .to_request(),
+    )
+    .await;
+    let payload: serde_json::Value = actix_test::read_body_json(response).await;
+    let task_id = payload["data"]["taskId"].as_str().unwrap().to_string();
+
+    let action_response = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::post()
+            .uri("/api/v2/generation-queue/actions")
+            .insert_header(("authorization", "Bearer image-key"))
+            .set_json(json!({ "action": "cancel", "taskIds": [task_id] }))
+            .to_request(),
+    )
+    .await;
+    let action: serde_json::Value = actix_test::read_body_json(action_response).await;
+    assert_eq!(action["data"]["affected"], 1);
+
+    let callback = read_callback_json(received).await;
+    assert_eq!(callback["event"], "image_generation.cancelled");
+    assert_eq!(callback["status"], "cancelled");
+}
+
+#[actix_web::test]
 async fn image_generation_failover_switches_to_next_account() {
     let state = failover_state();
     let app = actix_test::init_service(
@@ -329,4 +406,71 @@ fn verification_manifest() -> &'static str {
 
 fn test_root(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("mediagen-image-api-test-{name}"))
+}
+
+async fn callback_receiver() -> (String, tokio::sync::oneshot::Receiver<String>) {
+    use tokio::io::AsyncWriteExt;
+
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .unwrap();
+    let url = format!("http://{}/callback", listener.local_addr().unwrap());
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let body = read_callback_body(&mut stream).await;
+        let _ = stream
+            .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+            .await;
+        let _ = tx.send(body);
+    });
+    (url, rx)
+}
+
+async fn read_callback_json(received: tokio::sync::oneshot::Receiver<String>) -> serde_json::Value {
+    let body = tokio::time::timeout(std::time::Duration::from_secs(5), received)
+        .await
+        .unwrap()
+        .unwrap();
+    serde_json::from_str(&body).unwrap()
+}
+
+async fn read_callback_body(stream: &mut tokio::net::TcpStream) -> String {
+    use tokio::io::AsyncReadExt;
+
+    let mut buffer = Vec::new();
+    let mut header_len = None;
+    let mut content_len = 0usize;
+    loop {
+        let mut chunk = [0u8; 1024];
+        let read = stream.read(&mut chunk).await.unwrap();
+        if read == 0 {
+            return String::new();
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+        if header_len.is_none() {
+            if let Some(index) = header_end(&buffer) {
+                header_len = Some(index + 4);
+                content_len = content_length(&buffer[..index]);
+            }
+        }
+        if let Some(start) = header_len {
+            if buffer.len() >= start + content_len {
+                return String::from_utf8_lossy(&buffer[start..start + content_len]).to_string();
+            }
+        }
+    }
+}
+
+fn header_end(buffer: &[u8]) -> Option<usize> {
+    buffer.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+fn content_length(headers: &[u8]) -> usize {
+    String::from_utf8_lossy(headers)
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .and_then(|(_, value)| value.trim().parse().ok())
+        .unwrap_or(0)
 }

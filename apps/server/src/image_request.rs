@@ -55,6 +55,9 @@ pub struct OpenAiImageRequest {
     pub stream: Option<bool>,
     #[serde(default, rename = "async")]
     pub async_generation: bool,
+    /// MediaGen 扩展字段：OpenAI 图片接口没有逐请求 callback_url，这里只在 async=true 时生效。
+    #[serde(default, alias = "webhook_url")]
+    pub callback_url: Option<String>,
     #[serde(default)]
     pub partial_images: Option<u32>,
     #[serde(default)]
@@ -92,6 +95,7 @@ impl OpenAiImageRequest {
             background: None,
             stream: None,
             async_generation: false,
+            callback_url: None,
             partial_images: None,
             output_compression: None,
             moderation: None,
@@ -156,6 +160,7 @@ impl OpenAiImageRequest {
         if self.output_compression.is_some_and(|value| value > 100) {
             return request_error("output_compression 必须在 0 到 100 之间");
         }
+        self.validate_callback(endpoint)?;
         Ok(())
     }
 
@@ -219,6 +224,44 @@ impl OpenAiImageRequest {
             .collect()
     }
 
+    pub fn callback_url(&self) -> Option<String> {
+        self.callback_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+
+    fn validate_callback(
+        &self,
+        endpoint: ImageEndpoint,
+    ) -> Result<(), (u16, &'static str, String)> {
+        let Some(url) = self.callback_url() else {
+            return Ok(());
+        };
+        if !self.async_generation || endpoint != ImageEndpoint::Generation {
+            return Err((
+                400,
+                "unsupported_parameter",
+                "callback_url 只在 /v1/images/generations 且 async=true 时生效".to_string(),
+            ));
+        }
+        if url.len() > 2048 {
+            return request_error("callback_url 长度不能超过 2048");
+        }
+        let parsed = reqwest::Url::parse(&url).map_err(|_| {
+            (
+                400,
+                "invalid_request_error",
+                "callback_url 格式无效".to_string(),
+            )
+        })?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return request_error("callback_url 只支持 http 或 https");
+        }
+        Ok(())
+    }
+
     fn output_format(&self) -> String {
         self.output_format
             .clone()
@@ -275,140 +318,4 @@ fn request_error<T>(message: &str) -> Result<T, (u16, &'static str, String)> {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn applies_defaults_for_generation_and_variation() {
-        let mut generation = OpenAiImageRequest::empty();
-        generation.prompt = Some(Value::String("draw".to_string()));
-        generation.apply_endpoint_defaults(ImageEndpoint::Generation);
-        assert_eq!(generation.model, "gpt-image-1");
-        assert_eq!(generation.prompt_text(), "draw");
-
-        let mut variation = OpenAiImageRequest::empty();
-        variation.images.push(OpenAiImageRef {
-            image_url: Some("https://example.test/a.png".to_string()),
-            file_id: None,
-        });
-        variation.apply_endpoint_defaults(ImageEndpoint::Variation);
-        assert_eq!(variation.model, "gpt-image-1");
-        assert_eq!(variation.prompt_text(), "Create a variation of the image.");
-    }
-
-    #[test]
-    fn validates_required_fields_and_unsupported_inputs() {
-        let empty = OpenAiImageRequest::empty();
-        assert!(empty.validate(ImageEndpoint::Generation).is_err());
-
-        let mut request = OpenAiImageRequest::empty();
-        request.model = "gpt-image-1".to_string();
-        request.prompt = Some(Value::String("draw".to_string()));
-        request.response_format = Some("url".to_string());
-        assert_eq!(
-            request.validate(ImageEndpoint::Generation).unwrap_err().1,
-            "unsupported_parameter"
-        );
-
-        request.response_format = Some("b64_json".to_string());
-        request.output_format = Some("gif".to_string());
-        assert!(request
-            .validate(ImageEndpoint::Generation)
-            .unwrap_err()
-            .2
-            .contains("output_format"));
-    }
-
-    #[test]
-    fn validates_edit_reference_and_numeric_limits() {
-        let mut request = OpenAiImageRequest::empty();
-        request.model = "gpt-image-1".to_string();
-        request.prompt = Some(Value::String("edit".to_string()));
-        assert!(request.validate(ImageEndpoint::Edit).is_err());
-
-        request.images.push(OpenAiImageRef {
-            image_url: Some("https://example.test/ref.png".to_string()),
-            file_id: None,
-        });
-        request.partial_images = Some(4);
-        assert!(request
-            .validate(ImageEndpoint::Edit)
-            .unwrap_err()
-            .2
-            .contains("partial_images"));
-
-        request.partial_images = Some(3);
-        request.output_compression = Some(101);
-        assert!(request
-            .validate(ImageEndpoint::Edit)
-            .unwrap_err()
-            .2
-            .contains("output_compression"));
-    }
-
-    #[test]
-    fn converts_prompt_arrays_and_flow_request() {
-        let request = OpenAiImageRequest {
-            model: "remote-model".to_string(),
-            prompt: Some(json!([{ "text": "line one" }, "line two"])),
-            n: Some(9),
-            size: Some("1536x1024".to_string()),
-            quality: Some("high".to_string()),
-            output_format: Some("webp".to_string()),
-            background: Some("transparent".to_string()),
-            images: vec![OpenAiImageRef {
-                image_url: Some(" https://example.test/ref.png ".trim().to_string()),
-                file_id: None,
-            }],
-            mask: Some(OpenAiImageRef {
-                image_url: Some("https://example.test/mask.png".to_string()),
-                file_id: None,
-            }),
-            ..OpenAiImageRequest::empty()
-        };
-
-        let flow = request.to_flow_request(
-            "Remote Model".to_string(),
-            ImageEndpoint::Edit,
-            vec!["data:image/png;base64,abc".to_string()],
-            Some("data:image/png;base64,mask".to_string()),
-        );
-
-        assert_eq!(flow.prompt, "line one\nline two");
-        assert_eq!(flow.max_images, 4);
-        assert_eq!(flow.output_format, "webp");
-        assert_eq!(flow.quality, "high");
-        assert_eq!(flow.background, "transparent");
-        assert_eq!(flow.image_aspect_ratio, "16:9");
-        assert_eq!(flow.action, "edit");
-        assert_eq!(flow.ref_image_urls, vec!["https://example.test/ref.png"]);
-        assert_eq!(
-            flow.mask_image_url.as_deref(),
-            Some("https://example.test/mask.png")
-        );
-        assert_eq!(
-            flow.mask_image_dataurl.as_deref(),
-            Some("data:image/png;base64,mask")
-        );
-    }
-
-    #[test]
-    fn keeps_file_id_until_api_layer_resolves_it() {
-        let mut request = OpenAiImageRequest::empty();
-        request.model = "gpt-image-1".to_string();
-        request.prompt = Some(Value::String("draw".to_string()));
-        request.images.push(OpenAiImageRef {
-            file_id: Some("file-123".to_string()),
-            image_url: None,
-        });
-        assert!(request.validate(ImageEndpoint::Generation).is_ok());
-
-        request.images.clear();
-        request.size = Some("1024x1536".to_string());
-        assert_eq!(request.image_aspect_ratio(), "9:16");
-        request.image_aspect_ratio = Some(" 4:3 ".to_string());
-        assert_eq!(request.image_aspect_ratio(), "4:3");
-    }
-}
+mod tests;

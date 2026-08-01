@@ -117,7 +117,7 @@ pub(crate) async fn run_queued_image_flow(
     body: OpenAiImageRequest,
     caller_key: String,
     task_id: &str,
-) -> Result<(), (u16, &'static str, String)> {
+) -> Result<Value, (u16, &'static str, String)> {
     ensure_task_not_cancelled(&state, task_id)?;
     let context = state.store.with_account_dispatch(|| {
         let context = resolve_image_flow_context_with_task_id(
@@ -141,7 +141,6 @@ pub(crate) async fn run_queued_image_flow(
         context,
     )
     .await
-    .map(|_| ())
 }
 
 async fn run_image_flow(

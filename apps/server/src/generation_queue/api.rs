@@ -182,6 +182,11 @@ fn apply_action(
     public_response: bool,
 ) -> HttpResponse {
     let task_ids = normalize_task_ids(&body.task_ids);
+    let cancel_callbacks = if body.action == "cancel" {
+        super::callback::pending_cancel_callbacks(state, owner, &task_ids)
+    } else {
+        Vec::new()
+    };
     let affected = match state
         .store
         .apply_generation_queue_action(owner, &body.action, &task_ids)
@@ -191,6 +196,9 @@ fn apply_action(
         Err(error) => return HttpResponse::Conflict().json(json!({ "error": error })),
     };
     state.generation_queue_notify.notify_waiters();
+    if affected > 0 && !cancel_callbacks.is_empty() {
+        super::callback::spawn_cancelled_batch((*state).clone(), cancel_callbacks);
+    }
     if public_response {
         HttpResponse::Ok().json(json!({
             "success": true,

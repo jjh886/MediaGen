@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use actix_web::web;
 use chrono::{Duration as ChronoDuration, Utc};
+use serde_json::Value;
 
 use crate::image_request::OpenAiImageRequest;
 use crate::store::GenerationJobState;
@@ -68,17 +69,19 @@ async fn execute_job(
             return;
         }
     };
+    let callback_body = body.clone();
     let result =
         crate::image_api::run_queued_image_flow(state.clone(), body, caller_key, &job.task_id)
             .await;
-    finish_execution(&state, &job.task_id, result);
+    finish_execution(&state, &job.task_id, &callback_body, result);
     state.generation_queue_notify.notify_waiters();
 }
 
 fn finish_execution(
     state: &web::Data<ServerState>,
     task_id: &str,
-    result: Result<(), (u16, &'static str, String)>,
+    body: &OpenAiImageRequest,
+    result: Result<Value, (u16, &'static str, String)>,
 ) {
     let Some(task) = state.store.task_by_id(task_id) else {
         requeue(state, task_id, "storage", "任务记录不存在", 120);
@@ -88,36 +91,48 @@ fn finish_execution(
         state
             .store
             .finish_generation_job(task_id, GenerationJobState::Cancelled, Some("用户取消"));
-        return;
-    }
-    if result.is_ok() && task.status == "completed" {
-        state
-            .store
-            .finish_generation_job(task_id, GenerationJobState::Completed, None);
-        return;
-    }
-    let (code, message) = match result {
-        Err((_, code, message)) => (code, message),
-        Ok(()) => ("incomplete", "任务未产生完整结果".to_string()),
-    };
-    if terminal_failure(&message) {
-        state
-            .store
-            .fail_task(task_id, content_policy_summary(&message));
-        state.store.finish_generation_job(
-            task_id,
-            GenerationJobState::Failed,
-            Some(&content_policy_summary(&message)),
+        super::callback::spawn_cancelled(
+            state.get_ref().clone(),
+            task_id.to_string(),
+            body.clone(),
         );
         return;
     }
-    requeue(
-        state,
-        task_id,
-        code,
-        &message,
-        retry_seconds(code, &message),
-    );
+    match result {
+        Ok(response) if task.status == "completed" => {
+            state
+                .store
+                .finish_generation_job(task_id, GenerationJobState::Completed, None);
+            super::callback::spawn_completed(
+                state.get_ref().clone(),
+                task_id.to_string(),
+                body.clone(),
+                response,
+            );
+        }
+        Ok(_) => requeue(state, task_id, "incomplete", "任务未产生完整结果", 120),
+        Err((_, code, message)) if terminal_failure(&message) => {
+            let summary = content_policy_summary(&message);
+            state.store.fail_task(task_id, summary.clone());
+            state
+                .store
+                .finish_generation_job(task_id, GenerationJobState::Failed, Some(&summary));
+            super::callback::spawn_failed(
+                state.get_ref().clone(),
+                task_id.to_string(),
+                body.clone(),
+                code,
+                &summary,
+            );
+        }
+        Err((_, code, message)) => requeue(
+            state,
+            task_id,
+            code,
+            &message,
+            retry_seconds(code, &message),
+        ),
+    }
 }
 
 fn requeue(
