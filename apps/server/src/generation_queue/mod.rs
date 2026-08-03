@@ -7,8 +7,8 @@ mod store_tests;
 mod worker;
 
 pub(crate) use api::{
-    admin_list_queue, admin_queue_action, batch_task_details, enqueue_image, list_queue,
-    queue_action, task_detail,
+    admin_list_queue, admin_queue_action, batch_task_details, enqueue_image, enqueue_image_job,
+    list_queue, queue_action, task_detail,
 };
 pub(crate) use credential::CredentialCipher;
 pub(crate) use records::queued_image_records;

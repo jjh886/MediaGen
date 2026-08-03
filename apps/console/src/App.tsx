@@ -7,6 +7,7 @@ export type PageId =
   | 'api-keys'
   | 'tasks'
   | 'generation-queue'
+  | 'weixin'
   | 'proxies'
   | 'verifications'
   | 'logs'

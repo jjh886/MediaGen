@@ -21,39 +21,14 @@ pub(crate) async fn enqueue_image(
     caller_key: String,
     body: OpenAiImageRequest,
 ) -> HttpResponse {
-    if !state.generation_queue_enabled {
-        return public_error(503, "QUEUE_DISABLED", "异步生成队列未启用");
-    }
-    let Some((manifest, _)) = state.plugin_loader.resolve_model(&body.model) else {
-        return public_error(404, "MODEL_NOT_FOUND", "生成模型不存在");
-    };
-    if !manifest.flows.contains_key("generate_image") {
-        return public_error(400, "FLOW_NOT_FOUND", "模型不支持图片生成");
-    }
-    if state.store.active_generation_job_count() >= MAX_ACTIVE_GENERATION_JOBS {
-        return public_error(429, "QUEUE_FULL", "异步生成队列已满");
-    }
     let encrypted_key = match state.credential_cipher.encrypt(&caller_key) {
         Ok(value) => value,
         Err(error) => return public_error(500, "CREDENTIAL_ERROR", &error),
     };
-    let task_id = format!("task-{}", Uuid::new_v4());
-    let now = Utc::now().to_rfc3339();
-    let (task, job) = match queued_image_records(
-        task_id.clone(),
-        manifest.platform_id.clone(),
-        &body,
-        &caller_key,
-        encrypted_key,
-        now,
-    ) {
-        Ok(records) => records,
-        Err(error) => return public_error(400, "INVALID_REQUEST", &error.to_string()),
+    let task_id = match enqueue_image_job(&state, &caller_key, encrypted_key, body) {
+        Ok(value) => value,
+        Err(error) => return error.into_response(),
     };
-    if let Err(error) = state.store.create_generation_job(task, job) {
-        return public_error(500, "STORAGE_ERROR", &error);
-    }
-    state.generation_queue_notify.notify_waiters();
     HttpResponse::Accepted().json(json!({
         "success": true,
         "data": {
@@ -62,6 +37,64 @@ pub(crate) async fn enqueue_image(
             "message": "开始排队生成中",
         }
     }))
+}
+
+pub(crate) fn enqueue_image_job(
+    state: &ServerState,
+    caller_key: &str,
+    credential_ciphertext: String,
+    body: OpenAiImageRequest,
+) -> Result<String, QueueInsertError> {
+    if !state.generation_queue_enabled {
+        return Err(queue_error(503, "QUEUE_DISABLED", "异步生成队列未启用"));
+    }
+    let Some((manifest, _)) = state.plugin_loader.resolve_model(&body.model) else {
+        return Err(queue_error(404, "MODEL_NOT_FOUND", "生成模型不存在"));
+    };
+    if !manifest.flows.contains_key("generate_image") {
+        return Err(queue_error(400, "FLOW_NOT_FOUND", "模型不支持图片生成"));
+    }
+    if state.store.active_generation_job_count() >= MAX_ACTIVE_GENERATION_JOBS {
+        return Err(queue_error(429, "QUEUE_FULL", "异步生成队列已满"));
+    }
+    let task_id = format!("task-{}", Uuid::new_v4());
+    let now = Utc::now().to_rfc3339();
+    let (task, job) = match queued_image_records(
+        task_id.clone(),
+        manifest.platform_id.clone(),
+        &body,
+        caller_key,
+        credential_ciphertext,
+        now,
+    ) {
+        Ok(records) => records,
+        Err(error) => return Err(queue_error(400, "INVALID_REQUEST", &error.to_string())),
+    };
+    if let Err(error) = state.store.create_generation_job(task, job) {
+        return Err(queue_error(500, "STORAGE_ERROR", &error));
+    }
+    state.generation_queue_notify.notify_waiters();
+    Ok(task_id)
+}
+
+pub(crate) struct QueueInsertError {
+    pub(crate) status: u16,
+    pub(crate) code: &'static str,
+    pub(crate) detail: String,
+}
+
+impl QueueInsertError {
+    fn into_response(self) -> HttpResponse {
+        public_error(self.status, self.code, &self.detail)
+    }
+}
+
+fn queue_error(status: u16, code: &'static str, detail: &str) -> QueueInsertError {
+    QueueInsertError {
+        status,
+        code,
+        detail: detail.to_string(),
+    }
 }
 
 pub(crate) async fn admin_list_queue(

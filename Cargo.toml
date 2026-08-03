@@ -23,6 +23,10 @@ bytes = "1"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 futures-util = "0.3"
 rand = "0.8"
+aes = "0.8"
+ecb = { version = "0.1", features = ["alloc", "block-padding"] }
+md-5 = "0.10"
+qrcode = { version = "0.14", default-features = false, features = ["image"] }
 reqwest = { version = "0.12", default-features = false, features = ["brotli", "deflate", "gzip", "json", "rustls-tls", "socks", "stream", "zstd"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 rusqlite = { version = "0.32", features = ["bundled"] }

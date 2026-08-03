@@ -43,8 +43,11 @@ mod store_generation_queue;
 mod store_helpers;
 mod store_models;
 mod store_persistence;
+mod store_weixin;
+mod store_weixin_query;
 mod system_control;
 mod value_utils;
+mod weixin;
 
 #[cfg(test)]
 mod browser_session_route_tests;
@@ -93,6 +96,7 @@ pub struct ServerState {
     pub(crate) credential_cipher: Arc<CredentialCipher>,
     pub(crate) generation_queue_enabled: bool,
     pub(crate) generation_queue_notify: Arc<Notify>,
+    pub(crate) weixin: Arc<weixin::WeixinRuntime>,
 }
 
 #[actix_web::main]
@@ -101,6 +105,7 @@ async fn main() -> std::io::Result<()> {
     ensure_server_dirs(&config)?;
     let state = web::Data::new(build_state(&config));
     generation_queue::start_worker(state.clone());
+    weixin::start_workers(state.clone());
     let console_dir = config.console_dir.clone();
     let bind = format!("{}:{}", config.host, config.port);
 
@@ -167,6 +172,10 @@ fn build_state(config: &ServerConfig) -> ServerState {
         credential_cipher: Arc::new(credential_cipher),
         generation_queue_enabled,
         generation_queue_notify: Arc::new(Notify::new()),
+        weixin: Arc::new(weixin::WeixinRuntime::new().unwrap_or_else(|error| {
+            eprintln!("[mediagen-server] 微信功能以离线模式启动: {error}");
+            weixin::WeixinRuntime::offline()
+        })),
     }
 }
 
@@ -199,6 +208,7 @@ fn configure_management_routes(cfg: &mut web::ServiceConfig) {
         )
         .route("/api/settings", web::get().to(settings))
         .route("/api/settings", web::post().to(update_settings))
+        .configure(weixin::configure)
         .route(
             "/api/system/info",
             web::get().to(system_control::system_info),

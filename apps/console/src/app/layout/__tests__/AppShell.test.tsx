@@ -10,6 +10,9 @@ vi.mock('../../../features/tasks/components/GenerationQueueList', () => ({
 vi.mock('../../../features/accounts/components/AccountPage', () => ({
   default: () => <div>账号页面</div>,
 }))
+vi.mock('../../../features/weixin/components/WeixinPage', () => ({
+  default: () => <div>微信页面</div>,
+}))
 vi.mock('../../../features/auth/components/AuthSessionMenu', () => ({
   AuthSessionMenu: () => null,
 }))
@@ -41,5 +44,15 @@ describe('AppShell 生成队列导航', () => {
 
     expect(screen.getByText('生成队列页面')).toBeInTheDocument()
     expect(queueButton).toHaveClass('sidebar__item--active')
+  })
+
+  it('显示微信入口并可打开微信页面', () => {
+    render(<TestShell />)
+
+    const weixinButton = screen.getByRole('button', { name: '微信' })
+    fireEvent.click(weixinButton)
+
+    expect(screen.getByText('微信页面')).toBeInTheDocument()
+    expect(weixinButton).toHaveClass('sidebar__item--active')
   })
 })

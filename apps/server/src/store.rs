@@ -11,6 +11,8 @@ use crate::store_helpers::{
 pub use crate::store_models::{
     AccountRecord, AccountUpdate, ApiKeyRecord, AuditLogRecord, GenerationJobRecord,
     GenerationJobState, ProxyRecord, StoreSnapshot, TaskEventRecord, TaskRecord,
+    WeixinAccountNotificationStateRecord, WeixinBindingRecord, WeixinMessageRecord,
+    WeixinNotificationCursorRecord, WeixinPreferencesRecord, WeixinTaskLinkRecord,
 };
 use crate::store_persistence::{read_store_snapshot, write_store_snapshot};
 use chrono::{DateTime, Utc};
@@ -29,6 +31,12 @@ pub struct AppStore {
     pub(crate) audit_logs: Mutex<Vec<AuditLogRecord>>,
     pub(crate) task_events: Mutex<Vec<TaskEventRecord>>,
     pub(crate) generation_jobs: Mutex<Vec<GenerationJobRecord>>,
+    pub(crate) weixin_binding: Mutex<Option<WeixinBindingRecord>>,
+    pub(crate) weixin_preferences: Mutex<WeixinPreferencesRecord>,
+    pub(crate) weixin_messages: Mutex<Vec<WeixinMessageRecord>>,
+    pub(crate) weixin_task_links: Mutex<Vec<WeixinTaskLinkRecord>>,
+    pub(crate) weixin_notification_cursors: Mutex<Vec<WeixinNotificationCursorRecord>>,
+    pub(crate) weixin_account_notification_states: Mutex<Vec<WeixinAccountNotificationStateRecord>>,
 }
 
 impl AppStore {
@@ -55,6 +63,14 @@ impl AppStore {
             audit_logs: Mutex::new(snapshot.audit_logs),
             task_events: Mutex::new(snapshot.task_events),
             generation_jobs: Mutex::new(snapshot.generation_jobs),
+            weixin_binding: Mutex::new(snapshot.weixin_binding),
+            weixin_preferences: Mutex::new(snapshot.weixin_preferences),
+            weixin_messages: Mutex::new(snapshot.weixin_messages),
+            weixin_task_links: Mutex::new(snapshot.weixin_task_links),
+            weixin_notification_cursors: Mutex::new(snapshot.weixin_notification_cursors),
+            weixin_account_notification_states: Mutex::new(
+                snapshot.weixin_account_notification_states,
+            ),
         };
         store.save();
         store
@@ -371,6 +387,30 @@ impl AppStore {
             .generation_jobs
             .lock()
             .unwrap_or_else(|err| err.into_inner());
+        let weixin_binding = self
+            .weixin_binding
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let weixin_preferences = self
+            .weixin_preferences
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let weixin_messages = self
+            .weixin_messages
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let weixin_task_links = self
+            .weixin_task_links
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let weixin_notification_cursors = self
+            .weixin_notification_cursors
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let weixin_account_notification_states = self
+            .weixin_account_notification_states
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
         let snapshot = StoreSnapshot {
             accounts: accounts.clone(),
             tasks: tasks.clone(),
@@ -380,6 +420,12 @@ impl AppStore {
             audit_logs: audit_logs.clone(),
             task_events: task_events.clone(),
             generation_jobs: generation_jobs.clone(),
+            weixin_binding: weixin_binding.clone(),
+            weixin_preferences: weixin_preferences.clone(),
+            weixin_messages: weixin_messages.clone(),
+            weixin_task_links: weixin_task_links.clone(),
+            weixin_notification_cursors: weixin_notification_cursors.clone(),
+            weixin_account_notification_states: weixin_account_notification_states.clone(),
         };
         let _ = write_store_snapshot(&self.path, &snapshot);
     }

@@ -10,14 +10,18 @@ actix-multipart = { workspace = true }
 actix-web = { workspace = true }
 actix-ws = { workspace = true }
 aes-gcm = "0.10"
+aes = { workspace = true }
 async-trait = { workspace = true }
 base64 = "0.22"
 bytes = { workspace = true }
 chrono = { workspace = true }
+ecb = { workspace = true }
 futures-util = { workspace = true }
 mediagen-browser-gateway = { path = "../../crates/mediagen-browser-gateway" }
 mediagen-core = { path = "../../crates/mediagen-core" }
 mediagen-plugin-runtime = { path = "../../crates/mediagen-plugin-runtime" }
+md-5 = { workspace = true }
+qrcode = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
 image = { workspace = true }

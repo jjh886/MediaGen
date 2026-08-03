@@ -55,12 +55,15 @@ async fn execute_job(
     job: crate::store::GenerationJobRecord,
     _permit: crate::image_task_queue::ImageTaskPermit,
 ) {
-    let caller_key = match state.credential_cipher.decrypt(&job.credential_ciphertext) {
-        Ok(value) => value,
-        Err(error) => {
-            requeue(&state, &job.task_id, "credential", &error, 300);
-            return;
-        }
+    let caller_key = match job.credential_ciphertext.is_empty() {
+        true => String::new(),
+        false => match state.credential_cipher.decrypt(&job.credential_ciphertext) {
+            Ok(value) => value,
+            Err(error) => {
+                requeue(&state, &job.task_id, "credential", &error, 300);
+                return;
+            }
+        },
     };
     let body = match serde_json::from_str::<OpenAiImageRequest>(&job.request_json) {
         Ok(value) => value,
@@ -73,11 +76,11 @@ async fn execute_job(
     let result =
         crate::image_api::run_queued_image_flow(state.clone(), body, caller_key, &job.task_id)
             .await;
-    finish_execution(&state, &job.task_id, &callback_body, result);
+    finish_execution(&state, &job.task_id, &callback_body, result).await;
     state.generation_queue_notify.notify_waiters();
 }
 
-fn finish_execution(
+async fn finish_execution(
     state: &web::Data<ServerState>,
     task_id: &str,
     body: &OpenAiImageRequest,
@@ -88,42 +91,16 @@ fn finish_execution(
         return;
     };
     if task.status == "cancelled" {
-        state
-            .store
-            .finish_generation_job(task_id, GenerationJobState::Cancelled, Some("用户取消"));
-        super::callback::spawn_cancelled(
-            state.get_ref().clone(),
-            task_id.to_string(),
-            body.clone(),
-        );
+        finish_cancelled(state, task_id, body);
         return;
     }
     match result {
         Ok(response) if task.status == "completed" => {
-            state
-                .store
-                .finish_generation_job(task_id, GenerationJobState::Completed, None);
-            super::callback::spawn_completed(
-                state.get_ref().clone(),
-                task_id.to_string(),
-                body.clone(),
-                response,
-            );
+            finish_completed(state, task_id, body, response).await
         }
         Ok(_) => requeue(state, task_id, "incomplete", "任务未产生完整结果", 120),
         Err((_, code, message)) if terminal_failure(&message) => {
-            let summary = content_policy_summary(&message);
-            state.store.fail_task(task_id, summary.clone());
-            state
-                .store
-                .finish_generation_job(task_id, GenerationJobState::Failed, Some(&summary));
-            super::callback::spawn_failed(
-                state.get_ref().clone(),
-                task_id.to_string(),
-                body.clone(),
-                code,
-                &summary,
-            );
+            finish_terminal_failure(state, task_id, body, code, &message)
         }
         Err((_, code, message)) => requeue(
             state,
@@ -133,6 +110,64 @@ fn finish_execution(
             retry_seconds(code, &message),
         ),
     }
+}
+
+fn finish_cancelled(state: &web::Data<ServerState>, task_id: &str, body: &OpenAiImageRequest) {
+    state
+        .store
+        .finish_generation_job(task_id, GenerationJobState::Cancelled, Some("用户取消"));
+    super::callback::spawn_cancelled(state.get_ref().clone(), task_id.to_string(), body.clone());
+    crate::weixin::delivery::queue_terminal_status(
+        state.get_ref(),
+        task_id,
+        "cancelled",
+        Some("用户取消"),
+    );
+}
+
+async fn finish_completed(
+    state: &web::Data<ServerState>,
+    task_id: &str,
+    body: &OpenAiImageRequest,
+    response: Value,
+) {
+    state
+        .store
+        .finish_generation_job(task_id, GenerationJobState::Completed, None);
+    crate::weixin::delivery::queue_completed_response(state.get_ref(), task_id, &response).await;
+    super::callback::spawn_completed(
+        state.get_ref().clone(),
+        task_id.to_string(),
+        body.clone(),
+        response,
+    );
+}
+
+fn finish_terminal_failure(
+    state: &web::Data<ServerState>,
+    task_id: &str,
+    body: &OpenAiImageRequest,
+    code: &'static str,
+    message: &str,
+) {
+    let summary = content_policy_summary(message);
+    state.store.fail_task(task_id, summary.clone());
+    state
+        .store
+        .finish_generation_job(task_id, GenerationJobState::Failed, Some(&summary));
+    crate::weixin::delivery::queue_terminal_status(
+        state.get_ref(),
+        task_id,
+        "failed",
+        Some(&summary),
+    );
+    super::callback::spawn_failed(
+        state.get_ref().clone(),
+        task_id.to_string(),
+        body.clone(),
+        code,
+        &summary,
+    );
 }
 
 fn requeue(
@@ -155,6 +190,7 @@ fn finish_invalid_job(state: &web::Data<ServerState>, task_id: &str, error: &str
     state
         .store
         .finish_generation_job(task_id, GenerationJobState::Failed, Some(error));
+    crate::weixin::delivery::queue_terminal_status(state.get_ref(), task_id, "failed", Some(error));
 }
 
 fn retry_seconds(code: &str, error: &str) -> i64 {
