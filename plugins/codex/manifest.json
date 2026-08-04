@@ -55,12 +55,30 @@
   "failure_strategy": [
     {
       "contains_any": [
+        "adult_sensual_policy_blocked",
+        "adult sensual content",
+        "adult sensual policy"
+      ],
+      "category": "adult_sensual_policy_blocked",
+      "retry_action": "fail",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": [
         "safety_violations",
         "safety system",
-        "invalid",
-        "bad request",
-        "unsupported"
+        "unsafe_other",
+        "content policy",
+        "policy violation",
+        "sexual content",
+        "sexually explicit"
       ],
+      "category": "unsafe_other",
+      "retry_action": "fail",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["invalid", "bad request", "unsupported"],
       "category": "invalid_request",
       "retry_action": "fail",
       "usage_consumed": false
@@ -74,7 +92,7 @@
     },
     {
       "contains_any": ["AUTH_INCONCLUSIVE", "retryable error", "timeout", "connection reset"],
-      "category": "transient_network",
+      "category": "temporary_unavailable",
       "retry_action": "same_account_retry",
       "same_error_threshold": 3,
       "threshold_cooldown_seconds": 600,

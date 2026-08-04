@@ -229,7 +229,7 @@ async fn run_image_attempts(
                         continue;
                     }
                 }
-                return fail_image_task(state, &context, decision.formatted_message());
+                return fail_image_task(state, &context, &decision);
             }
         }
     }
@@ -373,11 +373,13 @@ fn next_failover_context<'a>(
 fn fail_image_task(
     state: &web::Data<ServerState>,
     context: &ImageFlowContext<'_>,
-    message: String,
+    decision: &crate::failure_strategy::FailureDecision,
 ) -> Result<Value, (u16, &'static str, String)> {
     ensure_task_not_cancelled(state, &context.task_id)?;
+    let message = decision.formatted_message();
     state.store.fail_task(&context.task_id, message.clone());
-    Err((502, "plugin_execution_failed", message))
+    let (status, code) = decision.response_error();
+    Err((status, code, message))
 }
 
 struct ImageFlowContext<'a> {

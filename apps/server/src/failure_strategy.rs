@@ -27,6 +27,20 @@ impl FailureDecision {
         format!("[{}] {}", self.category, self.original_message)
     }
 
+    // HTTP 只暴露 Realove 能稳定消费的安全类别，原始消息仍留在受控任务事件中。
+    pub(crate) fn response_error(&self) -> (u16, &'static str) {
+        match self.category.as_str() {
+            "adult_sensual_policy_blocked" => (422, "adult_sensual_policy_blocked"),
+            "unsafe_other" => (422, "unsafe_other"),
+            "invalid_request" => (422, "invalid_request"),
+            "account_rate_limited" | "quota_exhausted" => (429, "rate_limited"),
+            "temporary_unavailable" | "transient_network" | "platform_busy" | "login_expired" => {
+                (503, "temporary_unavailable")
+            }
+            _ => (502, "plugin_execution_failed"),
+        }
+    }
+
     pub(crate) fn should_retry_same_account(&self, failures: u32) -> bool {
         self.retry_action == "same_account_retry" && failures < self.same_error_threshold
     }
@@ -213,6 +227,31 @@ mod tests {
 
         assert_eq!(decision.category, "unknown");
         assert_eq!(decision.formatted_message(), "boom");
+    }
+
+    #[test]
+    fn maps_failure_categories_to_stable_http_errors() {
+        let cases = [
+            (
+                "adult_sensual_policy_blocked",
+                (422, "adult_sensual_policy_blocked"),
+            ),
+            ("unsafe_other", (422, "unsafe_other")),
+            ("invalid_request", (422, "invalid_request")),
+            ("temporary_unavailable", (503, "temporary_unavailable")),
+            ("account_rate_limited", (429, "rate_limited")),
+            ("unknown", (502, "plugin_execution_failed")),
+        ];
+        for (category, expected) in cases {
+            let decision = classify_failure(
+                &manifest_with_rules(json!([{
+                    "contains_any": ["matched"],
+                    "category": category
+                }])),
+                "matched",
+            );
+            assert_eq!(decision.response_error(), expected);
+        }
     }
 
     #[test]

@@ -25,7 +25,12 @@ function extractImage(events) {
   }
   if (!out.image && !out.error && types.length) {
     const detail = compactUpstreamText(out.output_text)
-    out.error = detail ? 'Codex API 返回文本：' + detail : missingImageError(types)
+    out.error_code = stableProviderErrorCode('', detail)
+    out.error = detail
+      ? out.error_code
+        ? out.error_code + ': ' + detail
+        : 'Codex API 返回文本：' + detail
+      : missingImageError(types)
   }
   out.types = types
   return out
@@ -109,8 +114,46 @@ function applyError(out, error) {
   const message = upstreamErrorText(error)
   if (!message) return
   const code = compactUpstreamText(error.code || error.type || '')
-  out.error_code = code
-  out.error = code && code !== message ? code + ': ' + message : message
+  const stableCode = stableProviderErrorCode(code, message)
+  out.error_code = stableCode
+  out.error = stableCode && stableCode !== message ? stableCode + ': ' + message : message
+}
+
+// 只根据上游明确返回的错误码或拒绝文本分类，绝不能读取生成 Prompt 猜测安全原因。
+function stableProviderErrorCode(code, message) {
+  const value = compactUpstreamText(code + ' ' + message).toLowerCase()
+  if (
+    value.includes('adult_sensual_policy_blocked') ||
+    value.includes('adult sensual content') ||
+    value.includes('adult sensual policy')
+  ) {
+    return 'adult_sensual_policy_blocked'
+  }
+  if (
+    value.includes('safety_violations') ||
+    value.includes('safety system') ||
+    value.includes('content policy') ||
+    value.includes('policy violation') ||
+    value.includes('sexual content') ||
+    value.includes('sexually explicit')
+  ) {
+    return 'unsafe_other'
+  }
+  if (
+    value.includes('temporarily unavailable') ||
+    value.includes('try again later') ||
+    value.includes('timeout') ||
+    value.includes('connection reset')
+  ) {
+    return 'temporary_unavailable'
+  }
+  if (
+    value.includes('image generation is unavailable for this request') ||
+    value.includes('image generation is not available for this request')
+  ) {
+    return 'invalid_request'
+  }
+  return compactUpstreamText(code)
 }
 
 function resultError(result) {
