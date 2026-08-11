@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto'
 import { createWriteStream, existsSync } from 'node:fs'
-import { access, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, cp, mkdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises'
 import { pipeline } from 'node:stream/promises'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
@@ -46,12 +46,43 @@ async function ensureFromGithub() {
 async function replaceRuntime(from, metadata) {
   await rm(outputDir, { recursive: true, force: true })
   await mkdir(outputDir, { recursive: true })
-  await cp(from, outputDir, { recursive: true })
+  await cp(from, outputDir, { recursive: true, verbatimSymlinks: true })
+  await normalizeMacFrameworkSymlinks(outputDir)
   await chmodRuntime(outputDir)
   await writeFile(
     path.join(outputDir, 'mediagen-cloakbrowser.json'),
     JSON.stringify({ ...metadata, downloaded_at: new Date().toISOString() }, null, 2) + '\n'
   )
+}
+
+async function normalizeMacFrameworkSymlinks(runtimeDir) {
+  if (process.platform !== 'darwin') return
+  const framework = path.join(
+    runtimeDir,
+    'Chromium.app/Contents/Frameworks/Chromium Framework.framework'
+  )
+  const currentVersion = await symlinkBasename(path.join(framework, 'Versions/Current'))
+  if (!currentVersion) return
+
+  // CloakBrowser 的 macOS 发行包可能携带构建机绝对链接；改成 App 内标准相对链接后才能搬运和签名。
+  await replaceSymlink(path.join(framework, 'Versions/Current'), currentVersion)
+  for (const name of ['Resources', 'Libraries', 'Chromium Framework', 'Helpers']) {
+    await replaceSymlink(path.join(framework, name), `Versions/Current/${name}`)
+  }
+}
+
+async function symlinkBasename(filePath) {
+  try {
+    return path.basename(await readlink(filePath))
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'EINVAL') return ''
+    throw error
+  }
+}
+
+async function replaceSymlink(filePath, target) {
+  await rm(filePath, { force: true })
+  await symlink(target, filePath)
 }
 
 async function latestFreeRelease(tag) {

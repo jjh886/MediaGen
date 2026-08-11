@@ -73,7 +73,7 @@
   ],
   "failure_strategy": [
     {
-      "contains_any": ["LOGIN_EXPIRED", "HTTP 401", "HTTP 403"],
+      "contains_any": ["LOGIN_EXPIRED", "HTTP 401"],
       "category": "login_expired",
       "retry_action": "failover",
       "account_state": "login_expired",
@@ -112,11 +112,11 @@
   },
   "login_detection": {
     "method": "js_script",
-    "script_file": "check_login.js",
+    "script_files": ["@shared/chatgpt_auth_ui.js", "@shared/chatgpt_check_login.js"],
     "await_promise": true
   },
   "login_credential_capture": {
-    "script_file": "capture_auth.js",
+    "script_files": ["@shared/chatgpt_auth_ui.js", "capture_auth.js"],
     "await_promise": true,
     "file_name": "auth.json",
     "cookie_urls": ["https://chatgpt.com/"]
@@ -137,6 +137,7 @@
             "sentinel_vm.js",
             "sentinel.js",
             "reference_upload.js",
+            "poll_retry.js",
             "conversation.js",
             "generate_image.js"
           ],

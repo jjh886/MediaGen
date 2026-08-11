@@ -56,7 +56,7 @@ async function createMacApp() {
 
   await mkdir(macos, { recursive: true })
   await mkdir(resources, { recursive: true })
-  await cp(releaseDir, resourcePayload, { recursive: true })
+  await cp(releaseDir, resourcePayload, { recursive: true, verbatimSymlinks: true })
   await copyFile(path.join(releaseDir, 'MediaGen'), path.join(macos, 'MediaGen'))
   await chmod(path.join(macos, 'MediaGen'), 0o755)
   await copyIfExists(
@@ -64,7 +64,15 @@ async function createMacApp() {
     path.join(resources, 'mediagen.icns')
   )
   await writeFile(path.join(contents, 'Info.plist'), macInfoPlist(), 'utf8')
+  await signMacApp(appPath)
   return appPath
+}
+
+async function signMacApp(appPath) {
+  if (!commandAvailable('codesign')) throw new Error('缺少 codesign，无法签名 macOS App')
+  // 使用本机临时签名封装完整资源，避免 Rust 可执行文件原有的链接器签名与 App 资源不匹配。
+  await run('codesign', ['--force', '--sign', '-', appPath])
+  await run('codesign', ['--verify', '--deep', '--strict', appPath])
 }
 
 async function createDmg(appPath) {
@@ -80,7 +88,10 @@ async function createDmg(appPath) {
   let mounted = false
 
   try {
-    await cp(appPath, path.join(stagingRoot, path.basename(appPath)), { recursive: true })
+    await cp(appPath, path.join(stagingRoot, path.basename(appPath)), {
+      recursive: true,
+      verbatimSymlinks: true,
+    })
     // DMG 里放 /Applications 的快捷方式，用户就可以像常见 macOS 安装包一样拖拽安装。
     await symlink('/Applications', path.join(stagingRoot, 'Applications'))
     await rm(dmgPath, { force: true })

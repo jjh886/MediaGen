@@ -31,8 +31,18 @@ if (process.platform === 'darwin') {
     path.join(app, 'Contents/Resources/MediaGen-local/bin/mediagen-server'),
     'macOS App 缺少服务程序'
   )
+  assertMacCodeSignature(app)
   assertExists(dmg, 'macOS 缺少 DMG 安装包')
   assertMacDmgDragInstallLayout(dmg)
+}
+
+function assertMacCodeSignature(app) {
+  const result = spawnSync('codesign', ['--verify', '--deep', '--strict', app], {
+    encoding: 'utf8',
+  })
+  if (result.status !== 0) {
+    fail(`macOS App 签名无效: ${result.stderr || result.stdout}`)
+  }
 }
 
 if (process.platform === 'win32') {

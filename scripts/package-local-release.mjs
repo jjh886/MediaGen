@@ -73,7 +73,11 @@ async function copyDirIfExists(from, to) {
 async function bundleCloakBrowserRuntime() {
   const source = process.env.MEDIAGEN_CLOAK_BROWSER_DIR || process.env.CLOAK_BROWSER_BUNDLE_DIR
   if (source) {
-    await cp(source, path.join(dist, 'browser-runtime'), { recursive: true })
+    // 浏览器 Framework 依赖相对软链接，复制时必须保留原始链接文本，不能改写成构建机绝对路径。
+    await cp(source, path.join(dist, 'browser-runtime'), {
+      recursive: true,
+      verbatimSymlinks: true,
+    })
     ensureRuntimeExecutable(path.join(dist, 'browser-runtime'))
     await writeRuntimeMetadata('local-env', path.basename(source))
     return

@@ -45,6 +45,50 @@
     return composerSelector
   }
 
+  function objectValue(value) {
+    return value && typeof value === 'object' ? value : {}
+  }
+
+  function nestedSession(raw) {
+    const nested = objectValue(raw.session)
+    return Object.keys(nested).length > 0 ? nested : raw
+  }
+
+  function sessionLoginState(rawValue) {
+    const raw = objectValue(rawValue)
+    const session = nestedSession(raw)
+    const user = objectValue(session.user)
+    const account = objectValue(session.account)
+    const authStatus = String(session.authStatus || raw.authStatus || '').trim()
+    if (['logged_out', 'unauthenticated'].includes(authStatus)) return false
+    if (user.email) return true
+    if (authStatus !== 'logged_in') return false
+    return Boolean(user.id || account.id)
+  }
+
+  async function loginSessionState() {
+    try {
+      const response = await fetch('/api/auth/session', {
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { accept: 'application/json' },
+      })
+      // 风控、限流和网络故障都属于不确定，不能据此要求用户重新登录。
+      if (!response.ok) return null
+      return sessionLoginState(await response.json())
+    } catch (_) {
+      return null
+    }
+  }
+
+  function loginExpiredResult() {
+    return JSON.stringify({
+      error: '登录已失效，请重新登录 ChatGPT',
+      login_expired: true,
+      ...snapshot(),
+    })
+  }
+
   function snapshot() {
     const composer = findComposer()
     const uploadInput = document.querySelector('input#upload-files[type=file]')
@@ -61,20 +105,10 @@
   }
 
   try {
-    const bodyText = document.body?.innerText || ''
-
-    if (
-      bodyText.includes('Log in') ||
-      bodyText.includes('登录') ||
-      bodyText.includes('Continue with') ||
-      bodyText.includes('继续使用')
-    ) {
-      return JSON.stringify({
-        error: '登录已失效，请重新登录 ChatGPT',
-        login_expired: true,
-        ...snapshot(),
-      })
-    }
+    // ChatGPT 的账号选择弹窗会与旧 session 信息同时存在，必须优先相信可见的阻塞式登录界面。
+    if (window.__mediagenChatGptHasBlockingLoginUi()) return loginExpiredResult()
+    const loginState = await loginSessionState()
+    if (loginState === false) return loginExpiredResult()
 
     // 已在历史会话时，点击 New chat，避免把结果串进旧会话。
     if (location.pathname.startsWith('/c/')) {
@@ -88,6 +122,7 @@
     }
 
     for (let i = 0; i < 30; i++) {
+      if (window.__mediagenChatGptHasBlockingLoginUi()) return loginExpiredResult()
       const composer = findComposer()
       // 上传 input 可能延后挂载；composer 可用就可以继续后续步骤。
       if (composer) {

@@ -1,6 +1,9 @@
 // 该脚本只在“添加账号/重新登录”完成时运行。返回值由服务端以 0600 权限写入账号目录，
 // 不进入账号公开字段，也不会写入日志。
 ;(async () => {
+  if (window.__mediagenChatGptHasBlockingLoginUi()) {
+    throw new Error('ChatGPT 页面仍在等待登录或身份验证')
+  }
   const response = await fetch('/api/auth/session', {
     credentials: 'include',
     cache: 'no-store',

@@ -4,13 +4,18 @@ function chatgptApiGenerateConversation(auth, prompt, aspectRatio, references, g
   const options = chatgptApiConversationOptions(init, generationConfig)
   const prepared = chatgptApiPrepareConversation(auth, references, options)
   const response = chatgptApiSendConversation(auth, prompt, aspectRatio, prepared)
-  const conversationId = chatgptApiFindConversationId(response.events || response.body)
+  const streamResult = response.events || response.body
+  const conversationId = chatgptApiFindConversationId(streamResult)
   if (!conversationId) throw new Error('ChatGPT 会话响应缺少 conversation_id')
+  const streamedFileId = chatgptApiGeneratedFileId(streamResult)
+  const streamedImage = streamedFileId
+    ? chatgptApiDownloadResult(auth, conversationId, streamedFileId)
+    : null
   return {
     model: options.model,
     thinking_effort: options.thinking_effort,
     references: prepared.references,
-    result: chatgptApiWaitForImage(auth, conversationId),
+    result: streamedImage || chatgptApiWaitForImage(auth, conversationId),
   }
 }
 
@@ -61,14 +66,14 @@ function chatgptApiSendConversation(auth, prompt, aspectRatio, prepared) {
   return chatgptApiRequireOk(
     chatgptApiRequest(auth, 'POST', '/backend-api/f/conversation', {
       target_route: '/backend-api/f/conversation',
-      headers: {
+      headers: chatgptApiCompactObject({
         ...sentinelHeaders,
         accept: 'text/event-stream',
         'content-type': 'application/json',
         'oai-echo-logs': chatgptApiEchoLogs(auth),
         'x-conduit-token': prepared.conduit,
         'x-oai-turn-trace-id': prepared.turn_trace_id,
-      },
+      }),
       body: request,
       sse: true,
       timeout_ms: 120000,
@@ -90,8 +95,11 @@ function chatgptApiPrepareConduit(auth, model, turnTraceId, references, source, 
     }),
     '准备 ChatGPT 会话'
   ).body
-  if (!prepare?.conduit_token) throw new Error('ChatGPT 会话准备响应缺少 conduit_token')
-  return prepare.conduit_token
+  if (!prepare || (prepare.status && prepare.status !== 'ok')) {
+    throw new Error('ChatGPT 会话准备响应无效')
+  }
+  // 当前网页允许 conduit_token 为 null；这时发送会话时不带对应请求头。
+  return typeof prepare.conduit_token === 'string' ? prepare.conduit_token : ''
 }
 
 // 会话初始化是独立请求，单独封装后主流程只保留“初始化、准备、发送、轮询”四个步骤。
@@ -261,8 +269,9 @@ function chatgptApiUnique(values) {
 function chatgptApiWaitForImage(auth, conversationId) {
   const generationTimeoutMs = 10 * 60 * 1000
   const started = Date.now()
+  let pollDelayMs = CHATGPT_API_FALLBACK_POLL_MS
   while (Date.now() - started < generationTimeoutMs) {
-    chatgptApiPollStreamStatus(auth, conversationId)
+    host.call('time.sleep', { milliseconds: pollDelayMs })
     const encoded = encodeURIComponent(conversationId)
     const response = chatgptApiRequest(auth, 'GET', '/backend-api/conversation/' + encoded, {
       target_path: '/backend-api/conversation/' + encoded,
@@ -277,29 +286,14 @@ function chatgptApiWaitForImage(auth, conversationId) {
         const result = chatgptApiDownloadResult(auth, conversationId, fileId)
         if (result) return result
       }
+      pollDelayMs = CHATGPT_API_FALLBACK_POLL_MS
+    } else if (chatgptApiPollRateLimited(response)) {
+      pollDelayMs = chatgptApiPollRetryDelayMs(response, pollDelayMs)
     } else if (![404, 409, 425].includes(Number(response.status))) {
       chatgptApiRequireOk(response, '轮询 ChatGPT 图片结果')
     }
-    host.call('time.sleep', { milliseconds: 2000 })
   }
   throw new Error('generation_timeout: ChatGPT 图片生成超过 10 分钟')
-}
-
-function chatgptApiPollStreamStatus(auth, conversationId) {
-  const encoded = encodeURIComponent(conversationId)
-  const response = chatgptApiRequest(
-    auth,
-    'GET',
-    '/backend-api/conversation/' + encoded + '/stream_status',
-    {
-      target_path: '/backend-api/conversation/' + encoded + '/stream_status',
-      target_route: '/backend-api/conversation/{conversation_id}/stream_status',
-      timeout_ms: 60000,
-    }
-  )
-  if (!response.ok && ![404, 409, 425].includes(Number(response.status))) {
-    chatgptApiRequireOk(response, '轮询 ChatGPT 会话流状态')
-  }
 }
 
 function chatgptApiGeneratedFileId(conversation) {

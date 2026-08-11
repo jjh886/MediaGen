@@ -62,6 +62,14 @@
   ],
   "failure_strategy": [
     {
+      "error_codes": ["login_expired"],
+      "contains_any": ["登录已失效", "登录过期", "请重新登录 ChatGPT", "HTTP 401"],
+      "category": "login_expired",
+      "retry_action": "failover",
+      "account_state": "login_expired",
+      "usage_consumed": false
+    },
+    {
       "error_codes": ["content_policy_refusal"],
       "contains_any": ["内容违规", "拒绝生成"],
       "category": "content_policy",
@@ -111,7 +119,7 @@
   },
   "login_detection": {
     "method": "js_script",
-    "script_file": "check_login.js",
+    "script_files": ["@shared/chatgpt_auth_ui.js", "@shared/chatgpt_check_login.js"],
     "await_promise": true
   },
   "login_check": {
@@ -150,7 +158,7 @@
           "_comment": "3. 页面准备：确认登录态并等待 composer 就绪",
           "action": "browser.run_script",
           "session_id": "{{browser.session_id}}",
-          "script_file": "prepare_page.js",
+          "script_files": ["@shared/chatgpt_auth_ui.js", "prepare_page.js"],
           "await_promise": true,
           "save_as": "prepared"
         },

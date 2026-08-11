@@ -88,8 +88,13 @@ function chatgptApiHtmlAttribute(html, name) {
 }
 
 function chatgptApiValidateSession(result) {
-  if (Number(result.status) === 401 || Number(result.status) === 403) {
+  const status = Number(result.status)
+  if (status === 401) {
     throw new Error('LOGIN_EXPIRED: ChatGPT 登录已失效，请重新登录。')
+  }
+  // 403 也可能来自设备校验或边缘风控，不能据此把真实登录账号永久标成过期。
+  if (status === 403) {
+    throw new Error('AUTH_INCONCLUSIVE: ChatGPT 暂时拒绝会话检查：' + chatgptApiHttpSummary(result))
   }
   if (!result.ok || !result.body?.accessToken || !result.body?.account?.id) {
     throw new Error(
@@ -228,8 +233,13 @@ function chatgptApiRequest(auth, method, path, options) {
 function chatgptApiRequireOk(result, operation) {
   if (result?.ok) return result
   const status = Number(result?.status || 0)
-  if (status === 401 || status === 403) {
+  if (status === 401) {
     throw new Error('LOGIN_EXPIRED: ' + operation + ' 返回 HTTP ' + status)
+  }
+  if (status === 403) {
+    throw new Error(
+      'AUTH_INCONCLUSIVE: ' + operation + ' 暂时被拒绝：' + chatgptApiHttpSummary(result)
+    )
   }
   throw new Error(operation + ' 失败：' + chatgptApiHttpSummary(result))
 }
