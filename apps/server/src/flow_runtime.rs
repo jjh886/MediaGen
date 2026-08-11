@@ -1,11 +1,10 @@
-use std::path::Path;
-
 use mediagen_core::{FlowDef, PluginManifest};
 use mediagen_plugin_runtime::PluginLoader;
 use serde_json::{json, Value};
 
 use crate::flow_templates::{collect_script_files, resolve_templates, should_skip};
 use crate::image_request::ImageFlowRequest;
+use crate::plugin_scripts;
 use crate::store::AccountRecord;
 
 pub(crate) struct PreparedFlowStep {
@@ -167,14 +166,10 @@ fn load_script_if_needed(params: &mut Value, context: &Value) -> Result<(), Stri
     let Some(scripts_dir) = context.get("scripts_dir").and_then(Value::as_str) else {
         return Ok(());
     };
-    let mut combined = String::new();
-    for file in collect_script_files(params) {
-        let path = Path::new(scripts_dir).join(file);
-        let content = std::fs::read_to_string(&path)
-            .map_err(|err| format!("读取脚本失败 {}: {err}", path.display()))?;
-        combined.push_str(&content);
-        combined.push_str("\n;\n");
-    }
+    let combined = plugin_scripts::read_from_scripts_dir(
+        std::path::Path::new(scripts_dir),
+        &collect_script_files(params),
+    )?;
     if !combined.is_empty() {
         params["script"] = Value::String(combined);
     }
@@ -333,7 +328,8 @@ mod tests {
             .as_nanos();
         let root = std::env::temp_dir().join(format!("mediagen-flow-runtime-{label}-{nanos}"));
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-        root
+        let scripts = root.join("scripts");
+        fs::create_dir_all(&scripts).unwrap();
+        scripts
     }
 }

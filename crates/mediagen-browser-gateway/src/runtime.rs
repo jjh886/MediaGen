@@ -8,14 +8,16 @@ use mediagen_core::{
 use serde::Deserialize;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, timeout, Duration};
 
+use crate::cdp::CdpClient;
 use crate::fingerprint::BrowserFingerprint;
 use crate::proxy;
 use crate::{BrowserGatewayConfig, BrowserGatewayError, BrowserSession};
 
 const SAFE_LAUNCH_URL: &str = "about:blank";
 const RUNTIME_PORT_FILE: &str = ".mediagen-browser-port";
+const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct BrowserTarget {
@@ -54,13 +56,42 @@ impl BrowserRuntime {
 
     pub(crate) async fn stop(&self) {
         let mut child = self.child.lock().await;
-        // 只有当前服务亲自启动的进程才能直接 kill；跨重启接管的进程保留端口登记，
+        // 只有当前服务亲自启动的进程才能关闭；跨重启接管的进程保留端口登记，
         // 后续任务仍可继续接管，不会再次因为资料目录锁报 exit status 21。
         if let Some(mut child) = child.take() {
-            let _ = child.kill().await;
+            // Browser.close 会让 Chromium 正常刷新 Cookie、Local Storage 等 profile 数据。
+            // 若浏览器无响应，再退回 kill，保证服务不会永久卡在清理阶段。
+            let _ = request_browser_close(self.debugging_port).await;
+            let exited = matches!(
+                timeout(GRACEFUL_SHUTDOWN_TIMEOUT, child.wait()).await,
+                Ok(Ok(_))
+            );
+            if !exited {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+            }
             let _ = tokio::fs::remove_file(&self.port_file).await;
         }
     }
+}
+
+#[derive(Deserialize)]
+struct BrowserVersion {
+    #[serde(rename = "webSocketDebuggerUrl")]
+    websocket_url: String,
+}
+
+async fn request_browser_close(debugging_port: u16) -> Result<(), BrowserGatewayError> {
+    let version = reqwest::get(format!("http://127.0.0.1:{debugging_port}/json/version"))
+        .await
+        .map_err(|error| BrowserGatewayError::Cdp(error.to_string()))?
+        .error_for_status()
+        .map_err(|error| BrowserGatewayError::Cdp(error.to_string()))?
+        .json::<BrowserVersion>()
+        .await
+        .map_err(|error| BrowserGatewayError::Cdp(error.to_string()))?;
+    let (client, _events) = CdpClient::connect(&version.websocket_url).await?;
+    client.send_fire_and_forget("Browser.close", serde_json::json!({}))
 }
 
 pub(crate) async fn launch_cloakbrowser(

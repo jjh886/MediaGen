@@ -165,7 +165,9 @@ export default function AccountAddDialog({
         await completeBrowserSession(browserSession.id)
         onSuccess()
         handleCancel(false)
-      } catch {
+      } catch (error) {
+        // 登录窗口不能只“看起来有账号”就自动关闭，把服务端检测结果直接提示给用户。
+        setErrorText(loginErrorMessage(error))
         completingRef.current = false
       }
     }, 3000)

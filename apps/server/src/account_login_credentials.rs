@@ -11,7 +11,10 @@ const CONFIG_KEY: &str = "login_credential_capture";
 
 #[derive(Debug, Deserialize)]
 struct LoginCredentialCaptureConfig {
+    #[serde(default)]
     script_file: String,
+    #[serde(default)]
+    script_files: Vec<String>,
     #[serde(default = "default_await_promise")]
     await_promise: bool,
     #[serde(default = "default_file_name")]
@@ -32,13 +35,13 @@ pub async fn capture_if_configured(
     };
     validate_config(&config)?;
 
-    let auth = account_login::run_login_script_value(
-        state,
-        session,
-        &config.script_file,
-        config.await_promise,
-    )
-    .await?;
+    let script_files = account_login::configured_script_files(
+        config.script_file.clone(),
+        config.script_files.clone(),
+    )?;
+    let auth =
+        account_login::run_login_script_value(state, session, &script_files, config.await_promise)
+            .await?;
     let cookies = capture_cookies(state, session, &config.cookie_urls).await?;
     let value = json!({
         "version": 1,
@@ -61,7 +64,14 @@ fn capture_config(
 }
 
 fn validate_config(config: &LoginCredentialCaptureConfig) -> Result<(), String> {
-    if !safe_file_name(&config.script_file) {
+    let script_files = account_login::configured_script_files(
+        config.script_file.clone(),
+        config.script_files.clone(),
+    )?;
+    if script_files
+        .iter()
+        .any(|value| !crate::plugin_scripts::is_safe_script_reference(value))
+    {
         return Err("登录凭据采集脚本文件名不安全".to_string());
     }
     if !safe_file_name(&config.file_name) {
@@ -184,6 +194,7 @@ mod tests {
     fn rejects_unsafe_script_and_output_names() {
         let mut config = LoginCredentialCaptureConfig {
             script_file: "../capture.js".to_string(),
+            script_files: Vec::new(),
             await_promise: true,
             file_name: "auth.json".to_string(),
             cookie_urls: vec!["https://example.test/".to_string()],

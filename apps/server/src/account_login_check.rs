@@ -9,8 +9,8 @@ use tokio::time::{sleep, Duration};
 
 use crate::account_browser_profile::browser_metadata_from_account;
 use crate::account_login::{
-    login_detection_config, profile_from_value, run_login_script_value, AccountLoginProfile,
-    LoginDetectionConfig,
+    configured_script_files, login_detection_config, profile_from_value, run_login_script_value,
+    AccountLoginProfile, LoginDetectionConfig,
 };
 use crate::flow_templates::collect_script_files;
 use crate::server_plugin_host::ServerPluginHost;
@@ -118,8 +118,14 @@ async fn check_browser_session(
     match login_detection_config(manifest) {
         Ok(LoginDetectionConfig::JsScript {
             script_file,
+            script_files,
             await_promise,
-        }) => check_browser_script_with_retry(state, session, &script_file, await_promise).await,
+        }) => match configured_script_files(script_file, script_files) {
+            Ok(references) => {
+                check_browser_script_with_retry(state, session, &references, await_promise).await
+            }
+            Err(error) => AccountLoginCheckOutcome::Inconclusive(error),
+        },
         Ok(_) => AccountLoginCheckOutcome::Inconclusive(
             "该登录检测方式无法可靠区分退出登录与临时检查失败".to_string(),
         ),
@@ -130,12 +136,12 @@ async fn check_browser_session(
 async fn check_browser_script_with_retry(
     state: &ServerState,
     session: &mediagen_browser_gateway::BrowserSession,
-    script_file: &str,
+    script_files: &[String],
     await_promise: bool,
 ) -> AccountLoginCheckOutcome {
     let mut last = AccountLoginCheckOutcome::Inconclusive("登录页面尚未准备完成".to_string());
     for _ in 0..6 {
-        match run_login_script_value(state, session, script_file, await_promise).await {
+        match run_login_script_value(state, session, script_files, await_promise).await {
             Ok(value) => {
                 let outcome = classify_browser_login_value(&value);
                 if matches!(outcome, AccountLoginCheckOutcome::Available(_)) {

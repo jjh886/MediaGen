@@ -30,7 +30,10 @@ pub struct AccountLoginProfile {
 #[serde(tag = "method", rename_all = "snake_case")]
 pub(crate) enum LoginDetectionConfig {
     JsScript {
+        #[serde(default)]
         script_file: String,
+        #[serde(default)]
+        script_files: Vec<String>,
         #[serde(default)]
         await_promise: bool,
     },
@@ -54,8 +57,12 @@ pub async fn verify_browser_session_login(
     let profile = match detection {
         LoginDetectionConfig::JsScript {
             script_file,
+            script_files,
             await_promise,
-        } => run_login_script_with_retry(state, session, &script_file, await_promise).await?,
+        } => {
+            let references = configured_script_files(script_file, script_files)?;
+            run_login_script_with_retry(state, session, &references, await_promise).await?
+        }
         LoginDetectionConfig::PluginScript { script_file } => {
             run_login_plugin_script(state, session, &script_file).await?
         }
@@ -75,7 +82,7 @@ async fn run_login_plugin_script(
     session: &BrowserSession,
     script_file: &str,
 ) -> Result<AccountLoginProfile, String> {
-    let script = read_plugin_script(state, &session.platform, script_file)?;
+    let script = read_plugin_scripts(state, &session.platform, &[script_file.to_string()])?;
     let context = plugin_login_context(state, session, script_file)?;
     let host = ServerPluginHost::new_with_metadata(
         proxy_url_from_metadata(&session.metadata),
@@ -163,20 +170,20 @@ fn require_logged_in(
 async fn run_login_script(
     state: &ServerState,
     session: &BrowserSession,
-    script_file: &str,
+    script_files: &[String],
     await_promise: bool,
 ) -> Result<AccountLoginProfile, String> {
-    let result = run_login_script_value(state, session, script_file, await_promise).await?;
+    let result = run_login_script_value(state, session, script_files, await_promise).await?;
     Ok(profile_from_value(&result))
 }
 
 pub(crate) async fn run_login_script_value(
     state: &ServerState,
     session: &BrowserSession,
-    script_file: &str,
+    script_files: &[String],
     await_promise: bool,
 ) -> Result<Value, String> {
-    let script = read_plugin_script(state, &session.platform, script_file)?;
+    let script = read_plugin_scripts(state, &session.platform, script_files)?;
     state
         .browser_gateway
         .evaluate_script(&session.id, &script, await_promise)
@@ -187,12 +194,12 @@ pub(crate) async fn run_login_script_value(
 async fn run_login_script_with_retry(
     state: &ServerState,
     session: &BrowserSession,
-    script_file: &str,
+    script_files: &[String],
     await_promise: bool,
 ) -> Result<AccountLoginProfile, String> {
     let mut last = AccountLoginProfile::default();
     for _ in 0..6 {
-        match run_login_script(state, session, script_file, await_promise).await {
+        match run_login_script(state, session, script_files, await_promise).await {
             Ok(profile) if profile.logged_in => return Ok(profile),
             Ok(profile) => last = profile,
             Err(_) => {}
@@ -202,21 +209,16 @@ async fn run_login_script_with_retry(
     Ok(last)
 }
 
-fn read_plugin_script(
+fn read_plugin_scripts(
     state: &ServerState,
     platform: &str,
-    script_file: &str,
+    script_files: &[String],
 ) -> Result<String, String> {
-    if !is_safe_script_file(script_file) {
-        return Err(format!("登录检测脚本路径不安全: {script_file}"));
-    }
     let plugin_dir = state
         .plugin_loader
         .get_plugin_dir(platform)
         .ok_or_else(|| format!("插件目录未找到: {platform}"))?;
-    let script_path = plugin_dir.join("scripts").join(script_file);
-    std::fs::read_to_string(&script_path)
-        .map_err(|err| format!("读取登录检测脚本失败 {}: {err}", script_path.display()))
+    crate::plugin_scripts::read_plugin_scripts(&plugin_dir, script_files)
 }
 
 pub(crate) fn login_detection_config(
@@ -237,11 +239,19 @@ pub(crate) fn login_detection_config(
     serde_json::from_value(value).map_err(|err| format!("登录检测配置解析失败: {err}"))
 }
 
-fn is_safe_script_file(value: &str) -> bool {
-    !value.trim().is_empty()
-        && !value.contains('/')
-        && !value.contains('\\')
-        && !value.contains("..")
+pub(crate) fn configured_script_files(
+    script_file: String,
+    script_files: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let references = if script_files.is_empty() {
+        vec![script_file]
+    } else {
+        script_files
+    };
+    if references.iter().any(|value| value.trim().is_empty()) {
+        return Err("登录检测没有配置有效脚本".to_string());
+    }
+    Ok(references)
 }
 
 fn proxy_url_from_metadata(metadata: &HashMap<String, Value>) -> String {

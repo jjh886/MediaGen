@@ -5,6 +5,7 @@ import AccountAddDialog from '../AccountAddDialog'
 const mocks = vi.hoisted(() => ({
   startAccountLoginSession: vi.fn(),
   cancelBrowserSession: vi.fn(),
+  completeBrowserSession: vi.fn(),
   fetchProxies: vi.fn(),
 }))
 
@@ -23,13 +24,14 @@ vi.mock('@/shared/browser/RemoteBrowserPanel', () => ({
 vi.mock('@/shared/services/browser-session-service', () => ({
   browserSessionHistory: vi.fn(),
   cancelBrowserSession: (...args: unknown[]) => mocks.cancelBrowserSession(...args),
-  completeBrowserSession: vi.fn(),
+  completeBrowserSession: (...args: unknown[]) => mocks.completeBrowserSession(...args),
 }))
 
 describe('AccountAddDialog', () => {
   beforeEach(() => {
     mocks.startAccountLoginSession.mockReset()
     mocks.cancelBrowserSession.mockReset()
+    mocks.completeBrowserSession.mockReset()
     mocks.fetchProxies.mockReset()
     mocks.fetchProxies.mockResolvedValue([])
   })
@@ -166,5 +168,27 @@ describe('AccountAddDialog', () => {
       expect(mocks.cancelBrowserSession).toHaveBeenCalledWith('session-late')
     })
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('登录检测未通过时保留窗口并显示继续登录提示', async () => {
+    mocks.startAccountLoginSession.mockResolvedValue({
+      id: 'session-login',
+      platform: 'chatgpt',
+      status: 'active',
+      viewport: { width: 1365, height: 768 },
+    })
+    mocks.completeBrowserSession.mockRejectedValue(
+      new Error('还没有检测到登录成功，请继续在页面里完成登录。')
+    )
+
+    render(<AccountAddDialog open platform="chatgpt" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    fireEvent.click(screen.getByText('打开登录页'))
+
+    expect(await screen.findByText('远程浏览器画面')).toBeInTheDocument()
+    expect(
+      await screen.findByText('还没有检测到登录成功，请继续在页面里完成登录。', undefined, {
+        timeout: 4500,
+      })
+    ).toBeInTheDocument()
   })
 })

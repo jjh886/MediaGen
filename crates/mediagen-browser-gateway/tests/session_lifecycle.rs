@@ -234,3 +234,59 @@ async fn restarted_gateway_reuses_registered_profile_browser() {
     first_gateway.complete_session(&first.id).await.unwrap();
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// 正常完成登录或任务时必须让 Chromium 刷新 profile，不能直接 kill 丢失刚写入的 Cookie。
+#[tokio::test]
+#[ignore = "需要本机 CloakBrowser 和网络"]
+async fn completed_session_persists_profile_cookie_after_browser_restart() {
+    let root =
+        std::env::temp_dir().join(format!("mediagen-profile-flush-{}", uuid::Uuid::new_v4()));
+    let profile_dir = root.join("shared");
+    let gateway = BrowserGateway::new(BrowserGatewayConfig {
+        profile_root: root.clone(),
+        ..BrowserGatewayConfig::default()
+    });
+    let first = gateway
+        .create_session(BrowserSessionCreateRequest {
+            profile_dir: Some(profile_dir.to_string_lossy().to_string()),
+            start_url: "https://example.com/".to_string(),
+            ..BrowserSessionCreateRequest::default()
+        })
+        .await
+        .expect("应启动首次浏览器")
+        .session;
+    let written = gateway
+        .evaluate_script(
+            &first.id,
+            "document.cookie = 'mediagen_flush=present; path=/; max-age=3600; SameSite=Lax'; document.cookie",
+            false,
+        )
+        .await
+        .expect("应写入测试 Cookie");
+    assert!(written
+        .as_str()
+        .unwrap_or_default()
+        .contains("mediagen_flush=present"));
+    gateway.complete_session(&first.id).await.unwrap();
+
+    let reopened = gateway
+        .create_session(BrowserSessionCreateRequest {
+            profile_dir: Some(profile_dir.to_string_lossy().to_string()),
+            start_url: "https://example.com/".to_string(),
+            ..BrowserSessionCreateRequest::default()
+        })
+        .await
+        .expect("应重新打开同一 profile")
+        .session;
+    let persisted = gateway
+        .evaluate_script(&reopened.id, "document.cookie", false)
+        .await
+        .expect("应读取重启后的 Cookie");
+
+    assert!(persisted
+        .as_str()
+        .unwrap_or_default()
+        .contains("mediagen_flush=present"));
+    gateway.complete_session(&reopened.id).await.unwrap();
+    let _ = std::fs::remove_dir_all(root);
+}

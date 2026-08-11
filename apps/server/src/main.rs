@@ -32,6 +32,7 @@ mod image_task_queue;
 mod js_flow_runner;
 mod net_client;
 mod oauth_login;
+mod plugin_scripts;
 mod port_process;
 mod routes;
 mod server_plugin_host;
