@@ -13,6 +13,9 @@ pub struct AccountRecord {
     #[serde(default)]
     pub cooldown_until: Option<String>,
     pub used_today: u32,
+    /// `used_today` 对应的服务端本地日期；日期变化时会自动清零每日用量。
+    #[serde(default)]
+    pub used_today_date: String,
     pub daily_limit: u32,
     pub used_total: u32,
     pub total_limit: u32,

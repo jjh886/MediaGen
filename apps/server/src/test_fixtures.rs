@@ -33,6 +33,7 @@ pub fn account_record(id: &str, platform: &str, name: &str, api_key: &str) -> Ac
         login_state: "available".to_string(),
         cooldown_until: None,
         used_today: 0,
+        used_today_date: "2026-06-29".to_string(),
         daily_limit: 100,
         used_total: 0,
         total_limit: 0,

@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{Local, Utc};
 use mediagen_browser_gateway::{
     BrowserSession, BrowserSessionPurpose, BROWSER_OS_METADATA_KEY, BROWSER_VERSION_METADATA_KEY,
 };
@@ -94,6 +94,7 @@ impl AppStore {
             login_state: "available".to_string(),
             cooldown_until: None,
             used_today: 0,
+            used_today_date: Local::now().date_naive().to_string(),
             daily_limit: 100,
             used_total: 0,
             total_limit: 5000,

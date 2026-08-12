@@ -151,6 +151,24 @@ fn account_toggle_delete_and_login_check_update_state() {
 }
 
 #[test]
+fn account_list_rolls_legacy_daily_usage_into_current_date() {
+    let store = temp_store("account-daily-rollover");
+    let mut saved = account("acc-1", "");
+    saved.used_today = 957;
+    saved.used_today_date.clear();
+    saved.used_total = 957;
+    saved.login_state = "daily_quota_exhausted".to_string();
+    store.insert_account(saved);
+
+    let account = store.list_accounts(None).remove(0);
+
+    assert_eq!(account.used_today, 0);
+    assert_eq!(account.used_total, 957);
+    assert!(!account.used_today_date.is_empty());
+    assert_eq!(account.login_state, "available");
+}
+
+#[test]
 fn management_entities_create_delete_and_persist() {
     let store = temp_store("management-entities");
 

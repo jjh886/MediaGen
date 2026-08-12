@@ -13,6 +13,19 @@ pub(crate) fn account_ready_for_dispatch(account: &AccountRecord, tasks: &[TaskR
     account_ready_for_dispatch_at(account, tasks, Utc::now())
 }
 
+/// 把跨日账号恢复为新一天的初始状态，避免每日用量一直累加成总用量。
+pub(crate) fn reset_daily_usage(account: &mut AccountRecord, today: &str) -> bool {
+    if account.used_today_date == today {
+        return false;
+    }
+    account.used_today = 0;
+    account.used_today_date = today.to_string();
+    if account.login_state == "daily_quota_exhausted" {
+        account.login_state = "available".to_string();
+    }
+    true
+}
+
 fn account_ready_for_dispatch_at(
     account: &AccountRecord,
     tasks: &[TaskRecord],
@@ -213,9 +226,25 @@ fn parse_time(value: &str) -> Option<DateTime<Utc>> {
 mod tests {
     use chrono::{Duration, TimeZone, Utc};
 
-    use super::{account_ready_for_dispatch_at, recover_interrupted_direct_tasks};
+    use super::{
+        account_ready_for_dispatch_at, recover_interrupted_direct_tasks, reset_daily_usage,
+    };
     use crate::store_models::{GenerationJobRecord, GenerationJobState, TaskRecord};
     use crate::test_fixtures::account_record;
+
+    #[test]
+    fn daily_usage_resets_only_when_server_date_changes() {
+        let mut account = account_record("acc-1", "platform-a", "Platform A", "");
+        account.used_today = 12;
+        account.used_today_date = "2026-08-10".to_string();
+        account.login_state = "daily_quota_exhausted".to_string();
+
+        assert!(reset_daily_usage(&mut account, "2026-08-11"));
+        assert_eq!(account.used_today, 0);
+        assert_eq!(account.used_today_date, "2026-08-11");
+        assert_eq!(account.login_state, "available");
+        assert!(!reset_daily_usage(&mut account, "2026-08-11"));
+    }
 
     #[test]
     fn dispatch_respects_account_task_interval() {

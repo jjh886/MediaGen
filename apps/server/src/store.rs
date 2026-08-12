@@ -6,7 +6,7 @@ use crate::settings::apply_settings_update;
 use crate::store_entities::migrate_legacy_api_keys;
 use crate::store_helpers::{
     account_ready_for_dispatch, apply_account_profile, apply_account_update, first_result_url,
-    recover_interrupted_direct_tasks,
+    recover_interrupted_direct_tasks, reset_daily_usage,
 };
 pub use crate::store_models::{
     AccountRecord, AccountUpdate, ApiKeyRecord, AuditLogRecord, GenerationJobRecord,
@@ -15,7 +15,7 @@ pub use crate::store_models::{
     WeixinNotificationCursorRecord, WeixinPreferencesRecord, WeixinTaskLinkRecord,
 };
 use crate::store_persistence::{read_store_snapshot, write_store_snapshot};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use uuid::Uuid;
 
 pub use crate::settings::{AppSettings, SettingsUpdate};
@@ -77,6 +77,7 @@ impl AppStore {
     }
 
     pub fn list_accounts(&self, platform: Option<&str>) -> Vec<AccountRecord> {
+        self.rollover_daily_usage();
         let accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         accounts
             .iter()
@@ -88,6 +89,7 @@ impl AppStore {
     }
 
     pub fn account_by_id(&self, id: &str) -> Option<AccountRecord> {
+        self.rollover_daily_usage();
         self.accounts
             .lock()
             .unwrap_or_else(|err| err.into_inner())
@@ -110,6 +112,7 @@ impl AppStore {
         api_key: Option<&str>,
         excluded_ids: &[String],
     ) -> Option<AccountRecord> {
+        self.rollover_daily_usage();
         self.release_expired_cooldowns();
         let accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         let tasks = self.tasks.lock().unwrap_or_else(|err| err.into_inner());
@@ -205,8 +208,10 @@ impl AppStore {
     }
 
     pub fn mark_account_usage(&self, account_id: &str) {
+        let today = current_usage_date();
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         if let Some(account) = accounts.iter_mut().find(|account| account.id == account_id) {
+            reset_daily_usage(account, &today);
             account.used_today = account.used_today.saturating_add(1);
             account.used_total = account.used_total.saturating_add(1);
         }
@@ -446,6 +451,24 @@ impl AppStore {
             self.save();
         }
     }
+
+    fn rollover_daily_usage(&self) {
+        let today = current_usage_date();
+        let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
+        let mut changed = false;
+        for account in accounts.iter_mut() {
+            changed |= reset_daily_usage(account, &today);
+        }
+        drop(accounts);
+        if changed {
+            self.save();
+        }
+    }
+}
+
+fn current_usage_date() -> String {
+    // “今日”跟随运行 MediaGen 的机器自然日，符合本机版和服务器版的直觉。
+    Local::now().date_naive().to_string()
 }
 
 fn cooldown_has_expired(account: &AccountRecord, now: DateTime<Utc>) -> bool {
