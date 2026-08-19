@@ -1,6 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { Trash2 } from 'lucide-react'
-import { KtAsyncState, KtConfirmDialog, KtIconButton } from '@/shared/ui'
+import { InfiniteScrollTrigger, KtAsyncState, KtConfirmDialog, KtIconButton } from '@/shared/ui'
 
 const entityCardStyle: CSSProperties = {
   background: 'var(--bg-card)',
@@ -30,6 +30,9 @@ interface EntityListProps<T> {
   deleteMessage?: (item: T) => string
   renderActions?: (item: T) => ReactNode
   rowKey?: (item: T, index: number) => string
+  hasMore?: boolean
+  loadingMore?: boolean
+  onLoadMore?: () => void
 }
 
 function useDeleteAction<T>(onDelete?: (item: T) => Promise<void>) {
@@ -144,13 +147,20 @@ export function AdminEntityList<T>(props: EntityListProps<T>) {
         onRetry={props.onRetry}
       />
       {showRows && (
-        <EntityRows<T>
-          items={props.items}
-          columns={props.columns}
-          rowKey={props.rowKey}
-          renderActions={props.renderActions}
-          onDeleteClick={props.onDelete ? deleteAction.setDeleting : undefined}
-        />
+        <>
+          <EntityRows<T>
+            items={props.items}
+            columns={props.columns}
+            rowKey={props.rowKey}
+            renderActions={props.renderActions}
+            onDeleteClick={props.onDelete ? deleteAction.setDeleting : undefined}
+          />
+          <InfiniteScrollTrigger
+            hasMore={props.hasMore ?? false}
+            loading={props.loadingMore ?? false}
+            onLoadMore={props.onLoadMore ?? (() => undefined)}
+          />
+        </>
       )}
       <DeleteError value={deleteAction.deleteError} />
       <DeleteConfirm<T>

@@ -1,13 +1,15 @@
 import { apiGet, apiPost } from '@/shared/services/http-api-client'
+import { LIST_PAGE_SIZE, pagedQuery } from '@/shared/services/list-pagination'
 import type { Task } from '../types/task'
 
-export async function fetchTasks(platform = '', limit = 50, offset = 0): Promise<Task[]> {
-  const params = new URLSearchParams()
+export async function fetchTasks(
+  platform = '',
+  limit = LIST_PAGE_SIZE,
+  offset = 0
+): Promise<Task[]> {
+  const params = pagedQuery(limit, offset)
   if (platform) params.set('platform', platform)
-  params.set('limit', String(limit))
-  params.set('offset', String(offset))
-  const query = params.toString()
-  return await apiGet<Task[]>(`/api/tasks${query ? `?${query}` : ''}`)
+  return await apiGet<Task[]>(`/api/tasks?${params}`)
 }
 
 export async function cancelTask(taskId: string): Promise<Task> {

@@ -6,7 +6,7 @@ use crate::settings::apply_settings_update;
 use crate::store_entities::migrate_legacy_api_keys;
 use crate::store_helpers::{
     account_ready_for_dispatch, apply_account_profile, apply_account_update, first_result_url,
-    recover_interrupted_direct_tasks, reset_daily_usage,
+    recover_interrupted_direct_tasks, reset_daily_usage, state_releases_after_until,
 };
 pub use crate::store_models::{
     AccountRecord, AccountUpdate, ApiKeyRecord, AuditLogRecord, GenerationJobRecord,
@@ -324,6 +324,9 @@ impl AppStore {
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         let account = accounts.iter_mut().find(|account| account.id == id)?;
         account.login_state = login_state.to_string();
+        if !state_releases_after_until(login_state) {
+            account.cooldown_until = None;
+        }
         if let Some(profile) = profile {
             apply_account_profile(account, profile);
         }
@@ -355,7 +358,7 @@ impl AppStore {
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         let account = accounts.iter_mut().find(|account| account.id == id)?;
         account.login_state = login_state.to_string();
-        account.cooldown_until = (login_state == "cooldown" && seconds > 0)
+        account.cooldown_until = (state_releases_after_until(login_state) && seconds > 0)
             .then(|| (Utc::now() + chrono::Duration::seconds(seconds)).to_rfc3339());
         let account = account.clone();
         drop(accounts);
@@ -440,7 +443,7 @@ impl AppStore {
         let mut changed = false;
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         for account in accounts.iter_mut() {
-            if cooldown_has_expired(account, now) {
+            if account_hold_has_expired(account, now) {
                 account.login_state = "available".to_string();
                 account.cooldown_until = None;
                 changed = true;
@@ -471,8 +474,8 @@ fn current_usage_date() -> String {
     Local::now().date_naive().to_string()
 }
 
-fn cooldown_has_expired(account: &AccountRecord, now: DateTime<Utc>) -> bool {
-    account.login_state == "cooldown"
+fn account_hold_has_expired(account: &AccountRecord, now: DateTime<Utc>) -> bool {
+    state_releases_after_until(&account.login_state)
         && account
             .cooldown_until
             .as_deref()

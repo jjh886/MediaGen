@@ -26,6 +26,10 @@ pub(crate) fn reset_daily_usage(account: &mut AccountRecord, today: &str) -> boo
     true
 }
 
+pub(crate) fn state_releases_after_until(login_state: &str) -> bool {
+    matches!(login_state, "cooldown" | "daily_quota_exhausted")
+}
+
 fn account_ready_for_dispatch_at(
     account: &AccountRecord,
     tasks: &[TaskRecord],
@@ -136,7 +140,7 @@ fn account_login_ready(account: &AccountRecord, now: DateTime<Utc>) -> bool {
     if account.login_state == "available" {
         return true;
     }
-    account.login_state == "cooldown"
+    state_releases_after_until(&account.login_state)
         && account
             .cooldown_until
             .as_deref()
@@ -268,6 +272,19 @@ mod tests {
             now
         ));
         assert!(account_ready_for_dispatch_at(&account, &[old], now));
+        assert!(account_ready_for_dispatch_at(&account, &[], now));
+    }
+
+    #[test]
+    fn dispatch_waits_until_platform_quota_reset_time() {
+        let mut account = account_record("acc-1", "platform-a", "Platform A", "");
+        let now = Utc.with_ymd_and_hms(2026, 8, 14, 10, 0, 0).unwrap();
+        account.login_state = "daily_quota_exhausted".to_string();
+        account.cooldown_until = Some((now + Duration::minutes(1)).to_rfc3339());
+
+        assert!(!account_ready_for_dispatch_at(&account, &[], now));
+
+        account.cooldown_until = Some((now - Duration::minutes(1)).to_rfc3339());
         assert!(account_ready_for_dispatch_at(&account, &[], now));
     }
 

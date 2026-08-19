@@ -1,8 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
-import { KtTable, KtBadge, KtTabs, KtButton, KtConfirmDialog, KtAsyncState } from '@/shared/ui'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  InfiniteScrollTrigger,
+  KtTable,
+  KtBadge,
+  KtTabs,
+  KtButton,
+  KtConfirmDialog,
+  KtAsyncState,
+} from '@/shared/ui'
 import type { Column } from '@/shared/ui'
 import { fetchPlugins, type PluginInfo } from '@/shared/services/plugin-service'
-import { fetchAccounts } from '@/shared/services/account-service'
+import { fetchAllAccounts } from '@/shared/services/account-service'
 import type { Account } from '@/shared/types/account'
 import type { Task, TaskKind } from '../types/task'
 import { statusVariant, statusLabel } from '../types/task'
@@ -44,8 +52,11 @@ export default function TaskList({
     selectedTaskId,
     activePlatform,
     loading,
+    loadingMore,
+    hasMore,
     error,
     fetch,
+    loadMore,
     setActivePlatform,
     selectTask,
     cancel,
@@ -58,6 +69,7 @@ export default function TaskList({
   const [cancelingTaskId, setCancelingTaskId] = useState<string | null>(null)
   const [cancelError, setCancelError] = useState('')
   const [pluginError, setPluginError] = useState('')
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   const accountMap = useMemo(
     () => new Map(accounts.map((a) => [a.id, a.name || a.email])),
@@ -79,13 +91,26 @@ export default function TaskList({
 
   useEffect(() => {
     if (activePlatform) {
-      fetchAccounts(activePlatform)
+      fetchAllAccounts(activePlatform)
         .then(setAccounts)
         .catch(() => setAccounts([]))
     }
   }, [activePlatform])
 
   const platformTabs = plugins.map((p) => ({ key: p.platform_id, label: p.display_name }))
+
+  const refreshLatest = useCallback(() => {
+    scrollRef.current?.scrollTo({ top: 0 })
+    return fetch()
+  }, [fetch])
+
+  const handlePlatformChange = useCallback(
+    (platform: string) => {
+      scrollRef.current?.scrollTo({ top: 0 })
+      setActivePlatform(platform)
+    },
+    [setActivePlatform]
+  )
 
   const confirmCancel = async () => {
     if (!cancelTarget || cancelingTaskId) return
@@ -222,13 +247,13 @@ export default function TaskList({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <KtTabs items={platformTabs} activeKey={activePlatform} onChange={setActivePlatform} />
-        <KtButton variant="default" size="sm" onClick={() => fetch()}>
+        <KtTabs items={platformTabs} activeKey={activePlatform} onChange={handlePlatformChange} />
+        <KtButton variant="default" size="sm" onClick={() => void refreshLatest()}>
           刷新
         </KtButton>
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div ref={scrollRef} style={{ flex: 1, overflow: 'auto' }}>
         {cancelError && (
           <div
             role="alert"
@@ -251,6 +276,13 @@ export default function TaskList({
             rowKey="id"
             selectedRowKey={selectedTaskId ?? undefined}
             onRowClick={(r) => selectTask(r.id === selectedTaskId ? null : r.id)}
+          />
+        )}
+        {!loading && !pluginError && !error && tasks.length > 0 && (
+          <InfiniteScrollTrigger
+            hasMore={hasMore}
+            loading={loadingMore}
+            onLoadMore={() => void loadMore().catch(() => undefined)}
           />
         )}
       </div>

@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from '@/shared/services/http-api-client'
+import { LIST_PAGE_SIZE } from '@/shared/services/list-pagination'
 
 export interface LogEntry {
   id: string
@@ -25,7 +26,7 @@ export async function fetchLogs(query: LogQuery): Promise<LogEntry[]> {
   if (query.level) params.set('level', query.level)
   if (query.keyword) params.set('keyword', query.keyword)
   if (query.task_id) params.set('task_id', query.task_id)
-  params.set('limit', String(query.limit ?? 200))
+  params.set('limit', String(query.limit ?? LIST_PAGE_SIZE))
   params.set('offset', String(query.offset ?? 0))
   return await apiGet<LogEntry[]>(`/api/logs?${params.toString()}`)
 }

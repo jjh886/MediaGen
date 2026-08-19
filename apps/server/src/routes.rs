@@ -1,11 +1,10 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::HashSet;
 
 use crate::access_control::mask_account_keys;
 use crate::net_client::proxy_url_without_auth;
-use crate::store_helpers::task_is_active;
+use crate::pagination::{paginate, PageQuery};
 use crate::{
     store::{AccountRecord, AccountUpdate, SettingsUpdate},
     ServerState,
@@ -64,19 +63,40 @@ pub async fn plugins(state: web::Data<ServerState>) -> impl Responder {
 #[derive(Deserialize)]
 pub struct AccountQuery {
     platform: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
 }
 
 pub async fn accounts(
     state: web::Data<ServerState>,
     query: web::Query<AccountQuery>,
 ) -> impl Responder {
-    let data = state
-        .store
-        .list_accounts(query.platform.as_deref())
+    let mut accounts = state.store.list_accounts(query.platform.as_deref());
+    accounts.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let page = PageQuery::new(query.limit, query.offset);
+    let data = paginate(accounts, &page)
         .into_iter()
         .map(public_account)
         .collect::<Vec<_>>();
     HttpResponse::Ok().json(json!({ "data": data }))
+}
+
+pub async fn account(state: web::Data<ServerState>, path: web::Path<String>) -> impl Responder {
+    match state.store.account_by_id(&path.into_inner()) {
+        Some(account) => HttpResponse::Ok().json(json!({ "data": public_account(account) })),
+        None => HttpResponse::NotFound().json(json!({ "error": "account not found" })),
+    }
+}
+
+pub async fn account_summary(state: web::Data<ServerState>) -> impl Responder {
+    let accounts = state.store.list_accounts(None);
+    let available = accounts
+        .iter()
+        .filter(|account| account.login_state == "available")
+        .count();
+    HttpResponse::Ok().json(json!({
+        "data": { "available": available, "total": accounts.len() }
+    }))
 }
 
 pub async fn update_account(
@@ -153,63 +173,16 @@ pub(crate) fn public_account(account: AccountRecord) -> Value {
 }
 
 pub async fn check_accounts_login(state: web::Data<ServerState>) -> impl Responder {
-    use crate::account_login_check::AccountLoginCheckOutcome;
-
-    let mut checked = 0usize;
-    let mut expired = 0usize;
-    let mut inconclusive = 0usize;
-    let mut skipped_busy = 0usize;
-    let busy_accounts = state
-        .store
-        .list_tasks(None)
-        .into_iter()
-        .filter(task_is_active)
-        .filter_map(|task| task.account_id)
-        .collect::<HashSet<_>>();
-    for account in state.store.list_accounts(None) {
-        if account.login_state == "disabled" {
-            continue;
-        }
-        if busy_accounts.contains(&account.id) {
-            // 账号正在生成时以任务实际运行态为准，绝不再打开检查 Tab 干扰任务。
-            skipped_busy += 1;
-            continue;
-        }
-        let runtime_account = state.store.account_with_runtime_proxy(account.clone());
-        match crate::account_login_check::check_saved_account_login(&state, &runtime_account).await
-        {
-            AccountLoginCheckOutcome::Available(profile) => {
-                checked += 1;
-                state
-                    .store
-                    .mark_login_check_result(&account.id, "available", Some(profile));
-            }
-            AccountLoginCheckOutcome::Expired(_reason) => {
-                checked += 1;
-                expired += 1;
-                state
-                    .store
-                    .mark_login_check_result(&account.id, "login_expired", None);
-            }
-            AccountLoginCheckOutcome::Inconclusive(_reason) => {
-                checked += 1;
-                inconclusive += 1;
-            }
-        }
-    }
-    HttpResponse::Ok().json(serde_json::json!({
-        "checked": checked,
-        "expired": expired,
-        "inconclusive": inconclusive,
-        "skipped_busy": skipped_busy
-    }))
+    let summary = crate::account_status_refresh::refresh_accounts(&state).await;
+    HttpResponse::Ok().json(summary)
 }
 
 pub async fn tasks(
     state: web::Data<ServerState>,
     query: web::Query<AccountQuery>,
 ) -> impl Responder {
-    let data = state.store.list_tasks(query.platform.as_deref());
+    let page = PageQuery::new(query.limit, query.offset);
+    let data = paginate(state.store.list_tasks(query.platform.as_deref()), &page);
     HttpResponse::Ok().json(serde_json::json!({ "data": data }))
 }
 
@@ -255,7 +228,11 @@ pub async fn update_settings(
     state: web::Data<ServerState>,
     payload: web::Json<SettingsUpdate>,
 ) -> impl Responder {
+    let previous_interval = state.store.settings().check_interval_minutes;
     let data = state.store.update_settings(payload.into_inner());
+    if data.check_interval_minutes != previous_interval {
+        state.account_refresh.notify_schedule_changed();
+    }
     HttpResponse::Ok().json(serde_json::json!({ "data": data }))
 }
 

@@ -3,10 +3,12 @@ mod account_browser_profile;
 mod account_login;
 mod account_login_check;
 mod account_login_credentials;
+mod account_status_refresh;
 mod admin_access;
 mod admin_auth;
 mod admin_routes;
 mod browser_session_events;
+mod browser_session_list;
 mod browser_session_public;
 mod browser_session_setup;
 mod browser_session_stream;
@@ -32,6 +34,7 @@ mod image_task_queue;
 mod js_flow_runner;
 mod net_client;
 mod oauth_login;
+mod pagination;
 mod plugin_scripts;
 mod port_process;
 mod routes;
@@ -57,11 +60,15 @@ mod file_api_tests;
 #[cfg(test)]
 mod image_api_tests;
 #[cfg(test)]
+mod pagination_route_tests;
+#[cfg(test)]
 mod routes_login_tests;
 #[cfg(test)]
 mod routes_tests;
 #[cfg(test)]
 mod store_dispatch_tests;
+#[cfg(test)]
+mod store_quota_tests;
 #[cfg(test)]
 mod store_tests;
 #[cfg(test)]
@@ -82,8 +89,8 @@ use store::AppStore;
 use tokio::sync::Notify;
 
 use routes::{
-    accounts, cancel_task, check_accounts_login, delete_account, health, models, plugins, settings,
-    setup, tasks, toggle_account, update_account, update_settings,
+    account, account_summary, accounts, cancel_task, check_accounts_login, delete_account, health,
+    models, plugins, settings, setup, tasks, toggle_account, update_account, update_settings,
 };
 
 #[derive(Clone)]
@@ -97,6 +104,7 @@ pub struct ServerState {
     pub(crate) credential_cipher: Arc<CredentialCipher>,
     pub(crate) generation_queue_enabled: bool,
     pub(crate) generation_queue_notify: Arc<Notify>,
+    pub(crate) account_refresh: Arc<account_status_refresh::AccountRefreshRuntime>,
     pub(crate) weixin: Arc<weixin::WeixinRuntime>,
 }
 
@@ -106,6 +114,7 @@ async fn main() -> std::io::Result<()> {
     ensure_server_dirs(&config)?;
     let state = web::Data::new(build_state(&config));
     generation_queue::start_worker(state.clone());
+    account_status_refresh::start_worker(state.clone());
     weixin::start_workers(state.clone());
     let console_dir = config.console_dir.clone();
     let bind = format!("{}:{}", config.host, config.port);
@@ -173,6 +182,7 @@ fn build_state(config: &ServerConfig) -> ServerState {
         credential_cipher: Arc::new(credential_cipher),
         generation_queue_enabled,
         generation_queue_notify: Arc::new(Notify::new()),
+        account_refresh: Arc::new(account_status_refresh::AccountRefreshRuntime::default()),
         weixin: Arc::new(weixin::WeixinRuntime::new().unwrap_or_else(|error| {
             eprintln!("[mediagen-server] 微信功能以离线模式启动: {error}");
             weixin::WeixinRuntime::offline()
@@ -190,10 +200,12 @@ fn configure_management_routes(cfg: &mut web::ServiceConfig) {
         .route("/api/setup", web::post().to(setup))
         .route("/api/plugins", web::get().to(plugins))
         .route("/api/accounts", web::get().to(accounts))
+        .route("/api/accounts/summary", web::get().to(account_summary))
         .route(
             "/api/accounts/check-login",
             web::post().to(check_accounts_login),
         )
+        .route("/api/accounts/{id}", web::get().to(account))
         .route("/api/accounts/{id}", web::post().to(update_account))
         .route("/api/accounts/{id}", web::delete().to(delete_account))
         .route("/api/accounts/{id}/toggle", web::post().to(toggle_account))

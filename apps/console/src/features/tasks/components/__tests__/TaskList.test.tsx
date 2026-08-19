@@ -22,8 +22,11 @@ vi.mock('../../hooks/useTaskStore', () => ({
     selectedTaskId: null,
     activePlatform: 'test',
     loading: false,
+    loadingMore: false,
+    hasMore: false,
     error: '',
     fetch,
+    loadMore: vi.fn(),
     setActivePlatform,
     selectTask,
     cancel,
@@ -33,7 +36,7 @@ vi.mock('@/shared/services/plugin-service', () => ({
   fetchPlugins: vi.fn().mockResolvedValue([]),
 }))
 vi.mock('@/shared/services/account-service', () => ({
-  fetchAccounts: vi.fn().mockResolvedValue([]),
+  fetchAllAccounts: vi.fn().mockResolvedValue([]),
 }))
 
 import TaskList from '../TaskList'

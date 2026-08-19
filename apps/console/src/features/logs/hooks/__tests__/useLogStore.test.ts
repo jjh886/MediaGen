@@ -13,6 +13,9 @@ beforeEach(() => {
   useLogStore.setState({
     logs: [],
     loading: false,
+    loadingMore: false,
+    hasMore: true,
+    nextOffset: 0,
     moduleFilter: '',
     levelFilter: '',
     keyword: '',
@@ -54,7 +57,7 @@ describe('useLogStore', () => {
         useLogStore.getState().setModuleFilter('')
       })
 
-      expect(mockFetchLogs).toHaveBeenCalledWith({})
+      expect(mockFetchLogs).toHaveBeenCalledWith({ limit: 40, offset: 0 })
     })
   })
 
@@ -138,6 +141,8 @@ describe('useLogStore', () => {
       })
 
       expect(mockFetchLogs).toHaveBeenCalledWith({
+        limit: 40,
+        offset: 0,
         module: 'scheduler',
         level: 'warn',
         keyword: '超时',
@@ -152,7 +157,7 @@ describe('useLogStore', () => {
         await useLogStore.getState().load()
       })
 
-      expect(mockFetchLogs).toHaveBeenCalledWith({})
+      expect(mockFetchLogs).toHaveBeenCalledWith({ limit: 40, offset: 0 })
     })
 
     it('loading 状态在请求期间为 true', async () => {
@@ -177,5 +182,32 @@ describe('useLogStore', () => {
 
       expect(useLogStore.getState().loading).toBe(false)
     })
+  })
+
+  it('接近底部时保留筛选条件并追加下一页', async () => {
+    const first = {
+      id: '1',
+      timestamp: '2026-04-15',
+      module: 'engine' as const,
+      level: 'info' as const,
+      summary: 'first',
+    }
+    const second = { ...first, id: '2', summary: 'second' }
+    useLogStore.setState({
+      logs: [first],
+      moduleFilter: 'engine',
+      hasMore: true,
+      nextOffset: 1,
+    })
+    mockFetchLogs.mockResolvedValue([second])
+
+    await act(async () => useLogStore.getState().loadMore())
+
+    expect(mockFetchLogs).toHaveBeenCalledWith({
+      limit: 40,
+      offset: 1,
+      module: 'engine',
+    })
+    expect(useLogStore.getState().logs).toEqual([first, second])
   })
 })

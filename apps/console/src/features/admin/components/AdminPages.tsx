@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Plus, RefreshCw } from 'lucide-react'
 import { KtButton } from '@/shared/ui'
+import { appendUnique, LIST_PAGE_SIZE } from '@/shared/services/list-pagination'
 import {
   createApiKey,
   createProxy,
@@ -45,38 +46,65 @@ function PageTitle({
   )
 }
 
-function useListData<T>(loader: () => Promise<T[]>) {
+function useListData<T extends { id: string }>(
+  loader: (limit?: number, offset?: number) => Promise<T[]>
+) {
   const [items, setItems] = useState<T[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
+  const [nextOffset, setNextOffset] = useState(0)
   const [error, setError] = useState('')
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      setItems(await loader())
+      const page = await loader(LIST_PAGE_SIZE, 0)
+      setItems(page)
+      setHasMore(page.length === LIST_PAGE_SIZE)
+      setNextOffset(page.length)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败，请重试。')
     } finally {
       setLoading(false)
     }
   }, [loader])
+  const loadMore = useCallback(async () => {
+    if (!hasMore || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const page = await loader(LIST_PAGE_SIZE, nextOffset)
+      setItems((current) => appendUnique(current, page, (item) => item.id))
+      setHasMore(page.length === LIST_PAGE_SIZE)
+      setNextOffset((current) => current + page.length)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载失败，请重试。')
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [hasMore, loader, loadingMore, nextOffset])
   useEffect(() => void load(), [load])
-  return { items, loading, error, load }
+  return { items, loading, loadingMore, hasMore, error, load, loadMore }
 }
 
 export function ApiKeysPage() {
   const apiKeys = useListData(fetchApiKeys)
+  const pageRef = useRef<HTMLDivElement>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const refresh = useCallback(async () => {
+    pageRef.current?.closest('.app-shell__main')?.scrollTo({ top: 0 })
+    await apiKeys.load()
+  }, [apiKeys.load])
   const submit = async (values: ApiKeyCreateValues) => {
     const result = await createApiKey(values.name)
-    void apiKeys.load()
+    void refresh()
     return result
   }
   return (
-    <div style={pageStyle}>
+    <div ref={pageRef} style={pageStyle}>
       <PageTitle
         title="API Key"
-        onRefresh={() => void apiKeys.load()}
+        onRefresh={() => void refresh()}
         action={
           <KtButton variant="primary" onClick={() => setDialogOpen(true)}>
             <Plus size={16} /> 新增 API Key
@@ -93,7 +121,10 @@ export function ApiKeysPage() {
         loading={apiKeys.loading}
         error={apiKeys.error}
         onRetry={apiKeys.load}
-        onDelete={(item) => deleteApiKey(item.id).then(apiKeys.load)}
+        hasMore={apiKeys.hasMore}
+        loadingMore={apiKeys.loadingMore}
+        onLoadMore={() => void apiKeys.loadMore()}
+        onDelete={(item) => deleteApiKey(item.id).then(refresh)}
       />
     </div>
   )
@@ -104,6 +135,9 @@ function ApiKeyList(props: {
   loading: boolean
   error: string
   onRetry: () => void
+  hasMore: boolean
+  loadingMore: boolean
+  onLoadMore: () => void
   onDelete: (item: ApiKeyItem) => Promise<void>
 }) {
   return (
@@ -119,17 +153,22 @@ function ApiKeyList(props: {
 
 export function ProxiesPage() {
   const proxies = useListData(fetchProxies)
+  const pageRef = useRef<HTMLDivElement>(null)
   const proxyTests = useProxyTests()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const refresh = useCallback(async () => {
+    pageRef.current?.closest('.app-shell__main')?.scrollTo({ top: 0 })
+    await proxies.load()
+  }, [proxies.load])
   const submit = async (values: ProxyCreateValues) => {
     await createProxy(values)
-    await proxies.load()
+    await refresh()
   }
   return (
-    <div style={pageStyle}>
+    <div ref={pageRef} style={pageStyle}>
       <PageTitle
         title="代理"
-        onRefresh={proxies.load}
+        onRefresh={refresh}
         action={
           <KtButton variant="primary" onClick={() => setDialogOpen(true)}>
             <Plus size={16} /> 新增代理
@@ -142,12 +181,15 @@ export function ProxiesPage() {
         loading={proxies.loading}
         error={proxies.error}
         onRetry={proxies.load}
+        hasMore={proxies.hasMore}
+        loadingMore={proxies.loadingMore}
+        onLoadMore={() => void proxies.loadMore()}
         emptyText="还没有代理。新增后可在添加账号或账号配置中绑定使用。"
         columns={(item) => proxyColumns(item, proxyTests.tests[item.id])}
         renderActions={(item) => (
           <ProxyTestButton item={item} state={proxyTests.tests[item.id]} onTest={proxyTests.run} />
         )}
-        onDelete={(item) => deleteProxy(item.id).then(proxies.load)}
+        onDelete={(item) => deleteProxy(item.id).then(refresh)}
         deleteTitle="删除代理"
         deleteMessage={(item) => `确定删除「${item.name}」吗？继续使用它的账号任务可能会失败。`}
       />

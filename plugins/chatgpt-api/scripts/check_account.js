@@ -7,19 +7,36 @@ function main(ctx) {
 }
 
 function chatgptApiAvailableAccount(auth) {
-  const account = auth.auth.account || {}
-  const user = auth.auth.user || {}
+  const quota = chatgptApiImageQuotaStatus(auth)
   return {
     logged_in: true,
-    status: 'available',
-    reason: 'ChatGPT API 登录有效',
-    account: {
-      user_id: user.id || account.id || '',
-      username: user.name || user.email || account.id || 'ChatGPT API',
-      email: user.email || '',
-      name: user.name || user.email || 'ChatGPT API',
-    },
+    ...chatgptApiQuotaFields(quota),
+    account: chatgptApiAccountIdentity(auth),
   }
+}
+
+function chatgptApiQuotaFields(quota) {
+  return {
+    status: chatgptApiFirstText([quota?.status, 'available']),
+    reason: chatgptApiFirstText([quota?.reason, 'ChatGPT API 登录有效']),
+    cooldown_seconds: quota?.cooldown_seconds || null,
+  }
+}
+
+function chatgptApiAccountIdentity(auth) {
+  const account = auth.auth.account || {}
+  const user = auth.auth.user || {}
+  const displayName = chatgptApiFirstText([user.name, user.email, account.id, 'ChatGPT API'])
+  return {
+    user_id: chatgptApiFirstText([user.id, account.id]),
+    username: displayName,
+    email: chatgptApiFirstText([user.email]),
+    name: displayName,
+  }
+}
+
+function chatgptApiFirstText(values) {
+  return String((values || []).find((value) => String(value || '').trim()) || '').trim()
 }
 
 function chatgptApiAccountCheckError(error) {

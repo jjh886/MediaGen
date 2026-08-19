@@ -14,7 +14,7 @@ vi.mock('../../services/account-service', () => ({
 }))
 
 vi.mock('@/shared/services/proxy-service', () => ({
-  fetchProxies: (...args: unknown[]) => mocks.fetchProxies(...args),
+  fetchAllProxies: (...args: unknown[]) => mocks.fetchProxies(...args),
 }))
 
 vi.mock('@/shared/browser/RemoteBrowserPanel', () => ({

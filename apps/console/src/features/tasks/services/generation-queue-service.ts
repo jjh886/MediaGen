@@ -1,8 +1,9 @@
 import { apiGet, apiPost } from '@/shared/services/http-api-client'
+import { LIST_PAGE_SIZE } from '@/shared/services/list-pagination'
 import type { GenerationQueueAction, GenerationQueueResponse } from '../types/generation-queue'
 
 export async function fetchGenerationQueue(
-  limit = 100,
+  limit = LIST_PAGE_SIZE,
   offset = 0
 ): Promise<GenerationQueueResponse> {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })

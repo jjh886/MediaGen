@@ -1,4 +1,4 @@
-import { useEffect, useCallback, type KeyboardEvent } from 'react'
+import { useEffect, useCallback, useRef, type KeyboardEvent, type RefObject } from 'react'
 import { KtAsyncState, KtSelect, KtInput } from '@/shared/ui'
 import { useLogStore, type LogState } from '../hooks/useLogStore'
 import { LogTable } from './LogTable'
@@ -23,18 +23,21 @@ const LEVEL_OPTIONS = [
 export function LogPage({ initialTaskId }: { initialTaskId?: string | null }) {
   const store = useLogStore()
   const load = store.load
+  const refreshLatest = store.refreshLatest
   const setTaskId = store.setTaskId
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (initialTaskId) setTaskId(initialTaskId)
     load()
     const timer = setInterval(() => {
-      load()
+      refreshLatest()
     }, 3000)
     return () => clearInterval(timer)
-  }, [initialTaskId, load, setTaskId])
+  }, [initialTaskId, load, refreshLatest, setTaskId])
 
   const handleSearch = useCallback(() => {
+    scrollRef.current?.scrollTo({ top: 0 })
     load()
   }, [load])
 
@@ -47,8 +50,12 @@ export function LogPage({ initialTaskId }: { initialTaskId?: string | null }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
-      <LogFilters store={store} onKeyDown={handleKeyDown} />
-      <LogContent store={store} />
+      <LogFilters
+        store={store}
+        onKeyDown={handleKeyDown}
+        onReset={() => scrollRef.current?.scrollTo({ top: 0 })}
+      />
+      <LogContent store={store} scrollRef={scrollRef} />
     </div>
   )
 }
@@ -56,18 +63,30 @@ export function LogPage({ initialTaskId }: { initialTaskId?: string | null }) {
 function LogFilters({
   store,
   onKeyDown,
+  onReset,
 }: {
   store: LogState
   onKeyDown: (event: KeyboardEvent) => void
+  onReset: () => void
 }) {
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
       <KtSelect
         value={store.moduleFilter}
-        onChange={store.setModuleFilter}
+        onChange={(value) => {
+          onReset()
+          store.setModuleFilter(value)
+        }}
         options={MODULE_OPTIONS}
       />
-      <KtSelect value={store.levelFilter} onChange={store.setLevelFilter} options={LEVEL_OPTIONS} />
+      <KtSelect
+        value={store.levelFilter}
+        onChange={(value) => {
+          onReset()
+          store.setLevelFilter(value)
+        }}
+        options={LEVEL_OPTIONS}
+      />
       <KtInput
         placeholder="搜索日志..."
         value={store.keyword}
@@ -86,9 +105,18 @@ function LogFilters({
   )
 }
 
-function LogContent({ store }: { store: LogState }) {
+function LogContent({
+  store,
+  scrollRef,
+}: {
+  store: LogState
+  scrollRef: RefObject<HTMLDivElement | null>
+}) {
   return (
-    <div style={{ flex: 1, overflow: 'auto', borderRadius: 12, background: '#1E1F21' }}>
+    <div
+      ref={scrollRef}
+      style={{ flex: 1, overflow: 'auto', borderRadius: 12, background: '#1E1F21' }}
+    >
       {store.error ? (
         <KtAsyncState error={store.error} onRetry={store.load} />
       ) : (
@@ -97,6 +125,9 @@ function LogContent({ store }: { store: LogState }) {
           loading={store.loading}
           expandedId={store.expandedId}
           onToggle={store.toggleExpand}
+          hasMore={store.hasMore}
+          loadingMore={store.loadingMore}
+          onLoadMore={() => void store.loadMore()}
         />
       )}
     </div>

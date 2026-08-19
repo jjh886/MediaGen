@@ -1,31 +1,26 @@
 import { KtTable, KtBadge, KtButton } from '@/shared/ui'
 import type { Column } from '@/shared/ui'
-import type { Account, LoginState } from '../types/account'
-
-const stateVariant: Record<LoginState, 'success' | 'warning' | 'error' | 'disabled'> = {
-  available: 'success',
-  daily_quota_exhausted: 'warning',
-  cooldown: 'warning',
-  login_expired: 'error',
-  total_quota_exhausted: 'error',
-  verification_required: 'error',
-  disabled: 'disabled',
-}
-
-const stateLabel: Record<LoginState, string> = {
-  available: '可用',
-  daily_quota_exhausted: '今日已满',
-  cooldown: '冷却中',
-  login_expired: '登录过期',
-  total_quota_exhausted: '总量已满',
-  verification_required: '需验证',
-  disabled: '已停用',
-}
+import type { Account } from '../types/account'
+import { accountResetText, accountStateLabel, accountStateVariant } from '../utils/account-status'
 
 const browserOsLabel: Record<string, string> = {
   windows: 'Windows',
   macos: 'macOS',
   linux: 'Linux',
+}
+
+function AccountStateCell({ account }: { account: Account }) {
+  const resetText = accountResetText(account)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <KtBadge variant={accountStateVariant[account.login_state]}>
+        {accountStateLabel[account.login_state]}
+      </KtBadge>
+      {resetText && (
+        <span style={{ color: 'var(--text-disabled)', fontSize: 12 }}>{resetText}</span>
+      )}
+    </div>
+  )
 }
 
 interface AccountTableProps {
@@ -100,11 +95,9 @@ export default function AccountTable({
     {
       key: 'login_state',
       title: '状态',
-      width: 110,
-      minWidth: 90,
-      render: (r) => (
-        <KtBadge variant={stateVariant[r.login_state]}>{stateLabel[r.login_state]}</KtBadge>
-      ),
+      width: 180,
+      minWidth: 160,
+      render: (r) => <AccountStateCell account={r} />,
     },
     {
       key: 'used_today',

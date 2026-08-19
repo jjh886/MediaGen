@@ -11,7 +11,7 @@ export function LoginManageCard({
   return (
     <div style={cardStyle}>
       <h2 style={titleStyle}>登录管理</h2>
-      <Field label="检查间隔（分钟）">
+      <Field label="账号状态检查间隔（分钟）" hint="保存后立即生效，0 表示关闭自动检查">
         <NumInput
           value={s.check_interval_minutes}
           onChange={(v) => update('check_interval_minutes', v)}

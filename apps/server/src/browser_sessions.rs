@@ -8,9 +8,7 @@ use mediagen_core::PluginManifest;
 use serde_json::{json, Value};
 
 use crate::account_login;
-use crate::browser_session_public::{
-    public_browser_response, public_browser_session, public_browser_sessions,
-};
+use crate::browser_session_public::{public_browser_response, public_browser_session};
 use crate::browser_session_setup::{
     prepare_browser_session_create_request, release_relogin_profile,
 };
@@ -22,7 +20,10 @@ use crate::ServerState;
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/browser-sessions")
-            .route("", web::get().to(list_browser_sessions))
+            .route(
+                "",
+                web::get().to(crate::browser_session_list::list_browser_sessions),
+            )
             .route("", web::post().to(create_browser_session))
             .route("/{id}", web::get().to(get_browser_session))
             .route("/{id}/cancel", web::post().to(cancel_browser_session))
@@ -51,15 +52,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
                 web::get().to(crate::browser_session_stream::browser_session_stream),
             ),
     );
-}
-
-pub async fn list_browser_sessions(state: web::Data<ServerState>) -> impl Responder {
-    match state.browser_gateway.list_sessions() {
-        Ok(sessions) => {
-            HttpResponse::Ok().json(json!({ "data": public_browser_sessions(sessions) }))
-        }
-        Err(err) => gateway_error_response(err),
-    }
 }
 
 pub async fn navigate_browser_session(

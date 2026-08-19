@@ -19,6 +19,11 @@ use crate::ServerState;
 
 pub(crate) enum AccountLoginCheckOutcome {
     Available(AccountLoginProfile),
+    Unavailable {
+        login_state: String,
+        profile: AccountLoginProfile,
+        cooldown_seconds: Option<i64>,
+    },
     Expired(String),
     Inconclusive(String),
 }
@@ -180,6 +185,16 @@ fn classify_flow_value(value: &Value) -> Option<AccountLoginCheckOutcome> {
             profile.logged_in = true;
             return Some(AccountLoginCheckOutcome::Available(profile));
         }
+        "cooldown"
+        | "daily_quota_exhausted"
+        | "total_quota_exhausted"
+        | "verification_required" => {
+            return Some(AccountLoginCheckOutcome::Unavailable {
+                login_state: status.to_string(),
+                profile: profile_from_value(value),
+                cooldown_seconds: flow_cooldown_seconds(value),
+            });
+        }
         "login_expired" => return Some(AccountLoginCheckOutcome::Expired(flow_reason(value))),
         "inconclusive" => return Some(AccountLoginCheckOutcome::Inconclusive(flow_reason(value))),
         _ => {}
@@ -222,6 +237,17 @@ fn flow_reason(value: &Value) -> String {
         .filter(|reason| !reason.trim().is_empty())
         .unwrap_or("账号登录检查结果不确定")
         .to_string()
+}
+
+fn flow_cooldown_seconds(value: &Value) -> Option<i64> {
+    [
+        "cooldown_seconds",
+        "reset_after_seconds",
+        "retry_after_seconds",
+    ]
+    .iter()
+    .find_map(|key| value.get(*key).and_then(Value::as_i64))
+    .filter(|seconds| *seconds > 0)
 }
 
 async fn run_check_account_step(
@@ -363,6 +389,26 @@ mod tests {
         assert!(matches!(
             classify_flow_value(&json!({ "logged_in": false, "reason": "session missing" })),
             Some(AccountLoginCheckOutcome::Expired(reason)) if reason == "session missing"
+        ));
+    }
+
+    #[test]
+    fn quota_check_keeps_login_profile_and_reset_seconds() {
+        assert!(matches!(
+            classify_flow_value(&json!({
+                "logged_in": true,
+                "status": "daily_quota_exhausted",
+                "reason": "limit resets in 4 hours and 35 minutes",
+                "cooldown_seconds": 16_500,
+                "account": { "email": "pro@example.test" }
+            })),
+            Some(AccountLoginCheckOutcome::Unavailable {
+                login_state,
+                profile,
+                cooldown_seconds
+            }) if login_state == "daily_quota_exhausted"
+                && profile.email == "pro@example.test"
+                && cooldown_seconds == Some(16_500)
         ));
     }
 

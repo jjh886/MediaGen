@@ -7,6 +7,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::image_request::OpenAiImageRequest;
+use crate::pagination::DEFAULT_PAGE_SIZE;
 use crate::routes::{api_key_allowed, api_key_from_request};
 use crate::store::{GenerationJobRecord, GenerationJobState};
 use crate::ServerState;
@@ -102,7 +103,7 @@ pub(crate) async fn admin_list_queue(
     query: web::Query<ListQuery>,
 ) -> HttpResponse {
     let (jobs, total) = state.store.list_all_generation_jobs(
-        query.limit.unwrap_or(100).clamp(1, 100),
+        query.limit.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100),
         query.offset.unwrap_or(0),
     );
     HttpResponse::Ok().json(json!({
@@ -119,10 +120,11 @@ pub(crate) async fn list_queue(
         return public_error(401, "UNAUTHORIZED", "无效的 Bearer Token");
     };
     let offset = query.offset.unwrap_or(0);
-    let (jobs, total) =
-        state
-            .store
-            .list_generation_jobs(&owner, query.limit.unwrap_or(100).clamp(1, 100), offset);
+    let (jobs, total) = state.store.list_generation_jobs(
+        &owner,
+        query.limit.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100),
+        offset,
+    );
     HttpResponse::Ok().json(json!({
         "success": true,
         "data": queue_response(&state, jobs, total, offset),

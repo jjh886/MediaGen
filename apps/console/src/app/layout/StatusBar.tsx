@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useAccountStore } from '../../features/accounts/hooks/useAccountStore'
-import { useTaskStore } from '../../features/tasks/hooks/useTaskStore'
-import { useGenerationQueueStore } from '../../features/tasks/hooks/useGenerationQueueStore'
+import { useEffect, useState } from 'react'
+import { fetchGenerationQueue } from '../../features/tasks/services/generation-queue-service'
+import { fetchAccountSummary } from '../../shared/services/account-service'
 import { checkHealth, getSystemInfo, type SystemInfo } from '../../shared/services/system-service'
 
 interface ServiceStatus {
@@ -15,11 +14,8 @@ function modeText(info: SystemInfo | null) {
 }
 
 export default function StatusBar() {
-  const accounts = useAccountStore((s) => s.accounts)
-  const fetchAccounts = useAccountStore((s) => s.fetch)
-  const fetchTasks = useTaskStore((s) => s.fetch)
-  const queueCount = useGenerationQueueStore((s) => s.total)
-  const fetchQueue = useGenerationQueueStore((s) => s.load)
+  const [queueCount, setQueueCount] = useState(0)
+  const [availableCount, setAvailableCount] = useState(0)
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus>({
     ok: false,
     text: '正在连接 API 服务',
@@ -27,12 +23,18 @@ export default function StatusBar() {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
 
   useEffect(() => {
-    void fetchAccounts('').catch(() => undefined)
-    void fetchTasks('').catch(() => undefined)
-    void fetchQueue().catch(() => undefined)
-    const timer = window.setInterval(() => void fetchQueue().catch(() => undefined), 5000)
+    const refreshCounts = () => {
+      void fetchAccountSummary()
+        .then((summary) => setAvailableCount(summary.available))
+        .catch(() => undefined)
+      void fetchGenerationQueue(1, 0)
+        .then((queue) => setQueueCount(queue.total))
+        .catch(() => undefined)
+    }
+    refreshCounts()
+    const timer = window.setInterval(refreshCounts, 5000)
     return () => window.clearInterval(timer)
-  }, [fetchAccounts, fetchQueue, fetchTasks])
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -58,10 +60,6 @@ export default function StatusBar() {
     }
   }, [])
 
-  const availableCount = useMemo(
-    () => accounts.filter((a) => a.login_state === 'available').length,
-    [accounts]
-  )
   return (
     <footer className="status-bar">
       <div className="status-bar__left">

@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowUp, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react'
-import { KtBadge, KtButton, KtModal, KtTable } from '@/shared/ui'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowUp, RefreshCw, X } from 'lucide-react'
+import { InfiniteScrollTrigger, KtBadge, KtButton, KtModal, KtTable } from '@/shared/ui'
 import type { Column } from '@/shared/ui'
 import { useGenerationQueueStore } from '../hooks/useGenerationQueueStore'
 import type { GenerationQueueItem } from '../types/generation-queue'
 
 const POLL_INTERVAL_MS = 3000
-const PAGE_SIZE = 20
 
 function formatTime(value: string): string {
   return new Date(value).toLocaleString('zh-CN', {
@@ -18,23 +17,32 @@ function formatTime(value: string): string {
 }
 
 export default function GenerationQueueList() {
-  const { items, total, loading, error, load, runAction } = useGenerationQueueStore()
+  const {
+    items,
+    total,
+    loading,
+    loadingMore,
+    hasMore,
+    error,
+    load,
+    loadMore,
+    refreshLatest,
+    runAction,
+  } = useGenerationQueueStore()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [cancelTaskIds, setCancelTaskIds] = useState<string[]>([])
   const [actionRunning, setActionRunning] = useState(false)
-  const [page, setPage] = useState(1)
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const loadPage = useCallback(() => load(PAGE_SIZE, (page - 1) * PAGE_SIZE), [load, page])
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const refresh = useCallback(() => {
+    scrollRef.current?.scrollTo({ top: 0 })
+    return load()
+  }, [load])
 
   useEffect(() => {
-    void loadPage()
-    const timer = window.setInterval(() => void loadPage(), POLL_INTERVAL_MS)
+    void load()
+    const timer = window.setInterval(() => void refreshLatest(), POLL_INTERVAL_MS)
     return () => window.clearInterval(timer)
-  }, [loadPage])
-
-  useEffect(() => {
-    if (page > pageCount) setPage(pageCount)
-  }, [page, pageCount])
+  }, [load, refreshLatest])
 
   useEffect(() => {
     const available = new Set(items.map((item) => item.taskId))
@@ -200,7 +208,7 @@ export default function GenerationQueueList() {
             <X size={14} />
             批量取消
           </KtButton>
-          <KtButton size="sm" title="刷新" onClick={() => void loadPage()} loading={loading}>
+          <KtButton size="sm" title="刷新" onClick={() => void refresh()} loading={loading}>
             <RefreshCw size={14} />
             刷新
           </KtButton>
@@ -212,32 +220,13 @@ export default function GenerationQueueList() {
           {error}
         </div>
       )}
-      <div style={{ minHeight: 0, flex: 1, overflow: 'auto' }}>
+      <div ref={scrollRef} style={{ minHeight: 0, flex: 1, overflow: 'auto' }}>
         <KtTable columns={columns} data={items} rowKey="taskId" emptyText="暂无排队任务" />
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
-        <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-          第 {page} / {pageCount} 页
-        </span>
-        <KtButton
-          size="sm"
-          title="上一页"
-          aria-label="上一页"
-          disabled={page <= 1 || loading}
-          onClick={() => setPage((current) => Math.max(1, current - 1))}
-        >
-          <ChevronLeft size={15} />
-        </KtButton>
-        <KtButton
-          size="sm"
-          title="下一页"
-          aria-label="下一页"
-          disabled={page >= pageCount || loading}
-          onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-        >
-          <ChevronRight size={15} />
-        </KtButton>
+        <InfiniteScrollTrigger
+          hasMore={!loading && hasMore}
+          loading={loadingMore}
+          onLoadMore={() => void loadMore().catch(() => undefined)}
+        />
       </div>
 
       <KtModal

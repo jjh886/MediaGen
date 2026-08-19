@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::net_client::{http_client, proxy_url_with_auth, proxy_url_without_auth};
+use crate::pagination::{paginate, PageQuery};
 use crate::store::{ApiKeyRecord, AuditLogRecord, ProxyRecord};
 use crate::ServerState;
 
@@ -32,10 +33,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         );
 }
 
-pub async fn api_keys(state: web::Data<ServerState>) -> impl Responder {
-    let data = state
-        .store
-        .list_api_keys()
+pub async fn api_keys(
+    state: web::Data<ServerState>,
+    query: web::Query<PageQuery>,
+) -> impl Responder {
+    let mut keys = state.store.list_api_keys();
+    keys.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let data = paginate(keys, &query)
         .into_iter()
         .map(|item| {
             json!({
@@ -85,10 +89,13 @@ pub async fn delete_api_key(
     }
 }
 
-pub async fn proxies(state: web::Data<ServerState>) -> impl Responder {
-    let data = state
-        .store
-        .list_proxies()
+pub async fn proxies(
+    state: web::Data<ServerState>,
+    query: web::Query<PageQuery>,
+) -> impl Responder {
+    let mut proxies = state.store.list_proxies();
+    proxies.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let data = paginate(proxies, &query)
         .into_iter()
         .map(proxy_response)
         .collect::<Vec<_>>();
@@ -176,8 +183,8 @@ pub struct LogQuery {
     level: Option<String>,
     keyword: Option<String>,
     task_id: Option<String>,
-    offset: Option<usize>,
     limit: Option<usize>,
+    offset: Option<usize>,
 }
 
 pub async fn logs(state: web::Data<ServerState>, query: web::Query<LogQuery>) -> impl Responder {
@@ -332,9 +339,7 @@ fn api_key_create_response(record: &ApiKeyRecord, key: &str) -> Value {
 
 fn filter_logs(mut logs: Vec<AuditLogRecord>, query: &LogQuery) -> Vec<AuditLogRecord> {
     logs.retain(|log| log_matches(log, query));
-    let offset = query.offset.unwrap_or(0);
-    let limit = query.limit.unwrap_or(200).clamp(1, 1000);
-    logs.into_iter().skip(offset).take(limit).collect()
+    paginate(logs, &PageQuery::new(query.limit, query.offset))
 }
 
 fn log_matches(log: &AuditLogRecord, query: &LogQuery) -> bool {

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { KtTabs, KtButton, KtConfirmDialog, KtAsyncState } from '@/shared/ui'
+import { useEffect, useRef, useState } from 'react'
+import { InfiniteScrollTrigger, KtTabs, KtButton, KtConfirmDialog, KtAsyncState } from '@/shared/ui'
 import { fetchPlugins, type PluginInfo } from '@/shared/services/plugin-service'
 import { useAccountStore } from '../hooks/useAccountStore'
 import type { AccountConfigUpdate } from '../services/account-service'
@@ -14,9 +14,13 @@ export default function AccountPage() {
     accounts,
     activePlatform,
     loading,
+    loadingMore,
+    hasMore,
     error,
     checking,
     fetch,
+    loadMore,
+    syncLatest,
     setActivePlatform,
     remove,
     toggle,
@@ -31,6 +35,7 @@ export default function AccountPage() {
   const [batchOpen, setBatchOpen] = useState(false)
   const [deleteAccount, setDeleteAccount] = useState<Account | null>(null)
   const [pluginError, setPluginError] = useState('')
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetchPlugins()
@@ -46,9 +51,19 @@ export default function AccountPage() {
         }
       })
       .catch((error) => setPluginError(error instanceof Error ? error.message : '平台加载失败。'))
-    // 页面加载时自动检查所有账号登录态
-    void checkLogin().catch(() => undefined)
   }, [])
+
+  useEffect(() => {
+    if (!activePlatform) return
+    const timer = window.setInterval(() => void syncLatest(), 5000)
+    return () => window.clearInterval(timer)
+  }, [activePlatform, syncLatest])
+
+  useEffect(() => {
+    if (!configAccount) return
+    const updated = accounts.find((account) => account.id === configAccount.id)
+    if (updated && updated !== configAccount) setConfigAccount(updated)
+  }, [accounts, configAccount])
 
   const platformTabs = plugins.map((p) => ({ key: p.platform_id, label: p.display_name }))
   const activePlugin = plugins.find((p) => p.platform_id === activePlatform)
@@ -61,6 +76,26 @@ export default function AccountPage() {
 
   const handleToggle = async (account: Account) => {
     await toggle(account.id, account.login_state !== 'disabled')
+  }
+
+  const handlePlatformChange = (platform: string) => {
+    scrollRef.current?.scrollTo({ top: 0 })
+    setActivePlatform(platform)
+  }
+
+  const handleCheckLogin = async () => {
+    scrollRef.current?.scrollTo({ top: 0 })
+    await checkLogin()
+  }
+
+  const refreshLatest = () => {
+    scrollRef.current?.scrollTo({ top: 0 })
+    return fetch()
+  }
+
+  const handleConfigure = (account: Account) => {
+    setConfigAccount(account)
+    void checkLogin().catch(() => undefined)
   }
 
   const handleRelogin = (account: Account) => {
@@ -85,9 +120,9 @@ export default function AccountPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <KtTabs items={platformTabs} activeKey={activePlatform} onChange={setActivePlatform} />
+        <KtTabs items={platformTabs} activeKey={activePlatform} onChange={handlePlatformChange} />
         <div style={{ display: 'flex', gap: 8 }}>
-          <KtButton variant="default" size="sm" onClick={checkLogin} disabled={checking}>
+          <KtButton variant="default" size="sm" onClick={handleCheckLogin} disabled={checking}>
             {checking ? '检查中...' : '检查登录态'}
           </KtButton>
           {activePlugin?.supports_registration && (
@@ -106,7 +141,7 @@ export default function AccountPage() {
         </div>
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div ref={scrollRef} style={{ flex: 1, overflow: 'auto' }}>
         <KtAsyncState
           loading={loading}
           error={pluginError || error}
@@ -115,13 +150,20 @@ export default function AccountPage() {
           onRetry={() => fetch()}
         />
         {!loading && !pluginError && !error && accounts.length > 0 && (
-          <AccountTable
-            accounts={accounts}
-            onConfigure={setConfigAccount}
-            onRelogin={handleRelogin}
-            onToggle={handleToggle}
-            onDelete={setDeleteAccount}
-          />
+          <>
+            <AccountTable
+              accounts={accounts}
+              onConfigure={handleConfigure}
+              onRelogin={handleRelogin}
+              onToggle={handleToggle}
+              onDelete={setDeleteAccount}
+            />
+            <InfiniteScrollTrigger
+              hasMore={hasMore}
+              loading={loadingMore}
+              onLoadMore={() => void loadMore().catch(() => undefined)}
+            />
+          </>
         )}
       </div>
 
@@ -130,7 +172,7 @@ export default function AccountPage() {
         onClose={handleLoginClose}
         platform={activePlatform}
         reloginAccountId={reloginId}
-        onSuccess={() => fetch()}
+        onSuccess={() => void refreshLatest()}
       />
 
       <AccountConfigModal
@@ -144,7 +186,7 @@ export default function AccountPage() {
         open={batchOpen}
         onClose={() => setBatchOpen(false)}
         platform={activePlatform}
-        onSuccess={() => fetch()}
+        onSuccess={() => void refreshLatest()}
       />
       <KtConfirmDialog
         open={Boolean(deleteAccount)}

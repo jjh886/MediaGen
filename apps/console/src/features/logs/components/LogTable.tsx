@@ -1,4 +1,4 @@
-import { KtBadge, KtTable } from '@/shared/ui'
+import { InfiniteScrollTrigger, KtBadge, KtTable } from '@/shared/ui'
 import type { Column } from '@/shared/ui'
 import type { LogEntry } from '../services/log-service'
 import { LogDetailRow } from './LogDetailRow'
@@ -35,9 +35,13 @@ interface LogTableProps {
   loading: boolean
   expandedId: string | null
   onToggle: (id: string) => void
+  hasMore: boolean
+  loadingMore: boolean
+  onLoadMore: () => void
 }
 
-export function LogTable({ logs, loading, expandedId, onToggle }: LogTableProps) {
+export function LogTable(props: LogTableProps) {
+  const { logs, loading, expandedId, onToggle } = props
   if (loading) {
     return (
       <div style={{ padding: 32, textAlign: 'center', color: 'rgba(255,255,255,0.4)' }}>
@@ -47,15 +51,22 @@ export function LogTable({ logs, loading, expandedId, onToggle }: LogTableProps)
   }
 
   return (
-    <KtTable<LogEntry>
-      columns={columns}
-      data={logs}
-      rowKey="id"
-      selectedRowKey={expandedId ?? undefined}
-      emptyText="暂无日志"
-      onRowClick={(log) => onToggle(log.id)}
-      isRowExpanded={(log) => expandedId === log.id}
-      expandedRowRender={(log) => <LogDetailRow detail={log.detail} />}
-    />
+    <>
+      <KtTable<LogEntry>
+        columns={columns}
+        data={logs}
+        rowKey="id"
+        selectedRowKey={expandedId ?? undefined}
+        emptyText="暂无日志"
+        onRowClick={(log) => onToggle(log.id)}
+        isRowExpanded={(log) => expandedId === log.id}
+        expandedRowRender={(log) => <LogDetailRow detail={log.detail} />}
+      />
+      <InfiniteScrollTrigger
+        hasMore={props.hasMore}
+        loading={props.loadingMore}
+        onLoadMore={props.onLoadMore}
+      />
+    </>
   )
 }

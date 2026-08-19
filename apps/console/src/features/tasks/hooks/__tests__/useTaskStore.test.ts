@@ -41,6 +41,9 @@ beforeEach(() => {
     selectedTaskId: null,
     activePlatform: '',
     loading: false,
+    loadingMore: false,
+    hasMore: true,
+    nextOffset: 0,
     error: '',
   })
 })
@@ -77,7 +80,7 @@ describe('useTaskStore', () => {
         await useTaskStore.getState().fetch('doubao')
       })
 
-      expect(mockFetchTasks).toHaveBeenCalledWith('doubao')
+      expect(mockFetchTasks).toHaveBeenCalledWith('doubao', 40, 0)
       expect(useTaskStore.getState().tasks).toHaveLength(1)
     })
 
@@ -89,7 +92,7 @@ describe('useTaskStore', () => {
         await useTaskStore.getState().fetch()
       })
 
-      expect(mockFetchTasks).toHaveBeenCalledWith('chatgpt-api')
+      expect(mockFetchTasks).toHaveBeenCalledWith('chatgpt-api', 40, 0)
     })
 
     it('fetch 失败时 loading 恢复为 false', async () => {
@@ -151,8 +154,23 @@ describe('useTaskStore', () => {
         useTaskStore.getState().setActivePlatform('doubao')
       })
 
-      expect(mockFetchTasks).toHaveBeenCalledWith('doubao')
+      expect(mockFetchTasks).toHaveBeenCalledWith('doubao', 40, 0)
     })
+  })
+
+  it('接近底部时从当前任务数量继续加载', async () => {
+    useTaskStore.setState({
+      tasks: [SAMPLE_TASKS[0]],
+      activePlatform: 'doubao',
+      hasMore: true,
+      nextOffset: 1,
+    })
+    mockFetchTasks.mockResolvedValue([SAMPLE_TASKS[1]])
+
+    await act(async () => useTaskStore.getState().loadMore())
+
+    expect(mockFetchTasks).toHaveBeenCalledWith('doubao', 40, 1)
+    expect(useTaskStore.getState().tasks).toEqual(SAMPLE_TASKS)
   })
 
   describe('selectTask', () => {

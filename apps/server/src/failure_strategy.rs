@@ -63,6 +63,13 @@ impl FailureDecision {
             fallback.max(1)
         }
     }
+
+    pub(crate) fn cooldown_seconds_from_message(&self, message: &str) -> Option<i64> {
+        self.cooldown_from_message
+            .then(|| seconds_from_message(message))
+            .flatten()
+            .map(|seconds| seconds.max(1))
+    }
 }
 
 pub(crate) fn classify_failure(manifest: &PluginManifest, message: &str) -> FailureDecision {
@@ -129,31 +136,70 @@ fn decision_from_rule(rule: &Value, message: &str) -> FailureDecision {
 }
 
 fn seconds_from_message(message: &str) -> Option<i64> {
-    let lower = message.to_ascii_lowercase();
-    first_number_before_unit(&lower, &[("second", 1), ("seconds", 1), ("秒", 1)]).or_else(|| {
-        first_number_before_unit(
-            &lower,
-            &[("minute", 60), ("minutes", 60), ("min", 60), ("分钟", 60)],
-        )
-    })
-}
-
-fn first_number_before_unit(text: &str, units: &[(&str, i64)]) -> Option<i64> {
-    for (unit, multiplier) in units {
-        if let Some(value) = number_before(text, unit) {
-            return Some(value * multiplier);
+    let text = message.to_ascii_lowercase();
+    let mut total = 0i64;
+    let mut found = false;
+    for (index, ch) in text.char_indices() {
+        if !ch.is_ascii_digit() {
+            continue;
+        }
+        if index > 0
+            && text[..index]
+                .chars()
+                .last()
+                .is_some_and(|c| c.is_ascii_digit())
+        {
+            continue;
+        }
+        let Some((value, rest)) = number_and_unit_tail(&text[index..]) else {
+            continue;
+        };
+        if let Some(multiplier) = duration_unit_multiplier(rest) {
+            total = total.saturating_add(value.saturating_mul(multiplier));
+            found = true;
         }
     }
-    None
+    found.then_some(total)
 }
 
-fn number_before(text: &str, unit: &str) -> Option<i64> {
-    let index = text.find(unit)?;
-    let before = &text[..index];
-    before
-        .split(|ch: char| !ch.is_ascii_digit())
-        .rfind(|part| !part.is_empty())
-        .and_then(|part| part.parse().ok())
+fn number_and_unit_tail(text: &str) -> Option<(i64, &str)> {
+    let digits_end = text
+        .char_indices()
+        .find(|(_, ch)| !ch.is_ascii_digit())
+        .map(|(index, _)| index)
+        .unwrap_or(text.len());
+    let value = text[..digits_end].parse().ok()?;
+    let rest = text[digits_end..].trim_start_matches(duration_separator);
+    Some((value, rest))
+}
+
+fn duration_separator(ch: char) -> bool {
+    ch.is_whitespace() || matches!(ch, ':' | ',' | '.' | '，' | '。' | '约' | '~' | '～')
+}
+
+fn duration_unit_multiplier(text: &str) -> Option<i64> {
+    [
+        ("seconds", 1),
+        ("second", 1),
+        ("secs", 1),
+        ("sec", 1),
+        ("秒", 1),
+        ("minutes", 60),
+        ("minute", 60),
+        ("mins", 60),
+        ("min", 60),
+        ("分钟", 60),
+        ("hours", 3600),
+        ("hour", 3600),
+        ("hrs", 3600),
+        ("hr", 3600),
+        ("小时", 3600),
+        ("days", 86400),
+        ("day", 86400),
+        ("天", 86400),
+    ]
+    .into_iter()
+    .find_map(|(unit, multiplier)| text.starts_with(unit).then_some(multiplier))
 }
 
 fn text_field(rule: &Value, key: &str) -> Option<String> {
@@ -303,6 +349,28 @@ mod tests {
             180
         );
         assert_eq!(decision.cooldown_seconds("rate", 300), 300);
+    }
+
+    #[test]
+    fn reads_mixed_hours_minutes_days_from_message() {
+        let decision = classify_failure(
+            &manifest_with_rules(json!([{
+                "contains_any": ["quota"],
+                "category": "quota_exhausted",
+                "account_state": "daily_quota_exhausted",
+                "cooldown_from_message": true
+            }])),
+            "quota",
+        );
+
+        assert_eq!(
+            decision.cooldown_seconds_from_message("limit resets in 4 hours and 35 minutes"),
+            Some(16_500)
+        );
+        assert_eq!(
+            decision.cooldown_seconds_from_message("请在 1 天 2小时30分钟 后重试"),
+            Some(95_400)
+        );
     }
 
     fn manifest_with_rules(rules: serde_json::Value) -> PluginManifest {

@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPost } from '@/shared/services/http-api-client'
+import { LIST_PAGE_SIZE, pagedQuery } from '@/shared/services/list-pagination'
 export {
   createProxy,
   deleteProxy,
@@ -32,8 +33,8 @@ export interface BrowserSessionItem {
   created_at: string
 }
 
-export async function fetchApiKeys(): Promise<ApiKeyItem[]> {
-  return await apiGet<ApiKeyItem[]>('/api/api-keys')
+export async function fetchApiKeys(limit = LIST_PAGE_SIZE, offset = 0): Promise<ApiKeyItem[]> {
+  return await apiGet<ApiKeyItem[]>(`/api/api-keys?${pagedQuery(limit, offset)}`)
 }
 
 export async function createApiKey(name: string): Promise<ApiKeyCreateResult> {
@@ -44,6 +45,13 @@ export async function deleteApiKey(id: string): Promise<void> {
   await apiDelete(`/api/api-keys/${encodeURIComponent(id)}`)
 }
 
-export async function fetchBrowserSessions(): Promise<BrowserSessionItem[]> {
-  return await apiGet<BrowserSessionItem[]>('/api/browser-sessions')
+export async function fetchBrowserSessions(
+  limit = LIST_PAGE_SIZE,
+  offset = 0,
+  taskId = ''
+): Promise<BrowserSessionItem[]> {
+  const params = pagedQuery(limit, offset)
+  params.set('takeover_only', 'true')
+  if (taskId) params.set('task_id', taskId)
+  return await apiGet<BrowserSessionItem[]>(`/api/browser-sessions?${params}`)
 }

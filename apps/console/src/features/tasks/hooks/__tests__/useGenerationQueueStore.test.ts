@@ -31,9 +31,11 @@ beforeEach(() => {
   useGenerationQueueStore.setState({
     items: [],
     total: 0,
-    limit: 100,
+    limit: 40,
     offset: 0,
     loading: false,
+    loadingMore: false,
+    hasMore: true,
     error: '',
   })
 })
@@ -46,10 +48,10 @@ describe('useGenerationQueueStore', () => {
 
     expect(useGenerationQueueStore.getState().items).toEqual(RESPONSE.items)
     expect(useGenerationQueueStore.getState().total).toBe(1)
-    expect(mockFetchGenerationQueue).toHaveBeenCalledWith(100, 0)
+    expect(mockFetchGenerationQueue).toHaveBeenCalledWith(40, 0)
   })
 
-  it('批量操作完成后按当前分页重新加载', async () => {
+  it('批量操作完成后回到最新四十条', async () => {
     mockRunGenerationQueueAction.mockResolvedValue(undefined)
     mockFetchGenerationQueue.mockResolvedValue({ total: 0, items: [] })
     useGenerationQueueStore.setState({ limit: 20, offset: 40 })
@@ -59,7 +61,20 @@ describe('useGenerationQueueStore', () => {
     )
 
     expect(mockRunGenerationQueueAction).toHaveBeenCalledWith('promote', ['task-1', 'task-2'])
-    expect(mockFetchGenerationQueue).toHaveBeenCalledWith(20, 40)
+    expect(mockFetchGenerationQueue).toHaveBeenCalledWith(40, 0)
+  })
+
+  it('接近底部时按当前数量追加下一页', async () => {
+    useGenerationQueueStore.setState({ items: RESPONSE.items, total: 2, hasMore: true, offset: 1 })
+    mockFetchGenerationQueue.mockResolvedValue({
+      total: 2,
+      items: [{ ...RESPONSE.items[0], taskId: 'task-2', position: 2 }],
+    })
+
+    await act(async () => useGenerationQueueStore.getState().loadMore())
+
+    expect(mockFetchGenerationQueue).toHaveBeenCalledWith(40, 1)
+    expect(useGenerationQueueStore.getState().items).toHaveLength(2)
   })
 
   it('空批量操作不请求后端', async () => {

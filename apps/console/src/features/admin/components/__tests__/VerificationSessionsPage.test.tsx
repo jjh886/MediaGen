@@ -84,6 +84,7 @@ describe('VerificationSessionsPage', () => {
     render(<VerificationSessionsPage />)
 
     expect(await screen.findByText('chatgpt')).toBeInTheDocument()
+    expect(mocks.fetchBrowserSessions).toHaveBeenCalledWith(40, 0, '')
     expect(screen.queryByText('codex')).not.toBeInTheDocument()
     fireEvent.click(screen.getByText('打开接管'))
 

@@ -53,7 +53,7 @@ describe('log-service', () => {
 
     await fetchLogs({})
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/logs?limit=200&offset=0', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/logs?limit=40&offset=0', {
       headers: { Accept: 'application/json' },
     })
   })

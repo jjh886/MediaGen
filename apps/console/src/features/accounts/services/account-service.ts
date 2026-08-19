@@ -1,4 +1,4 @@
-import { fetchAccounts as fetchSharedAccounts } from '@/shared/services/account-service'
+import { fetchAccount } from '@/shared/services/account-service'
 import {
   createBrowserSession,
   type BrowserSession,
@@ -31,22 +31,20 @@ export type AccountConfigUpdate = Partial<
   >
 >
 
-export async function updateAccount(id: string, updates: AccountConfigUpdate): Promise<void> {
-  await apiPost(`/api/accounts/${encodeURIComponent(id)}`, updates)
+export async function updateAccount(id: string, updates: AccountConfigUpdate): Promise<Account> {
+  return await apiPost<Account>(`/api/accounts/${encodeURIComponent(id)}`, updates)
 }
 
 export async function deleteAccount(id: string): Promise<void> {
   await apiDelete(`/api/accounts/${encodeURIComponent(id)}`)
 }
 
-export async function toggleAccount(id: string, disabled: boolean): Promise<void> {
-  await apiPost(`/api/accounts/${encodeURIComponent(id)}/toggle`, { disabled })
+export async function toggleAccount(id: string, disabled: boolean): Promise<Account> {
+  return await apiPost<Account>(`/api/accounts/${encodeURIComponent(id)}/toggle`, { disabled })
 }
 
 export async function reloginAccount(id: string): Promise<void> {
-  const accounts = await fetchSharedAccounts()
-  const account = accounts.find((item) => item.id === id)
-  if (!account) throw new Error('账号不存在，请刷新后重试。')
+  const account = await fetchAccount(id)
   await startAccountLoginSession(account.platform, id)
 }
 
@@ -59,9 +57,7 @@ export async function startAccountLoginSession(
   proxyMode?: 'direct'
 ): Promise<BrowserSession> {
   const plugin = await resolvePluginLoginInfo(platform)
-  const account = accountId
-    ? (await fetchSharedAccounts(platform)).find((item) => item.id === accountId)
-    : null
+  const account = accountId ? await fetchAccount(accountId) : null
   const resolvedProxyId =
     proxyMode === 'direct'
       ? ''
@@ -128,8 +124,14 @@ export async function addAccountByLogin(platform: string): Promise<Account | nul
   return null
 }
 
-export async function checkAccountsLogin(): Promise<{ checked: number; expired: number }> {
-  return await apiPost<{ checked: number; expired: number }>('/api/accounts/check-login')
+export async function checkAccountsLogin(): Promise<{
+  checked: number
+  expired: number
+  limited: number
+}> {
+  return await apiPost<{ checked: number; expired: number; limited: number }>(
+    '/api/accounts/check-login'
+  )
 }
 
 export async function batchRegister(

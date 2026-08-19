@@ -34,7 +34,7 @@ describe('task-service', () => {
 
     const tasks = await fetchTasks('codex', 20, 10)
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/tasks?platform=codex&limit=20&offset=10', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/tasks?limit=20&offset=10&platform=codex', {
       headers: { Accept: 'application/json' },
     })
     expect(tasks).toEqual([task])

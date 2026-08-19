@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { RotateCw } from 'lucide-react'
 import BrowserHistoryControls from '@/shared/browser/BrowserHistoryControls'
 import RemoteBrowserPanel from '@/shared/browser/RemoteBrowserPanel'
@@ -10,7 +10,14 @@ import {
   type BrowserHistoryAction,
   type BrowserSession,
 } from '@/shared/services/browser-session-service'
-import { KtAsyncState, KtButton, KtConfirmDialog, KtModal } from '@/shared/ui'
+import {
+  InfiniteScrollTrigger,
+  KtAsyncState,
+  KtButton,
+  KtConfirmDialog,
+  KtModal,
+} from '@/shared/ui'
+import { appendUnique, LIST_PAGE_SIZE } from '@/shared/services/list-pagination'
 import { fetchBrowserSessions, type BrowserSessionItem } from '../services/admin-service'
 
 const pageStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 16 }
@@ -33,21 +40,47 @@ export default function VerificationSessionsPage({
   const [items, setItems] = useState<BrowserSessionItem[]>([])
   const [activeSession, setActiveSession] = useState<BrowserSession | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
+  const [nextOffset, setNextOffset] = useState(0)
   const [errorText, setErrorText] = useState('')
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+  const pageRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setErrorText('')
     try {
-      const sessions = await fetchBrowserSessions()
+      const sessions = await fetchBrowserSessions(LIST_PAGE_SIZE, 0, targetTaskId ?? '')
       setItems(sortSessions(sessions.filter(isTakeoverSession), targetTaskId))
+      setHasMore(sessions.length === LIST_PAGE_SIZE)
+      setNextOffset(sessions.length)
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : '会话加载失败。')
     } finally {
       setLoading(false)
     }
   }, [targetTaskId])
+
+  const loadMore = useCallback(async () => {
+    if (!hasMore || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const sessions = await fetchBrowserSessions(LIST_PAGE_SIZE, nextOffset, targetTaskId ?? '')
+      setItems((current) => appendUnique(current, sessions, (session) => session.id))
+      setHasMore(sessions.length === LIST_PAGE_SIZE)
+      setNextOffset((current) => current + sessions.length)
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : '会话加载失败。')
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [hasMore, loadingMore, nextOffset, targetTaskId])
+
+  const refresh = useCallback(async () => {
+    pageRef.current?.closest('.app-shell__main')?.scrollTo({ top: 0 })
+    await load()
+  }, [load])
 
   useEffect(() => void load(), [load])
 
@@ -85,10 +118,10 @@ export default function VerificationSessionsPage({
   }
 
   return (
-    <div style={pageStyle}>
+    <div ref={pageRef} style={pageStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1 style={{ font: 'var(--font-h1)', color: 'var(--text-bright)' }}>人机接管</h1>
-        <KtButton onClick={load}>
+        <KtButton onClick={refresh}>
           <RotateCw size={16} /> 刷新
         </KtButton>
       </div>
@@ -110,6 +143,11 @@ export default function VerificationSessionsPage({
               <KtButton onClick={() => openSession(item)}>打开接管</KtButton>
             </div>
           ))}
+        <InfiniteScrollTrigger
+          hasMore={!loading && !errorText && hasMore}
+          loading={loadingMore}
+          onLoadMore={() => void loadMore()}
+        />
       </div>
 
       <KtModal

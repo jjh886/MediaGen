@@ -306,6 +306,13 @@ fn apply_account_state_for_failure(
                 account_state,
                 decision.cooldown_seconds(&decision.original_message, fallback),
             );
+        } else if let Some(seconds) = decision
+            .cooldown_seconds_from_message(&decision.original_message)
+            .or_else(|| (decision.cooldown_seconds > 0).then_some(decision.cooldown_seconds))
+        {
+            state
+                .store
+                .mark_account_state_for_seconds(&context.account.id, account_state, seconds);
         } else {
             state
                 .store

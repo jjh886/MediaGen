@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPost } from './http-api-client'
+import { LIST_PAGE_SIZE, pagedQuery } from './list-pagination'
 
 export interface ProxyItem {
   id: string
@@ -23,8 +24,17 @@ export interface ProxyTestResult {
   url: string
 }
 
-export async function fetchProxies(): Promise<ProxyItem[]> {
-  return await apiGet<ProxyItem[]>('/api/proxies')
+export async function fetchProxies(limit = LIST_PAGE_SIZE, offset = 0): Promise<ProxyItem[]> {
+  return await apiGet<ProxyItem[]>(`/api/proxies?${pagedQuery(limit, offset)}`)
+}
+
+export async function fetchAllProxies(): Promise<ProxyItem[]> {
+  const proxies: ProxyItem[] = []
+  while (true) {
+    const page = await fetchProxies(100, proxies.length)
+    proxies.push(...page)
+    if (page.length < 100) return proxies
+  }
 }
 
 export async function createProxy(payload: ProxyCreatePayload): Promise<void> {

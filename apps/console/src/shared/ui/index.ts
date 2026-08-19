@@ -9,6 +9,7 @@ export { KtAsyncState } from './KtAsyncState'
 export { KtTable } from './KtTable'
 export { KtTabs } from './KtTabs'
 export { KtBadge } from './KtBadge'
+export { InfiniteScrollTrigger } from './InfiniteScrollTrigger'
 
 export type { KtInputProps } from './KtInput'
 export type { KtSelectProps } from './KtSelect'

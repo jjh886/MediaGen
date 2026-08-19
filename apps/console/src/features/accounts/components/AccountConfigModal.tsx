@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { KtModal, KtButton, KtInput, KtSelect } from '@/shared/ui'
-import { fetchProxies, type ProxyItem } from '@/shared/services/proxy-service'
+import { fetchAllProxies, type ProxyItem } from '@/shared/services/proxy-service'
 import type { Account } from '../types/account'
 import type { AccountConfigUpdate } from '../services/account-service'
 import AccountBrowserProfileFields from './AccountBrowserProfileFields'
@@ -11,6 +11,7 @@ import {
   parseBrowserProfile,
   type BrowserProfilePayload,
 } from '../utils/browser-profile'
+import { accountResetText, accountStateLabel } from '../utils/account-status'
 import { apiKeyLines, buildProxyUrl, emptyProxyForm, parseProxyUrl } from '../utils/proxy-config'
 
 interface AccountConfigModalProps {
@@ -87,7 +88,7 @@ export default function AccountConfigModal({
 
   useEffect(() => {
     if (!open) return
-    void fetchProxies()
+    void fetchAllProxies()
       .then(setProxies)
       .catch(() => setProxies([]))
   }, [open])
@@ -136,6 +137,7 @@ export default function AccountConfigModal({
     }
     return updates
   }
+  const platformStatusText = account ? accountStatusText(account) : ''
 
   return (
     <KtModal
@@ -155,6 +157,12 @@ export default function AccountConfigModal({
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {account && (
+          <div style={fieldStyle}>
+            <label style={labelStyle}>平台状态</label>
+            <span style={{ color: 'var(--text-primary)', fontSize: 13 }}>{platformStatusText}</span>
+          </div>
+        )}
         <div style={fieldStyle}>
           <label style={labelStyle}>账号代理</label>
           <KtSelect
@@ -256,6 +264,11 @@ export default function AccountConfigModal({
       </div>
     </KtModal>
   )
+}
+
+function accountStatusText(account: Account): string {
+  const resetText = accountResetText(account)
+  return [accountStateLabel[account.login_state], resetText].filter(Boolean).join(' · ')
 }
 
 function proxyOptions(proxies: ProxyItem[]) {

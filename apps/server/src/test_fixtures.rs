@@ -65,6 +65,7 @@ pub fn server_state(root: std::path::PathBuf, plugin_loader: PluginLoader) -> Se
         credential_cipher: Arc::new(CredentialCipher::ephemeral()),
         generation_queue_enabled: true,
         generation_queue_notify: Arc::new(tokio::sync::Notify::new()),
+        account_refresh: Arc::new(crate::account_status_refresh::AccountRefreshRuntime::default()),
         weixin: Arc::new(crate::weixin::WeixinRuntime::offline()),
     }
 }

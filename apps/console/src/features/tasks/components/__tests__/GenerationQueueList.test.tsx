@@ -16,8 +16,12 @@ const queueStore = vi.hoisted(() => ({
   ],
   total: 1,
   loading: false,
+  loadingMore: false,
+  hasMore: false,
   error: '',
   load: vi.fn(async () => undefined),
+  loadMore: vi.fn(async () => undefined),
+  refreshLatest: vi.fn(async () => undefined),
   runAction: vi.fn(async () => undefined),
 }))
 
@@ -29,6 +33,8 @@ describe('GenerationQueueList', () => {
   beforeEach(() => {
     queueStore.total = 1
     queueStore.load.mockClear()
+    queueStore.loadMore.mockClear()
+    queueStore.refreshLatest.mockClear()
     queueStore.runAction.mockClear()
   })
 
@@ -54,14 +60,11 @@ describe('GenerationQueueList', () => {
     expect(queueStore.runAction).not.toHaveBeenCalled()
   })
 
-  it('按页加载并可切换到下一页', async () => {
+  it('默认加载最新一页并移除手动翻页按钮', async () => {
     queueStore.total = 45
     render(<GenerationQueueList />)
 
-    expect(queueStore.load).toHaveBeenCalledWith(20, 0)
-    fireEvent.click(screen.getByRole('button', { name: '下一页' }))
-
-    await waitFor(() => expect(queueStore.load).toHaveBeenCalledWith(20, 20))
-    expect(screen.getByText('第 2 / 3 页')).toBeInTheDocument()
+    expect(queueStore.load).toHaveBeenCalledWith()
+    expect(screen.queryByRole('button', { name: '下一页' })).not.toBeInTheDocument()
   })
 })

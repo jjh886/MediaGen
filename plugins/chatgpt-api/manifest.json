@@ -150,7 +150,7 @@
       "steps": [
         {
           "action": "plugin.run_js",
-          "script_files": ["auth.js", "check_account.js"],
+          "script_files": ["auth.js", "startup.js", "quota_status.js", "check_account.js"],
           "timeout_ms": 60000,
           "save_as": "health"
         }

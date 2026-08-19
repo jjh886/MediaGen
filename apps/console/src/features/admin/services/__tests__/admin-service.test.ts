@@ -40,6 +40,12 @@ describe('admin-service', () => {
     await expect(fetchApiKeys()).resolves.toHaveLength(1)
     await expect(fetchProxies()).resolves.toHaveLength(1)
     await expect(fetchBrowserSessions()).resolves.toHaveLength(1)
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/api-keys?limit=40&offset=0',
+      '/api/proxies?limit=40&offset=0',
+      '/api/browser-sessions?limit=40&offset=0&takeover_only=true',
+    ])
   })
 
   it('写入和删除管理实体时调用对应接口', async () => {

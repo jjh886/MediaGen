@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import BrowserHistoryControls from '@/shared/browser/BrowserHistoryControls'
 import RemoteBrowserPanel from '@/shared/browser/RemoteBrowserPanel'
-import { fetchProxies, type ProxyItem } from '@/shared/services/proxy-service'
+import { fetchAllProxies, type ProxyItem } from '@/shared/services/proxy-service'
 import { KtModal, KtButton, KtSelect } from '@/shared/ui'
 import {
   browserSessionHistory,
@@ -75,7 +75,7 @@ export default function AccountAddDialog({
     } else {
       cancelledRef.current = false
       setErrorText('')
-      void fetchProxies()
+      void fetchAllProxies()
         .then(setProxies)
         .catch(() => setProxies([]))
     }

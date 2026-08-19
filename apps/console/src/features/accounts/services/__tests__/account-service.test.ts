@@ -62,7 +62,7 @@ describe('account-service', () => {
 
     const accounts = await fetchAccounts('codex')
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/accounts?platform=codex', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/accounts?limit=40&offset=0&platform=codex', {
       headers: { Accept: 'application/json' },
     })
     expect(accounts).toEqual([account])
@@ -199,7 +199,7 @@ describe('account-service', () => {
     const session = { id: 'session-2', platform: 'codex', status: 'active' }
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ data: [{ platform_id: 'codex' }] }))
-      .mockResolvedValueOnce(jsonResponse({ data: [account] }))
+      .mockResolvedValueOnce(jsonResponse({ data: account }))
       .mockResolvedValueOnce(jsonResponse({ ok: true, session }))
 
     await startAccountLoginSession('codex', 'acc-1')
@@ -220,7 +220,7 @@ describe('account-service', () => {
     const session = { id: 'session-2', platform: 'codex', status: 'active' }
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ data: [{ platform_id: 'codex' }] }))
-      .mockResolvedValueOnce(jsonResponse({ data: [{ ...account, proxy_id: 'proxy-1' }] }))
+      .mockResolvedValueOnce(jsonResponse({ data: { ...account, proxy_id: 'proxy-1' } }))
       .mockResolvedValueOnce(jsonResponse({ ok: true, session }))
 
     await startAccountLoginSession('codex', 'acc-1')
@@ -239,7 +239,7 @@ describe('account-service', () => {
       .mockResolvedValueOnce(jsonResponse({ data: [{ platform_id: 'codex' }] }))
       .mockResolvedValueOnce(
         jsonResponse({
-          data: [{ ...account, proxy_id: 'proxy-1', proxy_url: 'socks5h://proxy.example:1080' }],
+          data: { ...account, proxy_id: 'proxy-1', proxy_url: 'socks5h://proxy.example:1080' },
         })
       )
       .mockResolvedValueOnce(jsonResponse({ ok: true, session }))
@@ -260,11 +260,11 @@ describe('account-service', () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ data: [{ platform_id: 'codex' }] }))
       .mockResolvedValueOnce(jsonResponse({ ok: true, session }))
-      .mockResolvedValueOnce(jsonResponse({ checked: 3, expired: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ checked: 3, expired: 1, limited: 1 }))
       .mockResolvedValueOnce(jsonResponse({ ok: true }))
 
     await expect(addAccountByLogin('codex')).resolves.toBeNull()
-    await expect(checkAccountsLogin()).resolves.toEqual({ checked: 3, expired: 1 })
+    await expect(checkAccountsLogin()).resolves.toEqual({ checked: 3, expired: 1, limited: 1 })
     await batchRegister('codex', 2, 'pwd', '1990-01-01')
 
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/accounts/check-login', {
