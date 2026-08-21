@@ -194,7 +194,7 @@ Console 只能调用 server 的 `/api/browser-sessions/*`，不能直接连接 C
 公开发行包规则：
 
 ```text
-make package-installers
+make package
   -> 执行 package-local-release
   -> 打包 server、console、plugins、launcher
   -> 执行 ensure-cloakbrowser-runtime
@@ -215,15 +215,7 @@ make package-installers
 
 支持 macOS arm64/x64、Linux arm64/x64、Windows x64。Console 不提供浏览器检查、安装、修复页面；如果运行时缺失，具体浏览器会话返回明确错误。
 
-单独打包 Linux 安装包：
-
-```text
-make package-apt
-  -> 只生成 deb，不要求 rpmbuild
-
-make package-yum
-  -> 只生成 rpm，不要求 dpkg-deb
-```
+Linux 执行 `make package` 时统一生成 deb、rpm 和 tar.gz，避免不同入口产生内容不一致的安装包。
 
 ## 9. 插件边界
 
