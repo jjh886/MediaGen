@@ -30,20 +30,16 @@ MediaGen 的目标是把这些网页能力封装成本机或服务器上的统�
 
 ```bash
 npm ci
-make dev-server
 make dev
 ```
 
-本机普通用户启动：
-
-```bash
-make start-local
-```
+`make dev` 会同时启动 Rust 服务端和 Web Console，按 `Ctrl+C` 会一起停止。
+普通用户安装后直接点击 MediaGen 图标，不需要在源码目录运行 Make 命令。
 
 构建本机安装产物：
 
 ```bash
-make package-installers
+make package
 ```
 
 构建全部核心产物：
@@ -147,17 +143,15 @@ plugins/{platform}/
 
 ## 常用命令
 
-| 命令                      | 说明                             |
-| ------------------------- | -------------------------------- |
-| `make dev`                | 启动 Web Console 开发环境        |
-| `make dev-server`         | 启动 Rust 服务端                 |
-| `make dev-launcher`       | 启动本机图标启动器开发版         |
-| `make start-local`        | 用脚本启动本机服务并打开 Console |
-| `make build`              | 构建 Console、Server、Launcher   |
-| `make package-local`      | 打包本机发行目录                 |
-| `make package-installers` | 打包本机可安装产物               |
-| `make check`              | 运行常用检查                     |
-| `make preflight`          | 提交前完整质量门禁               |
+| 命令           | 说明                                           |
+| -------------- | ---------------------------------------------- |
+| `make help`    | 查看这一份命令说明                             |
+| `make install` | 安装锁定版本的依赖                             |
+| `make dev`     | 同时启动 Rust 服务端和 Web Console             |
+| `make build`   | 只编译 Console、Server、Launcher，不生成安装包 |
+| `make package` | 唯一正式打包入口，生成当前操作系统的安装包     |
+| `make check`   | 运行提交前完整质量门禁                         |
+| `make deploy`  | 构建并部署到已配置的远程服务器，会修改远程环境 |
 
 ## 项目结构
 
