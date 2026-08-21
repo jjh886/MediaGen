@@ -84,22 +84,13 @@ plugins/
 ## 8. 验证命令
 
 ```bash
-npm run type-check
-npm run lint
-npm run test
-npm run build
-npm run cargo-check
-npm run cargo-test
-npm run format:check
-make preflight
+make check
 ```
 
 ## 9. 启动命令
 
 ```bash
-make dev          # Web Console 开发环境
-make dev-server   # Rust 服务端
-make start-local  # 本机脚本启动服务并打开 Console
+make dev  # 同时启动 Rust 服务端和 Web Console
 ```
 
 ## 10. 文档索引

@@ -16,12 +16,11 @@ rust只提供原子能力，不处理任何特定平台的规则，所有的特�
 ## Build, Test, and Development Commands
 
 - `make help`：查看根目录可用命令。
-- `make dev` / `npm run dev:console`：启动 Web Console 开发环境。
-- `make start-local`：用本机启动脚本启动服务并打开 Web Console。
-- `make build` / `npm run build`：构建 Web Console、Rust 服务端和本机启动器。
-- `make package-installers`：打包 Windows、macOS、Linux 本机安装产物。
-- `make check`：运行 TypeScript 类型检查、lint、Vitest 和 Rust 编译检查。
-- `make preflight`：提交前完整门禁，包含格式、前端检查、覆盖率、构建和 Rust 检查。
+- `make dev`：同时启动 Rust 服务端和 Web Console；单模块调试才直接使用内部 npm scripts。
+- `make build`：只编译 Web Console、Rust 服务端和本机启动器，不生成安装包。
+- `make package`：唯一正式打包入口，生成当前操作系统的可安装产物。
+- `make check`：唯一提交前完整门禁，包含格式、类型、lint、测试、覆盖率、构建和 Rust 检查。
+- `make deploy`：构建并部署到已配置的远程服务器，会修改外部环境。
 - `npm run format:check`：根目录 Prettier 全量格式检查。
   依赖安装优先使用 `npm ci`；Rust 依赖变更后运行 `cargo check --workspace`。
 

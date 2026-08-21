@@ -39,7 +39,7 @@ jobs:
         run: npm ci
 
       - name: Build installers
-        run: npm run package:installers
+        run: npm run package
 
       - name: Verify installer layout
         run: node scripts/verify-local-installer-layout.mjs
