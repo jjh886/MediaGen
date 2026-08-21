@@ -4,18 +4,17 @@ SHELL := /bin/bash
 
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: help install dev dev-console dev-server dev-launcher start-local build build-console \
-	build-server build-launcher package-local package-installers package-apt package-yum deploy-server lint typecheck test coverage-gate cargo-fmt cargo-clippy cargo-check cargo-test check \
-	preflight preflight-format preflight-app preflight-docs format-check check-compat
+.PHONY: help install dev build package check deploy
 
 help: ## 显示帮助信息
 	@echo 'MediaGen 根目录命令入口'
 	@echo ''
-	@echo '常用示例:'
-	@echo '  make start-local        启动本机服务并打开 Web Console'
-	@echo '  make dev                启动 Web Console 开发'
-	@echo '  make check              运行常用检查'
-	@echo '  make preflight          提交前完整门禁'
+	@echo '推荐使用:'
+	@echo '  make dev                同时启动服务端和 Web Console'
+	@echo '  make package            生成当前系统的正式安装包'
+	@echo '  make check              运行提交前完整质量门禁'
+	@echo ''
+	@echo '说明: build 只编译，package 才会生成可安装文件；deploy 会修改远程服务器。'
 	@echo ''
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
 
@@ -26,96 +25,21 @@ install: ## 安装依赖
 
 # ─── App ──────────────────────────────────────────────────────────
 
-dev: ## 启动 Web Console 开发环境
-	cd $(ROOT_DIR) && npm run dev:console
+dev: ## 同时启动 Rust 服务端和 Web Console
+	@cd $(ROOT_DIR); \
+		npm run dev:server & server_pid=$$!; \
+		trap 'kill "$$server_pid" 2>/dev/null || true' EXIT INT TERM; \
+		npm run dev:console
 
-dev-console: ## 启动 Web Console 开发环境
-	cd $(ROOT_DIR) && npm run dev:console
+build: ## 编译 Console、Server 和 Launcher，不生成安装包
+	cd $(ROOT_DIR) && npm run build
 
-dev-server: ## 启动 Rust 服务端
-	cd $(ROOT_DIR) && npm run dev:server
+package: ## 生成当前操作系统的正式安装包
+	cd $(ROOT_DIR) && npm run package
+	cd $(ROOT_DIR) && node scripts/verify-local-installer-layout.mjs
 
-dev-launcher: ## 启动本机图标启动器开发版
-	cd $(ROOT_DIR) && npm run dev:launcher
+check: ## 运行提交前完整质量门禁
+	cd $(ROOT_DIR) && npm run check
 
-start-local: ## 使用备用脚本启动本机 Web Console
-	cd $(ROOT_DIR) && bash scripts/start/start-mediagen.sh
-
-build: build-console build-server build-launcher ## 构建 Web Console、Rust 服务端和本机启动器
-
-build-console: ## 构建 Web Console
-	cd $(ROOT_DIR) && npm run build:console
-
-build-server: ## 构建 Rust 服务端
-	cd $(ROOT_DIR) && npm run build:server
-
-build-launcher: ## 构建本机图标启动器
-	cd $(ROOT_DIR) && npm run build:launcher
-
-package-local: build-console build-server build-launcher ## 打包本机发行目录
-	cd $(ROOT_DIR) && npm run package:local
-
-package-installers: ## 打包本机和服务器安装产物
-	cd $(ROOT_DIR) && npm run package:installers
-
-package-apt: ## 生成 apt/deb 安装包
-	cd $(ROOT_DIR) && npm run package:apt
-	test -f $(ROOT_DIR)/dist-local/installers/mediagen_0.1.0_$$(node -e "const m={x64:'amd64',arm64:'arm64',ia32:'i386'}; process.stdout.write(m[process.arch] || process.arch)").deb
-
-package-yum: ## 生成 yum/rpm 安装包
-	cd $(ROOT_DIR) && npm run package:yum
-	ls $(ROOT_DIR)/dist-local/installers/*.rpm >/dev/null
-
-deploy-server: ## 一键打包并部署到服务端
-	cd $(ROOT_DIR) && npm run deploy:server
-
-lint: ## 运行 TypeScript lint、行数和导入边界检查
-	cd $(ROOT_DIR) && npm run lint
-
-typecheck: ## 运行 TypeScript 类型检查
-	cd $(ROOT_DIR) && npm run type-check
-
-test: ## 运行前端单元测试
-	cd $(ROOT_DIR) && npm run test
-
-coverage-gate: ## 运行前端和 Rust 覆盖率门禁
-	cd $(ROOT_DIR) && npm run coverage:gate
-
-cargo-check: ## 运行 Rust 编译检查
-	cd $(ROOT_DIR) && npm run cargo-check
-
-cargo-test: ## 运行 Rust 单元测试
-	cd $(ROOT_DIR) && npm run cargo-test
-
-cargo-fmt: ## 运行 Rust 格式检查
-	cd $(ROOT_DIR) && npm run cargo-fmt
-
-cargo-clippy: ## 运行 Rust Clippy 检查
-	cd $(ROOT_DIR) && npm run cargo-clippy
-
-check: format-check typecheck lint test coverage-gate build cargo-fmt cargo-clippy cargo-test cargo-check check-compat ## 运行常用检查
-
-# ─── Preflight 门禁 ───────────────────────────────────────────────
-
-preflight: preflight-format preflight-app preflight-docs ## 跑一遍核心门禁
-	@echo "[make] preflight 全部通过"
-
-preflight-format: ## 运行仓库级 Prettier 格式校验
-	@echo "=== Format ==="
-	@cd $(ROOT_DIR) && npm ci --ignore-scripts
-	@npm run format:check
-
-preflight-app: ## 运行 App 完整门禁
-	@echo "=== MediaGen App ==="
-	@cd $(ROOT_DIR) && npm ci && npm run lint && npm run type-check && npm run test && npm run coverage:gate && npm run build
-	@cd $(ROOT_DIR) && npm run cargo-fmt && npm run cargo-clippy && npm run cargo-test && npm run cargo-check
-
-preflight-docs: ## 运行文档和兼容注释检查
-	@echo "=== Docs ==="
-	@bash scripts/check-compat-expiry.sh
-
-format-check: ## 仓库级 Prettier 格式校验
-	node scripts/check-prettier-format.mjs --all
-
-check-compat: ## 检查 COMPAT 注释过期
-	bash scripts/check-compat-expiry.sh
+deploy: ## 构建并部署到已配置的远程服务器
+	cd $(ROOT_DIR) && npm run deploy

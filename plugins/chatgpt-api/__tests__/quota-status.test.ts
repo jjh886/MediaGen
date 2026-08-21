@@ -33,4 +33,22 @@ describe('chatgpt api quota status parsing', () => {
       9_000
     )
   })
+
+  it('does not hide an explicit login expiry from the account status refresh', () => {
+    expect(() =>
+      runExpression(`(() => {
+        chatgptApiBootstrap = () => { throw new Error('LOGIN_EXPIRED: /backend-api/me HTTP 401') }
+        return chatgptApiQuotaMessageFromBootstrap({})
+      })()`)
+    ).toThrow('LOGIN_EXPIRED')
+  })
+
+  it('still treats temporary quota lookup errors as an unavailable quota detail', () => {
+    expect(
+      runExpression(`(() => {
+        chatgptApiBootstrap = () => { throw new Error('AUTH_INCONCLUSIVE: request timeout') }
+        return chatgptApiQuotaMessageFromBootstrap({})
+      })()`)
+    ).toBe('')
+  })
 })

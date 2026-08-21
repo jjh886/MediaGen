@@ -16,9 +16,16 @@ function chatgptApiQuotaMessageFromBootstrap(auth) {
     return chatgptApiQuotaMessageFromValue(
       chatgptApiBootstrap(auth)?.['/backend-api/images/bootstrap']
     )
-  } catch (_) {
+  } catch (error) {
+    // 配额接口允许临时失败，但明确的 401 必须交给账号检查标记为登录过期。
+    chatgptApiRethrowLoginExpired(error)
     return ''
   }
+}
+
+function chatgptApiRethrowLoginExpired(error) {
+  const message = String(error?.message || error || '')
+  if (message.startsWith('LOGIN_EXPIRED:')) throw error
 }
 
 function chatgptApiQuotaMessageFromImagesPage(auth) {

@@ -20,12 +20,6 @@ const releaseDir = path.join(root, 'dist-local', 'MediaGen-local')
 const installersDir = path.join(root, 'dist-local', 'installers')
 const platformName = `${process.platform}-${process.arch}`
 const version = '0.1.0'
-const packageTarget = process.env.MEDIAGEN_PACKAGE_TARGET || 'all'
-
-if (packageTarget !== 'all' && process.platform !== 'linux') {
-  throw new Error(`${packageTarget} 安装包只能在 Linux 环境生成`)
-}
-
 await run('node', ['scripts/package-local-release.mjs'])
 await rm(installersDir, { recursive: true, force: true })
 await mkdir(installersDir, { recursive: true })
@@ -40,8 +34,8 @@ if (process.platform === 'win32') {
 }
 
 if (process.platform === 'linux') {
-  if (packageTarget !== 'yum') await createDebIfPossible()
-  if (packageTarget !== 'apt') await createRpmIfPossible()
+  await createDebIfPossible()
+  await createRpmIfPossible()
 }
 
 await createArchive()
