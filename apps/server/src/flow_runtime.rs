@@ -6,6 +6,7 @@ use crate::flow_templates::{collect_script_files, resolve_templates, should_skip
 use crate::image_request::ImageFlowRequest;
 use crate::plugin_scripts;
 use crate::store::AccountRecord;
+use crate::video_request::VideoFlowRequest;
 
 pub(crate) struct PreparedFlowStep {
     pub action: String,
@@ -17,6 +18,13 @@ pub(crate) fn generate_image_flow(manifest: &PluginManifest) -> Result<&FlowDef,
         .flows
         .get("generate_image")
         .ok_or_else(|| format!("{} 未配置 generate_image flow", manifest.platform_id))
+}
+
+pub(crate) fn generate_video_flow(manifest: &PluginManifest) -> Result<&FlowDef, String> {
+    manifest
+        .flows
+        .get("generate_video")
+        .ok_or_else(|| format!("{} 未配置 generate_video flow", manifest.platform_id))
 }
 
 pub(crate) fn build_image_flow_context(
@@ -35,6 +43,7 @@ pub(crate) fn build_image_flow_context(
         "account_id": account.id,
         "profile_dir": account.profile_dir,
         "browser_session_id": format!("task-{}", uuid::Uuid::new_v4()),
+        "task_id": input.task_id,
         "prompt": input.prompt,
         "image_aspect_ratio": input.image_aspect_ratio,
         "max_images": input.max_images,
@@ -59,6 +68,41 @@ pub(crate) fn build_image_flow_context(
         "input_fidelity": input.input_fidelity,
         "size": input.size,
         "action": input.action,
+    }))
+}
+
+pub(crate) fn build_video_flow_context(
+    plugin_loader: &PluginLoader,
+    manifest: &PluginManifest,
+    account: &AccountRecord,
+    input: VideoFlowRequest,
+    platform_config: Value,
+) -> Result<Value, String> {
+    let scripts_dir = plugin_loader
+        .get_plugin_dir(&manifest.platform_id)
+        .map(|dir| dir.join("scripts"))
+        .ok_or_else(|| format!("没有找到 {} 插件目录", manifest.platform_id))?;
+    Ok(json!({
+        "account": account,
+        "account_id": account.id,
+        "profile_dir": account.profile_dir,
+        "browser_session_id": format!("task-{}", uuid::Uuid::new_v4()),
+        "task_id": input.task_id,
+        "prompt": input.prompt,
+        "seconds": input.seconds,
+        "size": input.size,
+        "quality": input.quality,
+        "video_aspect_ratio": input.aspect_ratio,
+        "model_id": input.model_id,
+        "model_display_name": input.model_display_name,
+        "platform_config": platform_config,
+        "scripts_dir": scripts_dir.to_string_lossy(),
+        "account_cookies": "",
+        "ref_image_local": input.ref_image_locals.first().cloned().unwrap_or_default(),
+        "ref_image_locals": input.ref_image_locals,
+        "ref_image_urls": input.ref_image_urls,
+        "ref_image_dataurls": input.ref_image_dataurls,
+        "generation_options": input.extra,
     }))
 }
 
@@ -133,6 +177,18 @@ pub(crate) fn find_image_result(results: &[Value]) -> Option<Value> {
         .iter()
         .rev()
         .find(|item| item.get("images").is_some() || item.get("download_url").is_some())
+        .cloned()
+}
+
+pub(crate) fn find_video_result(results: &[Value]) -> Option<Value> {
+    results
+        .iter()
+        .rev()
+        .find(|item| {
+            item.get("videos").is_some()
+                || item.get("video_url").is_some()
+                || item.get("download_url").is_some()
+        })
         .cloned()
 }
 

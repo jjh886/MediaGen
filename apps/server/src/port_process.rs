@@ -3,6 +3,58 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+pub fn spawn_process(params: &Value) -> Result<Value, String> {
+    let command = params["command"]
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "process.spawn 缺少 command".to_string())?;
+    let command_path = std::path::Path::new(command);
+    if !command_path.is_absolute() || !command_path.is_file() {
+        return Err(format!(
+            "process.spawn command 必须是存在的绝对文件路径: {command}"
+        ));
+    }
+    let args = params["args"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| {
+                    item.as_str()
+                        .filter(|value| value.len() <= 4096)
+                        .map(ToOwned::to_owned)
+                        .ok_or_else(|| "process.spawn args 只能包含短字符串".to_string())
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    if args.len() > 64 {
+        return Err("process.spawn args 不能超过 64 项".to_string());
+    }
+    let mut process = std::process::Command::new(command);
+    process
+        .args(&args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    if let Some(cwd) = params["cwd"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+    {
+        let cwd_path = std::path::Path::new(cwd);
+        if !cwd_path.is_absolute() || !cwd_path.is_dir() {
+            return Err(format!("process.spawn cwd 必须是存在的绝对目录: {cwd}"));
+        }
+        process.current_dir(cwd_path);
+    }
+    let child = process
+        .spawn()
+        .map_err(|error| format!("process.spawn 启动失败: {error}"))?;
+    Ok(json!({ "pid": child.id(), "command": command, "args": args }))
+}
+
 pub fn kill_port(params: &Value) -> Result<Value, String> {
     let port = required_port(params)?;
     let current_pid = std::process::id();
@@ -103,5 +155,16 @@ fn wait_for_port_release(port: u16) {
             return;
         }
         std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spawn_rejects_relative_or_missing_commands() {
+        assert!(spawn_process(&json!({ "command": "relative-command" })).is_err());
+        assert!(spawn_process(&json!({ "command": "/definitely/missing" })).is_err());
     }
 }

@@ -88,18 +88,30 @@ impl BrowserGateway {
         script: &str,
         await_promise: bool,
     ) -> Result<Value, BrowserGatewayError> {
+        self.evaluate_script_with_timeout(id, script, await_promise, None)
+            .await
+    }
+
+    pub async fn evaluate_script_with_timeout(
+        &self,
+        id: &str,
+        script: &str,
+        await_promise: bool,
+        timeout_ms: Option<u64>,
+    ) -> Result<Value, BrowserGatewayError> {
         let mut retry = 0usize;
         loop {
             // 每次重试重新读取 client，目标被页面替换时可使用 watcher 刚重连的新 client。
             let client = self.session_client(id).await?;
             let result = client
-                .send(
+                .send_with_timeout(
                     "Runtime.evaluate",
                     json!({
                         "expression": script,
                         "awaitPromise": await_promise,
                         "returnByValue": true,
                     }),
+                    std::time::Duration::from_millis(timeout_ms.unwrap_or(30_000).max(1)),
                 )
                 .await;
             match result {

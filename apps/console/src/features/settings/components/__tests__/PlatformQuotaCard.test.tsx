@@ -12,6 +12,8 @@ const settings: AppSettings = {
   api_allowed_origins: 'https://client.example.com',
   image_task_concurrency: 8,
   image_task_queue_limit: 32,
+  video_task_concurrency: 4,
+  video_task_queue_limit: 16,
   check_interval_minutes: 7,
   cooldown_default_seconds: 42,
   cache_dir: '/tmp/mediagen-test-cache',

@@ -5,24 +5,34 @@ use mediagen_browser_gateway::{
     BrowserClipboardRequest, BrowserGateway, BrowserHistoryRequest, BrowserInputRequest,
     BrowserResizeRequest, BrowserScreenshotRequest,
 };
-use mediagen_core::PluginManifest;
+use mediagen_core::{FlowDef, PluginManifest};
 use mediagen_plugin_runtime::PluginLoader;
 use serde_json::{json, Value};
 
 use crate::flow_browser_lifecycle::{is_persistent_browser, FlowBrowserLifecycle};
 use crate::flow_browser_open::open_browser;
 use crate::flow_runtime::{
-    build_image_flow_context, find_image_result, flow_result_is_error, flow_result_message,
-    generate_image_flow, prepare_flow_step, record_flow_result,
+    build_image_flow_context, build_video_flow_context, find_image_result, find_video_result,
+    flow_result_is_error, flow_result_message, generate_image_flow, generate_video_flow,
+    prepare_flow_step, record_flow_result,
 };
 use crate::image_request::ImageFlowRequest;
 use crate::net_client::http_client;
 use crate::store::AccountRecord;
 use crate::value_utils::file_paths_from_value;
+use crate::video_request::VideoFlowRequest;
 
 pub struct FlowRunner {
     plugin_loader: Arc<PluginLoader>,
     browser_gateway: Arc<BrowserGateway>,
+}
+
+struct MediaFlowExecution<'a> {
+    task_id: Option<&'a str>,
+    flow: &'a FlowDef,
+    context: Value,
+    find_result: fn(&[Value]) -> Option<Value>,
+    missing_result_message: &'a str,
 }
 
 impl FlowRunner {
@@ -48,13 +58,76 @@ impl FlowRunner {
         }
         let flow = generate_image_flow(manifest)?;
         let task_id = input.task_id.clone();
-        let mut context = build_image_flow_context(
+        let context = build_image_flow_context(
             &self.plugin_loader,
             manifest,
             account,
             input,
             platform_config,
         )?;
+        self.run_flow(
+            manifest,
+            account,
+            MediaFlowExecution {
+                task_id: task_id.as_deref(),
+                flow,
+                context,
+                find_result: find_image_result,
+                missing_result_message: "插件执行完成，但没有返回图片结果",
+            },
+        )
+        .await
+    }
+
+    pub async fn run_video_flow(
+        &self,
+        manifest: &PluginManifest,
+        account: &AccountRecord,
+        input: VideoFlowRequest,
+        platform_config: Value,
+    ) -> Result<Value, String> {
+        if manifest.adapter_mode == mediagen_core::AdapterMode::Api {
+            return Err(format!(
+                "{} 当前需要 API 插件执行器，服务端浏览器 flow 不适用",
+                manifest.platform_id
+            ));
+        }
+        let flow = generate_video_flow(manifest)?;
+        let task_id = input.task_id.clone();
+        let context = build_video_flow_context(
+            &self.plugin_loader,
+            manifest,
+            account,
+            input,
+            platform_config,
+        )?;
+        self.run_flow(
+            manifest,
+            account,
+            MediaFlowExecution {
+                task_id: Some(&task_id),
+                flow,
+                context,
+                find_result: find_video_result,
+                missing_result_message: "插件执行完成，但没有返回视频结果",
+            },
+        )
+        .await
+    }
+
+    async fn run_flow(
+        &self,
+        manifest: &PluginManifest,
+        account: &AccountRecord,
+        execution: MediaFlowExecution<'_>,
+    ) -> Result<Value, String> {
+        let MediaFlowExecution {
+            task_id,
+            flow,
+            mut context,
+            find_result,
+            missing_result_message,
+        } = execution;
         let mut results = Vec::new();
         let mut browser_lifecycle = FlowBrowserLifecycle::new(
             self.browser_gateway.clone(),
@@ -71,7 +144,7 @@ impl FlowRunner {
                         &prepared.params,
                         manifest,
                         account,
-                        task_id.as_deref(),
+                        task_id,
                     )
                     .await?;
                 browser_lifecycle.remember_open(&prepared.action, &result);
@@ -81,8 +154,7 @@ impl FlowRunner {
                 record_flow_result(&mut context, &mut results, &prepared.params, result);
             }
 
-            find_image_result(&results)
-                .ok_or_else(|| "插件执行完成，但没有返回图片结果".to_string())
+            find_result(&results).ok_or_else(|| missing_result_message.to_string())
         }
         .await;
 
@@ -219,10 +291,11 @@ impl FlowRunner {
 
     async fn run_script(&self, params: &Value) -> Result<Value, String> {
         self.browser_gateway
-            .evaluate_script(
+            .evaluate_script_with_timeout(
                 &required_str(params, "session_id")?,
                 &required_str(params, "script")?,
                 bool_param(params, "await_promise").unwrap_or(false),
+                params.get("timeout_ms").and_then(Value::as_u64),
             )
             .await
             .map_err(|err| err.to_string())

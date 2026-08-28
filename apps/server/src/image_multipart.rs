@@ -1,12 +1,12 @@
 use actix_multipart::{Field, Multipart};
 use actix_web::http::header;
 use actix_web::{web, HttpRequest};
-use base64::prelude::{Engine as _, BASE64_STANDARD};
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use serde_json::Value;
 
 use crate::image_request::{OpenAiImageRef, OpenAiImageRequest};
+use crate::media_multipart::image_data_url;
 
 const MAX_BODY_BYTES: usize = 50 * 1024 * 1024;
 
@@ -65,7 +65,7 @@ async fn parse_multipart(mut multipart: Multipart) -> Result<OpenAiImageRequest,
         if is_image_field(&name) || name == "mask" {
             let image_ref = OpenAiImageRef {
                 file_id: None,
-                image_url: Some(to_data_url(
+                image_url: Some(image_data_url(
                     content_type.as_deref(),
                     filename.as_deref(),
                     &bytes,
@@ -176,48 +176,6 @@ fn ensure_size(size: usize) -> Result<(), ParseError> {
     }
 }
 
-fn to_data_url(content_type: Option<&str>, filename: Option<&str>, bytes: &[u8]) -> String {
-    let mime = image_mime(content_type, filename, bytes);
-    format!("data:{mime};base64,{}", BASE64_STANDARD.encode(bytes))
-}
-
-fn image_mime(content_type: Option<&str>, filename: Option<&str>, bytes: &[u8]) -> &'static str {
-    if let Some(mime) = content_type.and_then(normalize_image_mime) {
-        return mime;
-    }
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return "image/png";
-    }
-    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        return "image/jpeg";
-    }
-    filename.and_then(filename_mime).unwrap_or("image/png")
-}
-
-fn normalize_image_mime(value: &str) -> Option<&'static str> {
-    match value {
-        "image/png" => Some("image/png"),
-        "image/jpeg" | "image/jpg" => Some("image/jpeg"),
-        "image/webp" => Some("image/webp"),
-        _ => None,
-    }
-}
-
-fn filename_mime(filename: &str) -> Option<&'static str> {
-    match std::path::Path::new(filename)
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "png" => Some("image/png"),
-        "jpg" | "jpeg" => Some("image/jpeg"),
-        "webp" => Some("image/webp"),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,32 +216,5 @@ mod tests {
         assert!(!is_image_field("mask"));
         assert!(ensure_size(MAX_BODY_BYTES).is_ok());
         assert_eq!(ensure_size(MAX_BODY_BYTES + 1).unwrap_err().0, 413);
-    }
-
-    #[test]
-    fn infers_safe_image_mime_types() {
-        assert_eq!(image_mime(Some("image/jpg"), None, b""), "image/jpeg");
-        assert_eq!(
-            image_mime(None, None, b"\x89PNG\r\n\x1a\nrest"),
-            "image/png"
-        );
-        assert_eq!(
-            image_mime(None, None, &[0xff, 0xd8, 0xff, 0x00]),
-            "image/jpeg"
-        );
-        assert_eq!(
-            image_mime(None, Some("picture.webp"), b"data"),
-            "image/webp"
-        );
-        assert_eq!(
-            image_mime(Some("text/plain"), Some("bad.txt"), b"data"),
-            "image/png"
-        );
-    }
-
-    #[test]
-    fn converts_binary_image_to_data_url() {
-        let data_url = to_data_url(Some("image/png"), Some("ignored.jpg"), b"abc");
-        assert_eq!(data_url, "data:image/png;base64,YWJj");
     }
 }

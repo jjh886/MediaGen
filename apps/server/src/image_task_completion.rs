@@ -15,9 +15,10 @@ pub(crate) async fn create_verification_session(
     task_id: &str,
     message: String,
 ) -> Result<Value, (u16, &'static str, String)> {
+    let safe_message = safe_verification_message(&message);
     state
         .store
-        .require_task_verification(task_id, message.clone());
+        .require_task_verification(task_id, safe_message.clone());
     let request = mediagen_browser_gateway::BrowserSessionCreateRequest {
         purpose: mediagen_browser_gateway::BrowserSessionPurpose::HumanVerification,
         platform: manifest.platform_id.clone(),
@@ -38,7 +39,7 @@ pub(crate) async fn create_verification_session(
         "account",
         "warn",
         "任务需要人工验证".to_string(),
-        message,
+        safe_message,
         Some(task_id.to_string()),
     );
     Err((
@@ -46,6 +47,15 @@ pub(crate) async fn create_verification_session(
         "verification_required",
         format!("需要人工接管浏览器会话: {}", response.session.id),
     ))
+}
+
+/// 风控原文可能包含平台内部令牌，任务与审计记录只保存稳定、可识别的信息。
+fn safe_verification_message(message: &str) -> String {
+    if message.contains("710022004") {
+        "平台要求人工验证（710022004）".to_string()
+    } else {
+        "平台要求人工验证".to_string()
+    }
 }
 
 pub(crate) async fn complete_image_task(
@@ -67,4 +77,19 @@ pub(crate) async fn complete_image_task(
         "created": chrono::Utc::now().timestamp(),
         "data": images.into_iter().map(|b64| json!({ "b64_json": b64 })).collect::<Vec<_>>(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verification_message_drops_platform_private_details() {
+        let raw = "710022004 decision.detail=private-platform-token";
+
+        let message = safe_verification_message(raw);
+
+        assert_eq!(message, "平台要求人工验证（710022004）");
+        assert!(!message.contains("private-platform-token"));
+    }
 }

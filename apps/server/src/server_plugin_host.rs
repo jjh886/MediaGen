@@ -74,6 +74,14 @@ impl ServerPluginHost {
             "crypto.base64_decode_latin1" => base64_decode_latin1(params),
             "time.sleep" => sleep_for(params).await,
             "process.kill_port" => port_process::kill_port(params),
+            "process.spawn" => port_process::spawn_process(params),
+            "external_cdp.list_targets" => crate::external_cdp::list_targets(params).await,
+            "external_cdp.create_target" => crate::external_cdp::create_target(params).await,
+            "external_cdp.close_target" => crate::external_cdp::close_target(params).await,
+            "external_cdp.register_target" => crate::external_cdp::register_target(params),
+            "external_cdp.unregister_target" => crate::external_cdp::unregister_target(params),
+            "external_cdp.evaluate" => crate::external_cdp::evaluate(params).await,
+            "external_cdp.command" => crate::external_cdp::command(params).await,
             action if action.starts_with("callback_server.") => {
                 self.callbacks.execute(action, params).await
             }

@@ -77,6 +77,16 @@ impl CdpClient {
         method: &str,
         params: Value,
     ) -> Result<Value, BrowserGatewayError> {
+        self.send_with_timeout(method, params, CDP_COMMAND_TIMEOUT)
+            .await
+    }
+
+    pub(crate) async fn send_with_timeout(
+        &self,
+        method: &str,
+        params: Value,
+        command_timeout: Duration,
+    ) -> Result<Value, BrowserGatewayError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
@@ -92,7 +102,7 @@ impl CdpClient {
             return Err(BrowserGatewayError::Cdp("CDP websocket 已断开".to_string()));
         }
 
-        let response = match timeout(CDP_COMMAND_TIMEOUT, rx).await {
+        let response = match timeout(command_timeout, rx).await {
             Ok(Ok(response)) => response,
             Ok(Err(_)) => return Err(BrowserGatewayError::Cdp(format!("{method} 没有返回响应"))),
             Err(_) => {

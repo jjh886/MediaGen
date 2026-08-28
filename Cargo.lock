@@ -2145,6 +2145,7 @@ name = "mediagen-server"
 version = "0.1.0"
 dependencies = [
  "actix-files",
+ "actix-http",
  "actix-multipart",
  "actix-web",
  "actix-ws",
@@ -2169,6 +2170,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "tokio-tungstenite",
  "uuid",
 ]
 

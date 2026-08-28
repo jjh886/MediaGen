@@ -30,10 +30,17 @@ impl ImageTaskQueue {
         self: &Arc<Self>,
         settings: &AppSettings,
     ) -> Result<ImageTaskReservation, String> {
+        self.reserve_with_limit(settings.image_task_queue_limit, "图片")
+    }
+
+    pub fn reserve_with_limit(
+        self: &Arc<Self>,
+        limit: u32,
+        task_label: &str,
+    ) -> Result<ImageTaskReservation, String> {
         let mut state = self.state.lock().unwrap_or_else(|err| err.into_inner());
-        let limit = settings.image_task_queue_limit;
         if limit > 0 && state.active + state.queued >= limit {
-            return Err("图片任务队列已满，请稍后重试。".to_string());
+            return Err(format!("{task_label}任务队列已满，请稍后重试。"));
         }
         state.queued = state.queued.saturating_add(1);
         Ok(ImageTaskReservation {
@@ -66,8 +73,13 @@ impl ImageTaskQueue {
 }
 
 impl ImageTaskReservation {
-    pub async fn activate(mut self, settings: &AppSettings) -> ImageTaskPermit {
-        let concurrency = settings.image_task_concurrency.max(1);
+    pub async fn activate(self, settings: &AppSettings) -> ImageTaskPermit {
+        self.activate_with_concurrency(settings.image_task_concurrency)
+            .await
+    }
+
+    pub async fn activate_with_concurrency(mut self, concurrency: u32) -> ImageTaskPermit {
+        let concurrency = concurrency.max(1);
         loop {
             if self.try_activate(concurrency) {
                 return ImageTaskPermit {

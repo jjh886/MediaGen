@@ -201,7 +201,7 @@ pub async fn cancel_task(state: web::Data<ServerState>, path: web::Path<String>)
     }
 }
 
-async fn cancel_task_browser_sessions(state: &ServerState, task_id: &str) {
+pub(crate) async fn cancel_task_browser_sessions(state: &ServerState, task_id: &str) {
     let session_ids = state
         .browser_gateway
         .list_sessions()
@@ -217,6 +217,7 @@ async fn cancel_task_browser_sessions(state: &ServerState, task_id: &str) {
         // 浏览器可能恰好已经自行结束；这时无需把取消接口变成失败。
         let _ = state.browser_gateway.cancel_session(&session_id).await;
     }
+    crate::external_cdp::close_task_targets(task_id).await;
 }
 
 pub async fn settings(state: web::Data<ServerState>) -> impl Responder {

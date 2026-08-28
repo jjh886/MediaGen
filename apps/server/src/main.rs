@@ -14,6 +14,7 @@ mod browser_session_setup;
 mod browser_session_stream;
 mod browser_sessions;
 mod callback_host;
+mod external_cdp;
 mod failure_strategy;
 mod file_api;
 mod flow_browser_lifecycle;
@@ -32,6 +33,8 @@ mod image_request;
 mod image_task_completion;
 mod image_task_queue;
 mod js_flow_runner;
+mod media_execution;
+mod media_multipart;
 mod net_client;
 mod oauth_login;
 mod pagination;
@@ -51,6 +54,13 @@ mod store_weixin;
 mod store_weixin_query;
 mod system_control;
 mod value_utils;
+mod video_api;
+mod video_api_response;
+mod video_creation;
+mod video_file_refs;
+mod video_flow_execution;
+mod video_multipart;
+mod video_request;
 mod weixin;
 
 #[cfg(test)]
@@ -69,10 +79,13 @@ mod routes_tests;
 mod store_dispatch_tests;
 #[cfg(test)]
 mod store_quota_tests;
+mod store_tasks;
 #[cfg(test)]
 mod store_tests;
 #[cfg(test)]
 mod test_fixtures;
+#[cfg(test)]
+mod video_api_tests;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -101,6 +114,7 @@ pub struct ServerState {
     pub oauth_logins: OAuthLoginStore,
     pub file_root: PathBuf,
     pub image_task_queue: Arc<ImageTaskQueue>,
+    pub video_task_queue: Arc<ImageTaskQueue>,
     pub(crate) credential_cipher: Arc<CredentialCipher>,
     pub(crate) generation_queue_enabled: bool,
     pub(crate) generation_queue_notify: Arc<Notify>,
@@ -179,6 +193,7 @@ fn build_state(config: &ServerConfig) -> ServerState {
         oauth_logins: OAuthLoginStore::new(config.oauth_callback_bind.clone()),
         file_root: config.data_dir.join("openai-files"),
         image_task_queue: Arc::new(ImageTaskQueue::default()),
+        video_task_queue: Arc::new(ImageTaskQueue::default()),
         credential_cipher: Arc::new(credential_cipher),
         generation_queue_enabled,
         generation_queue_notify: Arc::new(Notify::new()),
@@ -235,6 +250,12 @@ fn configure_management_routes(cfg: &mut web::ServiceConfig) {
 }
 
 fn configure_openai_routes(cfg: &mut web::ServiceConfig) {
+    configure_openai_resource_routes(cfg);
+    configure_openai_media_routes(cfg);
+    configure_generation_task_routes(cfg);
+}
+
+fn configure_openai_resource_routes(cfg: &mut web::ServiceConfig) {
     cfg.route("/v1/models", web::get().to(models))
         .route("/v1/files", web::post().to(file_api::upload_file))
         .route("/v1/files", web::get().to(file_api::list_files))
@@ -249,32 +270,56 @@ fn configure_openai_routes(cfg: &mut web::ServiceConfig) {
         .route(
             "/v1/files/{file_id}/content",
             web::get().to(file_api::retrieve_file_content),
-        )
-        .route(
-            "/v1/images/generations",
-            web::post().to(image_api::generate_image),
-        )
-        .route("/v1/images/edits", web::post().to(image_api::edit_image))
-        .route(
-            "/v1/images/variations",
-            web::post().to(image_api::variation_image),
-        )
-        .route(
-            "/api/v2/generation-queue",
-            web::get().to(generation_queue::list_queue),
-        )
-        .route(
-            "/api/v2/generation-queue/actions",
-            web::post().to(generation_queue::queue_action),
-        )
-        .route(
-            "/api/v2/generation-tasks/batch",
-            web::post().to(generation_queue::batch_task_details),
-        )
-        .route(
-            "/api/v2/generation-tasks/{task_id}",
-            web::get().to(generation_queue::task_detail),
         );
+}
+
+fn configure_openai_media_routes(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/v1/images/generations",
+        web::post().to(image_api::generate_image),
+    )
+    .route("/v1/images/edits", web::post().to(image_api::edit_image))
+    .route(
+        "/v1/images/variations",
+        web::post().to(image_api::variation_image),
+    )
+    .route("/v1/videos", web::post().to(video_creation::create_video))
+    .route("/v1/videos", web::get().to(video_api::list_videos))
+    .route(
+        "/v1/videos/{video_id}/content",
+        web::get().to(video_api::retrieve_video_content),
+    )
+    .route(
+        "/v1/videos/{video_id}/cancel",
+        web::post().to(video_api::cancel_video),
+    )
+    .route(
+        "/v1/videos/{video_id}",
+        web::get().to(video_api::retrieve_video),
+    )
+    .route(
+        "/v1/videos/{video_id}",
+        web::delete().to(video_api::delete_video),
+    );
+}
+
+fn configure_generation_task_routes(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/api/v2/generation-queue",
+        web::get().to(generation_queue::list_queue),
+    )
+    .route(
+        "/api/v2/generation-queue/actions",
+        web::post().to(generation_queue::queue_action),
+    )
+    .route(
+        "/api/v2/generation-tasks/batch",
+        web::post().to(generation_queue::batch_task_details),
+    )
+    .route(
+        "/api/v2/generation-tasks/{task_id}",
+        web::get().to(generation_queue::task_detail),
+    );
 }
 
 struct ServerConfig {

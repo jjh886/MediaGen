@@ -62,6 +62,7 @@ pub fn server_state(root: std::path::PathBuf, plugin_loader: PluginLoader) -> Se
         oauth_logins: crate::oauth_login::OAuthLoginStore::new("127.0.0.1:0".to_string()),
         file_root: root.join("openai-files"),
         image_task_queue: Arc::new(ImageTaskQueue::default()),
+        video_task_queue: Arc::new(ImageTaskQueue::default()),
         credential_cipher: Arc::new(CredentialCipher::ephemeral()),
         generation_queue_enabled: true,
         generation_queue_notify: Arc::new(tokio::sync::Notify::new()),

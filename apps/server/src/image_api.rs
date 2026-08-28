@@ -1,5 +1,5 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
-use mediagen_core::{ModelDef, PluginManifest};
+use mediagen_core::TaskKind;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -9,9 +9,11 @@ use crate::image_assets::cleanup_temp_files;
 use crate::image_flow_execution::{execute_image_flow, prepare_flow_request};
 use crate::image_multipart::parse_image_request;
 use crate::image_request::{ImageEndpoint, OpenAiImageRequest};
-use crate::image_task_completion::{complete_image_task, create_verification_session};
+use crate::image_task_completion::complete_image_task;
+use crate::media_execution::{
+    ensure_task_not_cancelled, handle_attempt_failure, resolve_media_flow_context, MediaFlowContext,
+};
 use crate::routes::{api_key_allowed, api_key_from_request};
-use crate::store::AccountRecord;
 use crate::ServerState;
 
 pub async fn generate_image(
@@ -181,7 +183,7 @@ async fn run_image_attempts(
     body: OpenAiImageRequest,
     endpoint: ImageEndpoint,
     caller_key: Option<String>,
-    mut context: ImageFlowContext<'_>,
+    mut context: MediaFlowContext<'_>,
 ) -> Result<Value, (u16, &'static str, String)> {
     let mut excluded = Vec::<String>::new();
     let mut same_account_failures = 0u32;
@@ -196,40 +198,20 @@ async fn run_image_attempts(
                 return complete_attempt_success(state, &context, result).await;
             }
             Err(message) => {
-                let decision = apply_failure_strategy(state, &context, &message);
-                if decision.verification_required() {
-                    return create_verification_session(
-                        state,
-                        context.manifest,
-                        &context.account,
-                        &context.task_id,
-                        decision.original_message,
-                    )
-                    .await;
+                if let Some(response) = handle_attempt_failure(
+                    state,
+                    &mut context,
+                    &message,
+                    "图片",
+                    &mut same_account_failures,
+                    caller_key.as_deref(),
+                    &mut excluded,
+                )
+                .await?
+                {
+                    return response;
                 }
-                record_attempt_failure(state, &context, &decision);
-                same_account_failures += 1;
-                if decision.should_retry_same_account(same_account_failures) {
-                    continue;
-                }
-                if decision.should_cooldown_after_retry_exhausted() {
-                    state.store.mark_account_state_for_seconds(
-                        &context.account.id,
-                        "cooldown",
-                        decision.threshold_cooldown_seconds,
-                    );
-                }
-                if decision.should_failover() {
-                    excluded.push(context.account.id.clone());
-                    if let Some(next) =
-                        next_failover_context(state, &context, caller_key.as_deref(), &excluded)?
-                    {
-                        context = next;
-                        same_account_failures = 0;
-                        continue;
-                    }
-                }
-                return fail_image_task(state, &context, &decision);
+                continue;
             }
         }
     }
@@ -239,7 +221,7 @@ async fn run_single_image_attempt(
     state: &web::Data<ServerState>,
     body: &OpenAiImageRequest,
     endpoint: ImageEndpoint,
-    context: &ImageFlowContext<'_>,
+    context: &MediaFlowContext<'_>,
 ) -> Result<Value, String> {
     let (mut flow_request, ref_image_locals) =
         prepare_flow_request(body, context.model, endpoint, &context.account.proxy_url).await;
@@ -251,7 +233,7 @@ async fn run_single_image_attempt(
 
 async fn complete_attempt_success(
     state: &web::Data<ServerState>,
-    context: &ImageFlowContext<'_>,
+    context: &MediaFlowContext<'_>,
     result: Value,
 ) -> Result<Value, (u16, &'static str, String)> {
     ensure_task_not_cancelled(state, &context.task_id)?;
@@ -269,138 +251,11 @@ async fn complete_attempt_success(
     complete_image_task(state, &context.task_id, &context.account.proxy_url, result).await
 }
 
-fn apply_failure_strategy(
-    state: &web::Data<ServerState>,
-    context: &ImageFlowContext<'_>,
-    message: &str,
-) -> crate::failure_strategy::FailureDecision {
-    let decision = if let Some(message) = message.strip_prefix("needs_verification:") {
-        crate::failure_strategy::FailureDecision {
-            category: "verification_required".to_string(),
-            retry_action: "failover".to_string(),
-            account_state: Some("verification_required".to_string()),
-            usage_consumed: false,
-            same_error_threshold: 1,
-            threshold_cooldown_seconds: 0,
-            cooldown_from_message: false,
-            cooldown_seconds: 0,
-            original_message: message.to_string(),
-        }
-    } else {
-        crate::failure_strategy::classify_failure(context.manifest, message)
-    };
-    apply_account_state_for_failure(state, context, &decision);
-    decision
-}
-
-fn apply_account_state_for_failure(
-    state: &web::Data<ServerState>,
-    context: &ImageFlowContext<'_>,
-    decision: &crate::failure_strategy::FailureDecision,
-) {
-    if let Some(account_state) = decision.account_state.as_deref() {
-        if account_state == "cooldown" {
-            let fallback = i64::from(state.store.settings().cooldown_default_seconds);
-            state.store.mark_account_state_for_seconds(
-                &context.account.id,
-                account_state,
-                decision.cooldown_seconds(&decision.original_message, fallback),
-            );
-        } else if let Some(seconds) = decision
-            .cooldown_seconds_from_message(&decision.original_message)
-            .or_else(|| (decision.cooldown_seconds > 0).then_some(decision.cooldown_seconds))
-        {
-            state
-                .store
-                .mark_account_state_for_seconds(&context.account.id, account_state, seconds);
-        } else {
-            state
-                .store
-                .mark_account_state(&context.account.id, account_state);
-        }
-    }
-}
-
-fn record_attempt_failure(
-    state: &web::Data<ServerState>,
-    context: &ImageFlowContext<'_>,
-    decision: &crate::failure_strategy::FailureDecision,
-) {
-    if decision.usage_consumed {
-        state.store.mark_account_usage(&context.account.id);
-    }
-    let message = decision.formatted_message();
-    state
-        .store
-        .add_task_event(&context.task_id, "error", message.clone());
-    state.store.add_audit_log(
-        "engine",
-        "error",
-        "图片任务失败".to_string(),
-        message,
-        Some(context.task_id.clone()),
-    );
-}
-
-fn next_failover_context<'a>(
-    state: &'a web::Data<ServerState>,
-    current: &ImageFlowContext<'a>,
-    caller_key: Option<&str>,
-    excluded: &[String],
-) -> Result<Option<ImageFlowContext<'a>>, (u16, &'static str, String)> {
-    let selected = state.store.with_account_dispatch(|| {
-        let account = state.store.first_available_account_for_key_excluding(
-            &current.manifest.platform_id,
-            caller_key,
-            excluded,
-        )?;
-        let account = state.store.account_with_required_runtime_proxy(account);
-        if let Ok(account) = &account {
-            state.store.set_task_account(&current.task_id, &account.id);
-        }
-        Some(account)
-    });
-    let Some(account) = selected else {
-        return Ok(None);
-    };
-    let account = account.map_err(|message| (409, "proxy_unavailable", message))?;
-    state.store.add_task_event(
-        &current.task_id,
-        "info",
-        format!("切换账号继续执行: {}", account.id),
-    );
-    Ok(Some(ImageFlowContext {
-        manifest: current.manifest,
-        model: current.model,
-        account,
-        task_id: current.task_id.clone(),
-    }))
-}
-
-fn fail_image_task(
-    state: &web::Data<ServerState>,
-    context: &ImageFlowContext<'_>,
-    decision: &crate::failure_strategy::FailureDecision,
-) -> Result<Value, (u16, &'static str, String)> {
-    ensure_task_not_cancelled(state, &context.task_id)?;
-    let message = decision.formatted_message();
-    state.store.fail_task(&context.task_id, message.clone());
-    let (status, code) = decision.response_error();
-    Err((status, code, message))
-}
-
-struct ImageFlowContext<'a> {
-    manifest: &'a PluginManifest,
-    model: &'a ModelDef,
-    account: AccountRecord,
-    task_id: String,
-}
-
 fn resolve_image_flow_context<'a>(
     state: &'a web::Data<ServerState>,
     body: &OpenAiImageRequest,
     caller_key: Option<&str>,
-) -> Result<ImageFlowContext<'a>, (u16, &'static str, String)> {
+) -> Result<MediaFlowContext<'a>, (u16, &'static str, String)> {
     resolve_image_flow_context_with_task_id(
         state,
         body,
@@ -414,49 +269,6 @@ fn resolve_image_flow_context_with_task_id<'a>(
     body: &OpenAiImageRequest,
     caller_key: Option<&str>,
     task_id: String,
-) -> Result<ImageFlowContext<'a>, (u16, &'static str, String)> {
-    let (manifest, model) = state
-        .plugin_loader
-        .resolve_model(&body.model)
-        .ok_or_else(|| {
-            (
-                404,
-                "model_not_found",
-                format!("模型 {} 不存在", body.model),
-            )
-        })?;
-    let account = state
-        .store
-        .first_available_account_for_key(&manifest.platform_id, caller_key)
-        .map(|account| state.store.account_with_required_runtime_proxy(account))
-        .transpose()
-        .map_err(|message| (409, "proxy_unavailable", message))?
-        .ok_or_else(|| {
-            (
-                409,
-                "account_unavailable",
-                format!("{} 没有可用账号，请先添加账号。", manifest.display_name),
-            )
-        })?;
-    Ok(ImageFlowContext {
-        manifest,
-        model,
-        account,
-        task_id,
-    })
-}
-
-fn ensure_task_not_cancelled(
-    state: &web::Data<ServerState>,
-    task_id: &str,
-) -> Result<(), (u16, &'static str, String)> {
-    if state
-        .store
-        .task_by_id(task_id)
-        .is_some_and(|task| task.status == "cancelled")
-    {
-        Err((409, "task_cancelled", "用户取消".to_string()))
-    } else {
-        Ok(())
-    }
+) -> Result<MediaFlowContext<'a>, (u16, &'static str, String)> {
+    resolve_media_flow_context(state, &body.model, TaskKind::Image, caller_key, task_id)
 }

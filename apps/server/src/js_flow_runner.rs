@@ -1,16 +1,18 @@
 use std::{sync::Arc, time::Duration};
 
-use mediagen_core::PluginManifest;
+use mediagen_core::{FlowDef, PluginManifest};
 use mediagen_plugin_runtime::{run_js_step, PluginLoader};
 use serde_json::Value;
 
 use crate::flow_runtime::{
-    build_image_flow_context, find_image_result, flow_result_is_error, flow_result_message,
-    generate_image_flow, prepare_flow_step, record_flow_result,
+    build_image_flow_context, build_video_flow_context, find_image_result, find_video_result,
+    flow_result_is_error, flow_result_message, generate_image_flow, generate_video_flow,
+    prepare_flow_step, record_flow_result,
 };
 use crate::image_request::ImageFlowRequest;
 use crate::server_plugin_host::ServerPluginHost;
 use crate::store::AccountRecord;
+use crate::video_request::VideoFlowRequest;
 
 pub struct JsFlowRunner {
     plugin_loader: Arc<PluginLoader>,
@@ -29,13 +31,44 @@ impl JsFlowRunner {
         platform_config: Value,
     ) -> Result<Value, String> {
         let flow = generate_image_flow(manifest)?;
-        let mut context = build_image_flow_context(
+        let context = build_image_flow_context(
             &self.plugin_loader,
             manifest,
             account,
             input,
             platform_config,
         )?;
+        self.run_flow(flow, context, account, find_image_result, "图片")
+            .await
+    }
+
+    pub async fn run_video_flow(
+        &self,
+        manifest: &PluginManifest,
+        account: &AccountRecord,
+        input: VideoFlowRequest,
+        platform_config: Value,
+    ) -> Result<Value, String> {
+        let flow = generate_video_flow(manifest)?;
+        let context = build_video_flow_context(
+            &self.plugin_loader,
+            manifest,
+            account,
+            input,
+            platform_config,
+        )?;
+        self.run_flow(flow, context, account, find_video_result, "视频")
+            .await
+    }
+
+    async fn run_flow(
+        &self,
+        flow: &FlowDef,
+        mut context: Value,
+        account: &AccountRecord,
+        find_result: fn(&[Value]) -> Option<Value>,
+        result_label: &str,
+    ) -> Result<Value, String> {
         let host = ServerPluginHost::new_for_account(account);
         let mut results = Vec::new();
 
@@ -57,7 +90,7 @@ impl JsFlowRunner {
             record_flow_result(&mut context, &mut results, &prepared.params, result);
         }
 
-        find_image_result(&results).ok_or_else(|| "插件执行完成，但没有返回图片结果".to_string())
+        find_result(&results).ok_or_else(|| format!("插件执行完成，但没有返回{result_label}结果"))
     }
 }
 

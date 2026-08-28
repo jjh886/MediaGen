@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AppSettings } from '@/shared/services/settings-service'
+import { DEFAULT_SETTINGS, type AppSettings } from '@/shared/services/settings-service'
 import { PlatformGenerationConfigCard } from '../PlatformGenerationConfigCard'
 import {
   readPlatformGenerationConfig,
@@ -8,18 +8,8 @@ import {
 } from '../platform-generation-config'
 
 const settings: AppSettings = {
-  api_port: 18080,
-  api_end_port: 18089,
+  ...DEFAULT_SETTINGS,
   api_ports: '18080',
-  api_port_count: 10,
-  api_address: '127.0.0.1',
-  api_allowed_origins: '*',
-  image_task_concurrency: 64,
-  image_task_queue_limit: 512,
-  check_interval_minutes: 30,
-  cooldown_default_seconds: 300,
-  cache_dir: '',
-  platform_tier_overrides: '{}',
   platform_generation_configs: '{"other":{"quality":"high"}}',
 }
 

@@ -16,7 +16,7 @@
     "package": "node scripts/package-local-installers.mjs",
     "deploy": "bash scripts/deploy-server-release.sh",
     "type-check": "npm --workspace @mediagen/console run type-check",
-    "lint": "node scripts/check-code-line-limit.mjs --scope app --max 500 && node scripts/check-import-boundaries.mjs && node scripts/check-rust-platform-boundaries.mjs && npm --workspace @mediagen/console run lint",
+    "lint": "node scripts/check-code-line-limit.mjs --scope app --max 500 && node scripts/check-import-boundaries.mjs && node scripts/check-rust-platform-boundaries.mjs && node scripts/check-media-plugin-contracts.mjs && npm --workspace @mediagen/console run lint",
     "test": "npm --workspace @mediagen/console run test",
     "test:watch": "npm --workspace @mediagen/console run test -- --watch",
     "coverage:gate": "node scripts/gates/check-coverage-gate.mjs --app",

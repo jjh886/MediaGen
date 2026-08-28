@@ -68,13 +68,25 @@ pub(crate) fn first_non_empty(values: &[&str]) -> String {
 }
 
 pub(crate) fn first_result_url(result: &Value) -> Option<String> {
-    result
+    let image_url = result
         .get("images")
         .and_then(|value| value.as_array())
         .and_then(|items| items.first())
         .and_then(|item| item.get("url"))
         .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned)
+        .map(ToOwned::to_owned);
+    image_url.or_else(|| {
+        result
+            .get("video")
+            .and_then(|video| {
+                video
+                    .get("url")
+                    .or_else(|| video.get("video_url"))
+                    .or_else(|| video.get("download_url"))
+            })
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+    })
 }
 
 pub(crate) fn apply_account_update(account: &mut AccountRecord, update: AccountUpdate) {
