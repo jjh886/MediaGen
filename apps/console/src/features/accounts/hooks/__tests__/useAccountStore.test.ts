@@ -50,7 +50,7 @@ describe('useAccountStore', () => {
 
   describe('fetch', () => {
     it('调用 fetchAccounts 并更新 accounts', async () => {
-      const accounts = [{ id: 'a1', platform: 'chatgpt-api' }]
+      const accounts = [{ id: 'a1', platform: 'chatgpt' }]
       mockFetchAccounts.mockResolvedValue(accounts)
 
       await act(async () => {
@@ -74,13 +74,13 @@ describe('useAccountStore', () => {
 
     it('未传 platform 时使用 activePlatform', async () => {
       mockFetchAccounts.mockResolvedValue([])
-      useAccountStore.setState({ activePlatform: 'chatgpt-api' })
+      useAccountStore.setState({ activePlatform: 'chatgpt' })
 
       await act(async () => {
         await useAccountStore.getState().fetch()
       })
 
-      expect(mockFetchAccounts).toHaveBeenCalledWith('chatgpt-api', 40, 0)
+      expect(mockFetchAccounts).toHaveBeenCalledWith('chatgpt', 40, 0)
     })
 
     it('loading 状态在请求期间为 true', async () => {
