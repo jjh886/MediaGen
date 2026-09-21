@@ -36,7 +36,7 @@ function main(ctx) {
   return {
     success: true,
     status: 'done',
-    source: 'chatgpt-api',
+    source: 'chatgpt',
     reference_image_count: references.length,
     imageCount: images.length,
     images,
@@ -52,10 +52,10 @@ function chatgptApiGenerationConfig(ctx, bootstrap) {
   ).trim()
 
   if (model && !/^[a-z0-9][a-z0-9._-]{0,79}$/i.test(model)) {
-    throw new Error('ChatGPT API 模型标识格式不正确，请在生成配置中检查。')
+    throw new Error('ChatGPT 模型标识格式不正确，请在生成配置中检查。')
   }
   if (!['', 'standard', 'extended'].includes(thinkingEffort)) {
-    throw new Error('ChatGPT API 思考深度无效，只能选择跟随默认、Standard 或 Extended。')
+    throw new Error('ChatGPT 思考深度无效，只能选择跟随默认、Standard 或 Extended。')
   }
 
   const availableModels = chatgptApiAvailableModels(bootstrap)

@@ -23,9 +23,9 @@ const SAMPLE_TASKS: Task[] = [
   },
   {
     id: 'task-002',
-    platform: 'chatgpt-api',
+    platform: 'chatgpt',
     task_kind: 'video',
-    model_id: 'ChatGPT API',
+    model_id: 'ChatGPT',
     prompt: '测试2',
     status: 'completed',
     created_at: '2026-04-13T10:05:00Z',
@@ -86,13 +86,13 @@ describe('useTaskStore', () => {
 
     it('未指定 platform 时使用 activePlatform', async () => {
       mockFetchTasks.mockResolvedValue([])
-      useTaskStore.setState({ activePlatform: 'chatgpt-api' })
+      useTaskStore.setState({ activePlatform: 'chatgpt' })
 
       await act(async () => {
         await useTaskStore.getState().fetch()
       })
 
-      expect(mockFetchTasks).toHaveBeenCalledWith('chatgpt-api', 40, 0)
+      expect(mockFetchTasks).toHaveBeenCalledWith('chatgpt', 40, 0)
     })
 
     it('fetch 失败时 loading 恢复为 false', async () => {
@@ -139,11 +139,11 @@ describe('useTaskStore', () => {
       useTaskStore.setState({ selectedTaskId: 'task-001' })
 
       await act(async () => {
-        useTaskStore.getState().setActivePlatform('chatgpt-api')
+        useTaskStore.getState().setActivePlatform('chatgpt')
       })
 
       const state = useTaskStore.getState()
-      expect(state.activePlatform).toBe('chatgpt-api')
+      expect(state.activePlatform).toBe('chatgpt')
       expect(state.selectedTaskId).toBeNull()
     })
 

@@ -406,6 +406,31 @@
           "quality": ["auto", "low", "medium", "high", "xhigh", "max"]
         }
       }
+    },
+    {
+      "model_id": "gpt-realtime-2.1",
+      "display_name": "Codex 官方实时语音",
+      "task_kind": "realtime",
+      "capabilities": {
+        "input_modalities": ["text", "audio"],
+        "output_modalities": ["text", "audio"],
+        "endpoints": ["/v1/realtime"],
+        "transports": ["websocket"],
+        "streaming": true,
+        "tool_calling": true,
+        "voices": [
+          "alloy",
+          "ash",
+          "ballad",
+          "coral",
+          "echo",
+          "sage",
+          "shimmer",
+          "verse",
+          "marin",
+          "cedar"
+        ]
+      }
     }
   ],
   "tiers": {
@@ -635,6 +660,15 @@
           "action": "plugin.run_js",
           "script_files": ["auth.js", "text_responses.js", "compact_text.js"],
           "timeout_ms": 600000
+        }
+      ]
+    },
+    "connect_realtime": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "connect_realtime.js"],
+          "timeout_ms": 60000
         }
       ]
     }

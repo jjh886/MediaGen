@@ -66,10 +66,7 @@ crates/mediagen-plugin-runtime/    # 插件加载和 JS flow 执行
 plugins/
 ├── _shared/
 ├── chatgpt/
-├── codex/
-├── doubao/
-├── flow/
-└── jimeng/
+└── codex/
 ```
 
 ## 7. 关键约定

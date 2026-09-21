@@ -39,8 +39,8 @@ describe('PlatformQuotaCard', () => {
         JSON.stringify({
           data: [
             {
-              platform_id: 'chatgpt-api',
-              display_name: 'ChatGPT API',
+              platform_id: 'chatgpt',
+              display_name: 'ChatGPT',
               tiers: {
                 free: {
                   daily_limit: 50,
@@ -51,8 +51,8 @@ describe('PlatformQuotaCard', () => {
               },
             },
             {
-              platform_id: 'chatgpt',
-              display_name: 'ChatGPT',
+              platform_id: 'codex',
+              display_name: 'Codex',
               tiers: {
                 free: {
                   daily_limit: 40,
@@ -70,8 +70,8 @@ describe('PlatformQuotaCard', () => {
     render(<PlatformQuotaCard settings={settings} update={vi.fn()} />)
 
     const expectedRows = [
-      { label: 'ChatGPT API 免费', values: ['50', '0', '1', '0'] },
-      { label: 'ChatGPT 免费', values: ['40', '0', '1', '5'] },
+      { label: 'ChatGPT 免费', values: ['50', '0', '1', '0'] },
+      { label: 'Codex 免费', values: ['40', '0', '1', '5'] },
     ]
 
     for (const row of expectedRows) {

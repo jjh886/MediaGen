@@ -18,7 +18,7 @@ function chatgptApiAvailableAccount(auth) {
 function chatgptApiQuotaFields(quota) {
   return {
     status: chatgptApiFirstText([quota?.status, 'available']),
-    reason: chatgptApiFirstText([quota?.reason, 'ChatGPT API 登录有效']),
+    reason: chatgptApiFirstText([quota?.reason, 'ChatGPT 登录有效']),
     cooldown_seconds: quota?.cooldown_seconds || null,
     quota_task_kind: 'image',
   }
@@ -27,7 +27,7 @@ function chatgptApiQuotaFields(quota) {
 function chatgptApiAccountIdentity(auth) {
   const account = auth.auth.account || {}
   const user = auth.auth.user || {}
-  const displayName = chatgptApiFirstText([user.name, user.email, account.id, 'ChatGPT API'])
+  const displayName = chatgptApiFirstText([user.name, user.email, account.id, 'ChatGPT'])
   return {
     user_id: chatgptApiFirstText([user.id, account.id]),
     username: displayName,
@@ -41,7 +41,7 @@ function chatgptApiFirstText(values) {
 }
 
 function chatgptApiAccountCheckError(error) {
-  const message = String(error?.message || error || 'ChatGPT API 登录检查失败')
+  const message = String(error?.message || error || 'ChatGPT 登录检查失败')
   const inconclusive = message.startsWith('AUTH_INCONCLUSIVE:')
   return {
     logged_in: inconclusive ? null : false,

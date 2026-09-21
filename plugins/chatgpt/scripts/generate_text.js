@@ -10,7 +10,7 @@ function main(ctx) {
   return {
     success: true,
     status: 'done',
-    source: 'chatgpt-api',
+    source: 'chatgpt',
     response,
   }
 }
@@ -106,7 +106,7 @@ function chatgptApiGenerateTextConversation(auth, request) {
     chatgptApiCheckpoint({
       phase: 'completed',
       conversation_id: conversationId,
-      result: { success: true, status: 'done', source: 'chatgpt-api', response },
+      result: { success: true, status: 'done', source: 'chatgpt', response },
     })
     chatgptApiHideConversation(auth, conversationId)
     return response

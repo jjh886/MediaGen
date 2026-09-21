@@ -13,7 +13,7 @@ function context(platform, scripts, host = {}) {
   return ctx
 }
 
-for (const platform of ['codex', 'chatgpt-api']) {
+for (const platform of ['codex', 'chatgpt']) {
   test(`${platform} 所有声明流程可以独立编译`, () => {
     const manifest = JSON.parse(readFileSync(`plugins/${platform}/manifest.json`, 'utf8'))
     for (const [name, flow] of Object.entries(manifest.flows)) {
@@ -75,7 +75,7 @@ test('Codex 输出工具参数、增量与 incomplete 终态不丢失', () => {
 })
 
 test('TTS 不把 AAC 冒充 WAV、PCM 或 FLAC', () => {
-  const ctx = context('chatgpt-api', ['audio_speech.js'])
+  const ctx = context('chatgpt', ['audio_speech.js'])
   for (const format of ['wav', 'pcm', 'flac'])
     assert.throws(() => ctx.chatgptApiSpeechFormat(format), /unsupported_format/)
   assert.equal(ctx.chatgptApiSpeechFormat('mp3').actual_format, 'mp3')
@@ -83,7 +83,7 @@ test('TTS 不把 AAC 冒充 WAV、PCM 或 FLAC', () => {
 })
 
 test('TTS 仅匹配完整相同的朗读文本', () => {
-  const ctx = context('chatgpt-api', ['audio_speech.js'])
+  const ctx = context('chatgpt', ['audio_speech.js'])
   const input = '确切文本'
   const events = [
     {
@@ -125,7 +125,7 @@ test('Codex 图片请求保留所选模型并区分原生编辑接口', () => {
 
 test('文本流的 UTF-8 内容与工具参数不被重复拼接', () => {
   const emitted = []
-  const ctx = context('chatgpt-api', ['conversation_results.js', 'text_responses.js'], {
+  const ctx = context('chatgpt', ['conversation_results.js', 'text_responses.js'], {
     emit(event) {
       emitted.push(structuredClone(event))
     },
@@ -147,7 +147,7 @@ test('文本流的 UTF-8 内容与工具参数不被重复拼接', () => {
 })
 
 test('请求会复用账号浏览器版本及服务端更新 Cookie', () => {
-  const ctx = context('chatgpt-api', ['auth.js', 'network_profile.js'])
+  const ctx = context('chatgpt', ['auth.js', 'network_profile.js'])
   const auth = {
     auth: { fingerprint: { user_agent: 'Chrome/146.0.0.0' } },
     cookies: [{ name: 'a', value: 'old' }],
@@ -161,7 +161,7 @@ test('请求会复用账号浏览器版本及服务端更新 Cookie', () => {
 })
 
 test('Cookie 更新保持路径隔离，删除后不再发送', () => {
-  const ctx = context('chatgpt-api', ['auth.js', 'network_profile.js'])
+  const ctx = context('chatgpt', ['auth.js', 'network_profile.js'])
   const auth = {
     auth: {},
     cookies: [{ name: 'session', value: 'root', domain: '.chatgpt.com', path: '/', expires: -1 }],
@@ -183,7 +183,7 @@ test('Cookie 更新保持路径隔离，删除后不再发送', () => {
 })
 
 test('不支持的浏览器版本同时调整 UA、Client Hints 和 TLS', () => {
-  const ctx = context('chatgpt-api', ['auth.js', 'network_profile.js'])
+  const ctx = context('chatgpt', ['auth.js', 'network_profile.js'])
   const auth = {
     auth: {
       fingerprint: { user_agent: 'Mozilla/5.0 Chrome/150.0.0.0', device_id: 'stable-device' },
@@ -215,7 +215,7 @@ test('Codex 模型发现过滤传输层不支持的思考深度', () => {
 })
 
 test('文本图片输入保留图片并要求真实上传，不能静默丢弃', () => {
-  const ctx = context('chatgpt-api', ['text_responses.js'])
+  const ctx = context('chatgpt', ['text_responses.js'])
   const input = ctx.chatgptApiNormalizeResponsesInput([
     {
       role: 'user',
@@ -238,7 +238,7 @@ test('Codex 实时通道转换路由字段时保留原始请求', () => {
 })
 
 test('模型目录只公布网页文本通道可执行的模型', () => {
-  const ctx = context('chatgpt-api', ['conversation.js', 'list_models.js'])
+  const ctx = context('chatgpt', ['conversation.js', 'list_models.js'])
   ctx.chatgptApiRefreshSession = (value) => value
   ctx.chatgptApiReadAuth = () => ({})
   ctx.chatgptApiRequest = () => ({
@@ -282,7 +282,7 @@ test('图片用量只汇总完整的图片 token，缺失时不能编造', () =>
 })
 
 test('模型家族目录包含可路由的关闭思考与思考档位', () => {
-  const ctx = context('chatgpt-api', ['conversation.js'])
+  const ctx = context('chatgpt', ['conversation.js'])
   const models = [
     { slug: 'gpt-5-6', thinking_efforts: [] },
     { slug: 'gpt-5-6-instant' },

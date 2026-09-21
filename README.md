@@ -168,10 +168,7 @@ plugins/{platform}/
 ├── plugins/
 │   ├── _shared/
 │   ├── chatgpt/
-│   ├── codex/
-│   ├── doubao/
-│   ├── flow/
-│   └── jimeng/
+│   └── codex/
 ├── deploy/              # systemd、apt、yum、Docker 和本机桌面入口
 ├── docs/                # API 文档、产品方案和开发规格
 └── scripts/             # 启动、打包、格式化和质量门禁脚本
