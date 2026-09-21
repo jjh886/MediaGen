@@ -81,7 +81,7 @@ function chatgptApiAvailableModels(bootstrap) {
 
 function chatgptApiAspectRatio(value) {
   const normalized = String(value || 'auto').trim()
-  return ['auto', '9:16', '16:9', '1:1', '3:4', '4:3', '2:1'].includes(normalized)
+  return ['auto', '9:16', '16:9', '1:1', '3:4', '4:3', '2:1', '3:2', '2:3'].includes(normalized)
     ? normalized
     : 'auto'
 }

@@ -28,6 +28,7 @@ function main(ctx) {
     codexAccountId(auth),
     'application/sdp'
   )
+  headers['content-type'] = 'application/json'
   delete headers['openai-beta']
   headers['openai-alpha'] = 'quicksilver=v2'
   headers['x-oai-attestation'] = JSON.stringify(attestation)
@@ -39,10 +40,13 @@ function main(ctx) {
     headers,
     fingerprint: 'none',
     follow_redirects: false,
-    body: ctx.request,
+    body: codexRealtimeRequest(ctx.request),
     timeout_ms: 60000,
   })
-  if (!result.ok) throw new Error('HTTP ' + result.status + ': 实时会话创建失败')
+  if (!result.ok) {
+    if (result.status === 400) throw new Error('realtime_contract_error: 上游拒绝实时会话协议参数')
+    throw new Error('HTTP ' + result.status + ': 实时会话创建失败')
+  }
   const location = String(result.headers?.location || '').split('?')[0]
   const callId = location.slice(location.lastIndexOf('/') + 1)
   if (!/^[a-zA-Z0-9_-]{1,256}$/.test(callId)) throw new Error('实时接口没有返回有效的通话 ID')
@@ -62,4 +66,13 @@ function main(ctx) {
     close_event: { type: 'session.close' },
     terminal_events: ['session.closed', 'session.ended'],
   }
+}
+
+// 路由模型只用于本地账号分发；Codex 通话上游固定模型并禁止该字段。
+function codexRealtimeRequest(request) {
+  const session = { ...(request.session || {}), type: 'quicksilver' }
+  delete session.model
+  const body = { ...request }
+  body.session = session
+  return body
 }

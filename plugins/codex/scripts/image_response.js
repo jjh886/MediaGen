@@ -93,6 +93,8 @@ function applyImageEvent(out, event) {
     if (event.usage) out.usage = event.usage
     if (event.output_format) out.output_format = event.output_format
     if (event.size) out.size = event.size
+    if (event.quality) out.quality = event.quality
+    if (event.background) out.background = event.background
   }
   if (
     event.type === 'image_generation.partial_image' ||
@@ -134,6 +136,9 @@ function applyContentPart(out, part) {
 function applyImageCall(out, item) {
   if (!item || item.type !== 'image_generation_call') return
   if (item.result) out.image = item.result
+  for (const field of ['size', 'quality', 'background', 'output_format']) {
+    if (item[field]) out[field] = item[field]
+  }
   if (item.revised_prompt) out.revised_prompt = item.revised_prompt
 }
 

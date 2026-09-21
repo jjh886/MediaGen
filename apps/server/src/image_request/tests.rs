@@ -103,7 +103,7 @@ fn converts_prompt_arrays_and_flow_request() {
     assert_eq!(flow.output_format, "webp");
     assert_eq!(flow.quality, "high");
     assert_eq!(flow.background, "transparent");
-    assert_eq!(flow.image_aspect_ratio, "16:9");
+    assert_eq!(flow.image_aspect_ratio, "3:2");
     assert_eq!(flow.action, "edit");
     assert_eq!(flow.ref_image_urls, vec!["https://example.test/ref.png"]);
     assert_eq!(
@@ -129,7 +129,7 @@ fn keeps_file_id_until_api_layer_resolves_it() {
 
     request.images.clear();
     request.size = Some("1024x1536".to_string());
-    assert_eq!(request.image_aspect_ratio(), "9:16");
+    assert_eq!(request.image_aspect_ratio(), "2:3");
     request.image_aspect_ratio = Some(" 4:3 ".to_string());
     assert_eq!(request.image_aspect_ratio(), "4:3");
 }

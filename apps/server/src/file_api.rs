@@ -49,16 +49,58 @@ pub async fn list_files(state: web::Data<ServerState>, request: HttpRequest) -> 
         return file_error(401, "authentication_error", "invalid api key");
     }
     let owner_hash = owner_hash_from_request(&request);
+    let query = match web::Query::<FileListQuery>::from_query(request.query_string()) {
+        Ok(query)
+            if query.limit.is_none_or(|limit| (1..=10000).contains(&limit))
+                && query
+                    .order
+                    .as_deref()
+                    .is_none_or(|order| matches!(order, "asc" | "desc")) =>
+        {
+            query.into_inner()
+        }
+        _ => return file_error(400, "invalid_request_error", "文件列表参数无效"),
+    };
     match read_all_records(&state.file_root, &owner_hash).await {
         Ok(mut data) => {
-            data.sort_by_key(|item| Reverse(item.created_at));
+            data.retain(|item| {
+                query
+                    .purpose
+                    .as_ref()
+                    .is_none_or(|purpose| &item.purpose == purpose)
+            });
+            data.sort_by_key(|item| Reverse((item.created_at, item.id.clone())));
+            if query.order.as_deref() == Some("asc") {
+                data.reverse();
+            }
+            if let Some(after) = query.after {
+                let Some(index) = data.iter().position(|item| item.id == after) else {
+                    return file_error(400, "invalid_request_error", "after 文件不存在或无权访问");
+                };
+                data.drain(..=index);
+            }
+            let limit = query.limit.unwrap_or(10000);
+            let has_more = data.len() > limit;
+            data.truncate(limit);
             HttpResponse::Ok().json(json!({
                 "object": "list",
+                "first_id": data.first().map(|item| &item.id),
+                "last_id": data.last().map(|item| &item.id),
+                "has_more": has_more,
                 "data": data.into_iter().map(public_record).collect::<Vec<_>>()
             }))
         }
         Err(message) => file_error(500, "server_error", &message),
     }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileListQuery {
+    limit: Option<usize>,
+    after: Option<String>,
+    order: Option<String>,
+    purpose: Option<String>,
 }
 
 pub async fn retrieve_file(
@@ -341,11 +383,15 @@ fn mime_from_filename(filename: &str) -> &'static str {
 }
 
 fn file_error(status: u16, code: &'static str, message: &str) -> HttpResponse {
-    HttpResponse::build(
-        actix_web::http::StatusCode::from_u16(status)
-            .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR),
+    crate::protocol_api::error(
+        status,
+        code,
+        if status >= 500 {
+            "文件操作失败"
+        } else {
+            message
+        },
     )
-    .json(json!({ "error": { "message": message, "type": code, "code": code } }))
 }
 
 #[cfg(test)]

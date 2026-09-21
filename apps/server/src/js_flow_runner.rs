@@ -80,7 +80,10 @@ impl JsFlowRunner {
         let host = ServerPluginHost::new_for_account(account)
             .with_storage(self.cipher.clone(), &account.profile_dir, manifest)
             .with_http_profile(manifest)
-            .with_events(None, context["task_id"].as_str().unwrap_or("").to_string());
+            .with_events(
+                crate::image_stream::EVENTS.try_with(Clone::clone).ok(),
+                context["task_id"].as_str().unwrap_or("").to_string(),
+            );
         let mut results = Vec::new();
 
         for step in &flow.steps {

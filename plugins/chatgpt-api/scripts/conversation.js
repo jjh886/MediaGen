@@ -384,7 +384,9 @@ function chatgptApiResolveReasoning(model, requested, models, fallback) {
   if (metadata?.configurable_thinking_effort === false) capability = { efforts: [] }
   else if (Array.isArray(metadata?.thinking_efforts)) {
     capability = {
-      efforts: metadata.thinking_efforts.map((item) => item.thinking_effort),
+      efforts: metadata.thinking_efforts.map((item) =>
+        typeof item === 'string' ? item : item.thinking_effort
+      ),
       default_effort: metadata.default_thinking_effort,
     }
   }
@@ -417,12 +419,16 @@ function chatgptApiTextReasoning(ctx, auth, request) {
 }
 
 // 一个型号入口包含即时与思考模式；网页请求 ID 的区别只在插件内处理。
-function chatgptApiModelSelection(model, requested, models, fallback) {
+function chatgptApiModelFamily(model) {
   const families = {
     'gpt-5-6': { instant: 'gpt-5-6-instant', thinking: 'gpt-5-6-thinking' },
     'gpt-5-6-mini': { instant: 'gpt-5-6-mini', thinking: 'gpt-5-6-t-mini', fixed: true },
   }
-  const family = families[model]
+  return families[model]
+}
+
+function chatgptApiModelSelection(model, requested, models, fallback) {
+  const family = chatgptApiModelFamily(model)
   let effort = requested
   let capability = fallback
   if (family) {
@@ -443,4 +449,25 @@ function chatgptApiModelSelection(model, requested, models, fallback) {
     model,
     thinking_effort: chatgptApiResolveReasoning(model, effort, models, capability),
   }
+}
+
+function chatgptApiDiscoveredReasoning(item, models) {
+  const levels = (value) =>
+    (value?.thinking_efforts || [])
+      .map((level) => (typeof level === 'string' ? level : level.thinking_effort))
+      .filter(Boolean)
+  const family = chatgptApiModelFamily(item.slug)
+  if (!family)
+    return {
+      efforts: item.configurable_thinking_effort === false ? [] : levels(item),
+      default_effort: item.default_thinking_effort,
+    }
+  const instant = models.find((model) => model.slug === family.instant)
+  const thinking = models.find((model) => model.slug === family.thinking)
+  const efforts = [
+    ...(instant ? ['none'] : []),
+    ...(thinking ? (family.fixed ? ['standard'] : levels(thinking)) : []),
+  ]
+  const preferred = thinking?.default_thinking_effort || (thinking ? 'standard' : 'none')
+  return { efforts, default_effort: efforts.includes(preferred) ? preferred : efforts[0] }
 }

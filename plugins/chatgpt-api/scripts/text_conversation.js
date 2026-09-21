@@ -206,7 +206,8 @@ function chatgptApiTextConversationPayload(auth, prompt, prepared) {
     timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
     timezone: fingerprint.timezone || 'UTC',
     conversation_mode: { kind: 'primary_assistant' },
-    history_and_training_disabled: true,
+    // 保留会话直至完成，长思考模型需要按会话轮询；完成后由调用方隐藏。
+    history_and_training_disabled: false,
     system_hints: prepared.system_hints || [],
     paragen_cot_summary_display_override: 'allow',
     force_parallel_switch: 'auto',
@@ -372,13 +373,15 @@ function chatgptApiTextParts(parts) {
 
 function chatgptApiWaitForText(auth, conversationId, baselineParentId) {
   const started = Date.now()
+  let delay = CHATGPT_API_TEXT_POLL_MS
   while (Date.now() - started < CHATGPT_API_TEXT_TIMEOUT_MS) {
     const conversation = chatgptApiFetchTextConversation(auth, conversationId)
     const error = chatgptApiTextConversationError(conversation)
     if (error) throw new Error(error)
     const result = chatgptApiFinalTextFromConversation(conversation, baselineParentId)
     if (result) return result
-    host.call('time.sleep', { milliseconds: CHATGPT_API_TEXT_POLL_MS })
+    host.call('time.sleep', { milliseconds: conversation.__retry_after_ms || delay })
+    delay = Math.min(delay * 2, 15000)
   }
   throw new Error('generation_timeout: ChatGPT 文本生成超过 20 分钟')
 }
@@ -394,14 +397,18 @@ function chatgptApiTextConversationError(conversation) {
 
 function chatgptApiFetchTextConversation(auth, conversationId) {
   const path = '/backend-api/conversation/' + encodeURIComponent(conversationId)
-  const response = chatgptApiRequireOk(
-    chatgptApiRequest(auth, 'GET', path, {
-      target_path: path,
-      target_route: '/backend-api/conversation/{conversation_id}',
-      timeout_ms: 60000,
-    }),
-    '轮询 ChatGPT 文本结果'
-  )
+  const response = chatgptApiRequest(auth, 'GET', path, {
+    target_path: path,
+    target_route: '/backend-api/conversation/{conversation_id}',
+    timeout_ms: 60000,
+  })
+  if (response.status === 429) {
+    const retry = Number(response.headers?.['retry-after'])
+    return {
+      __retry_after_ms: Math.min(120, Math.max(15, Number.isFinite(retry) ? retry : 30)) * 1000,
+    }
+  }
+  chatgptApiRequireOk(response, '轮询 ChatGPT 文本结果')
   return response.body || {}
 }
 

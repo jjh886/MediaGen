@@ -344,7 +344,8 @@ async fn stream_image_generation_returns_sse_response() {
     assert!(status.is_success());
     assert!(content_type.starts_with("text/event-stream"));
     assert!(text.contains("event: image_generation.completed"));
-    assert!(text.contains("data: [DONE]"));
+    assert!(!text.contains("data: [DONE]"));
+    assert!(text.contains("\"type\":\"image_generation.completed\""));
 
     let edit_request = actix_test::TestRequest::post()
         .uri("/v1/images/edits")
@@ -353,7 +354,7 @@ async fn stream_image_generation_returns_sse_response() {
             "model": "gpt-image-test",
             "prompt": "edit a square",
             "stream": true,
-            "images": [{ "image_url": "data:image/png;base64,aGVsbG8=" }]
+            "images": [{ "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==" }]
         }))
         .to_request();
     let edit_response = actix_test::call_service(&app, edit_request).await;
@@ -431,7 +432,7 @@ fn write_stream_plugin(root: &std::path::Path) {
               "steps": [
                 {
                   "action": "plugin.run_js",
-                  "script": "function main() { return { images: [{ url: 'data:image/png;base64,aGVsbG8=' }] }; }",
+                  "script": "function main() { return { images: [{ url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==' }] }; }",
                   "save_as": "result"
                 }
               ]

@@ -72,7 +72,17 @@
           "prediction",
           "audio",
           "modalities",
-          "text"
+          "text",
+          "prompt",
+          "conversation",
+          "context_management",
+          "prompt_cache_key",
+          "prompt_cache_retention",
+          "max_tool_calls",
+          "include",
+          "service_tier",
+          "truncation",
+          "safety_identifier"
         ],
         "image_sources": ["data_url", "file_id"]
       }
@@ -135,7 +145,17 @@
           "prediction",
           "audio",
           "modalities",
-          "text"
+          "text",
+          "prompt",
+          "conversation",
+          "context_management",
+          "prompt_cache_key",
+          "prompt_cache_retention",
+          "max_tool_calls",
+          "include",
+          "service_tier",
+          "truncation",
+          "safety_identifier"
         ],
         "image_sources": ["data_url", "file_id"]
       }
@@ -198,7 +218,17 @@
           "prediction",
           "audio",
           "modalities",
-          "text"
+          "text",
+          "prompt",
+          "conversation",
+          "context_management",
+          "prompt_cache_key",
+          "prompt_cache_retention",
+          "max_tool_calls",
+          "include",
+          "service_tier",
+          "truncation",
+          "safety_identifier"
         ],
         "image_sources": ["data_url", "file_id"]
       }
@@ -261,7 +291,17 @@
           "prediction",
           "audio",
           "modalities",
-          "text"
+          "text",
+          "prompt",
+          "conversation",
+          "context_management",
+          "prompt_cache_key",
+          "prompt_cache_retention",
+          "max_tool_calls",
+          "include",
+          "service_tier",
+          "truncation",
+          "safety_identifier"
         ],
         "image_sources": ["data_url", "file_id"]
       }
@@ -302,7 +342,8 @@
           "wav": ["ffmpeg"],
           "pcm": ["ffmpeg"],
           "flac": ["ffmpeg"]
-        }
+        },
+        "unsupported_parameters": ["instructions"]
       }
     },
     {
@@ -314,7 +355,14 @@
         "output_modalities": ["text"],
         "endpoints": ["/v1/audio/transcriptions", "/v1/audio/translations"],
         "response_formats": ["json", "text"],
-        "streaming": false
+        "streaming": false,
+        "unsupported_parameters": [
+          "prompt",
+          "temperature",
+          "timestamp_granularities",
+          "include",
+          "chunking_strategy"
+        ]
       }
     }
   ],
@@ -337,7 +385,22 @@
     "supports_edit": true,
     "supports_mask": false,
     "max_reference_images": 16,
-    "supported_output_formats": ["png", "jpeg", "webp"]
+    "supported_output_formats": ["png", "jpeg", "webp"],
+    "supports_variation": false,
+    "streaming": true,
+    "partial_images": false,
+    "compression_formats": ["jpeg", "webp"],
+    "parameter_values": {
+      "quality": ["auto"],
+      "background": ["auto"],
+      "partial_images": [0],
+      "moderation": ["auto"],
+      "input_fidelity": []
+    },
+    "exact_size_method": "resize_to_fill",
+    "compression_requirements": {
+      "webp": ["ffmpeg"]
+    }
   },
   "generation_settings": {
     "title": "ChatGPT API 生成配置",
@@ -507,7 +570,7 @@
       "steps": [
         {
           "action": "plugin.run_js",
-          "script_files": ["auth.js", "network_profile.js", "list_models.js"],
+          "script_files": ["auth.js", "network_profile.js", "conversation.js", "list_models.js"],
           "timeout_ms": 60000
         }
       ]

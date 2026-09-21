@@ -1,10 +1,5 @@
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use serde_json::{json, Value};
-use std::{process::Stdio, time::Duration};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    process::Command,
-};
 
 pub(crate) async fn transcode(params: &Value) -> Result<Value, String> {
     let format = params["format"].as_str().ok_or("缺少音频格式")?;
@@ -20,9 +15,9 @@ pub(crate) async fn transcode(params: &Value) -> Result<Value, String> {
     if source.is_empty() || source.len() > 50 * 1024 * 1024 {
         return Err("音频数据大小无效".into());
     }
-    let binary = std::env::var("MEDIAGEN_FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
-    let mut child = Command::new(binary)
-        .args([
+    let bytes = crate::media_transcode::run(
+        source,
+        &[
             "-hide_banner",
             "-loglevel",
             "error",
@@ -41,52 +36,16 @@ pub(crate) async fn transcode(params: &Value) -> Result<Value, String> {
             "-f",
             container,
             "pipe:1",
-        ])
-        .kill_on_drop(true)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| "音频转码需要可用的 FFmpeg")?;
-    let mut input = child.stdin.take().ok_or("音频转码输入不可用")?;
-    let output = child.stdout.take().ok_or("音频转码输出不可用")?;
-    let execution = async {
-        let writer = async {
-            input
-                .write_all(&source)
-                .await
-                .map_err(|_| "音频转码输入失败")?;
-            drop(input);
-            Ok::<_, &str>(())
-        };
-        let reader = async {
-            let mut bytes = Vec::new();
-            output
-                .take(50 * 1024 * 1024 + 1)
-                .read_to_end(&mut bytes)
-                .await
-                .map_err(|_| "音频转码输出失败")?;
-            if bytes.len() > 50 * 1024 * 1024 {
-                return Err("音频转码输出过大");
-            }
-            Ok(bytes)
-        };
-        let wait = async { child.wait().await.map_err(|_| "音频转码进程失败") };
-        let (_, bytes, status) = tokio::try_join!(writer, reader, wait)?;
-        if !status.success() || bytes.is_empty() {
-            return Err("音频转码失败");
-        }
-        Ok(json!({"base64":BASE64_STANDARD.encode(bytes),"format":format,"mime_type":mime}))
-    };
-    tokio::time::timeout(Duration::from_secs(60), execution)
-        .await
-        .map_err(|_| "音频转码超时".to_string())?
-        .map_err(ToString::to_string)
+        ],
+    )
+    .await?;
+    Ok(json!({"base64":BASE64_STANDARD.encode(bytes),"format":format,"mime_type":mime}))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::process::Command;
     #[tokio::test]
     async fn invalid_transcoding_input_is_rejected_before_process() {
         for input in [

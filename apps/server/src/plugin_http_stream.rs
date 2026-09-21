@@ -35,17 +35,30 @@ impl ServerPluginHost {
         let status = response.status;
         let ok = (200..300).contains(&status);
         let headers = response.headers.clone();
-        if !ok {
+        let json_response = headers.get("content-type").is_some_and(|value| {
+            value
+                .split(';')
+                .next()
+                .is_some_and(|mime| mime.trim().ends_with("json"))
+        });
+        if !ok || json_response {
             let bytes = read_response_bounded(response).await?;
             let text = String::from_utf8_lossy(&bytes);
             let body =
                 serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::String(text.to_string()));
+            if ok {
+                if !body.is_object() {
+                    return Err("上游 JSON 响应不是有效对象".into());
+                }
+                events.send(body).await.map_err(|_| "请求已取消")?;
+                return Ok(json!({"status":status,"ok":true,"headers":headers}));
+            }
             return Ok(
                 json!({"status":status,"ok":false,"headers":headers,"body":body,"body_text":text}),
             );
         }
         let mut stream = response.body;
-        let mut decoder = crate::sse_decoder::Decoder::new(8 * 1024 * 1024);
+        let mut decoder = crate::sse_decoder::Decoder::new(MAX_FILE_BYTES as usize);
         loop {
             let chunk = tokio::select! {
                 _ = events.closed() => return Err("请求已取消".into()),

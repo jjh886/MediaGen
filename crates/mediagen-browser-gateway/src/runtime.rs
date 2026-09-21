@@ -303,7 +303,7 @@ fn resolve_cloakbrowser_path(
 
     first_existing_browser_binary(candidate_paths()).ok_or_else(|| {
         BrowserGatewayError::BrowserRuntimeUnavailable(
-            "未检测到 CloakBrowser，请安装后设置 CLOAK_BROWSER_PATH".to_string(),
+            "未检测到 CloakBrowser；源码运行请在项目根目录执行 node scripts/ensure-cloakbrowser-runtime.mjs，或将 CLOAK_BROWSER_PATH 设置为浏览器可执行文件或运行时目录".to_string(),
         )
     })
 }
@@ -311,7 +311,7 @@ fn resolve_cloakbrowser_path(
 fn candidate_paths() -> Vec<PathBuf> {
     let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut bundled = env_bundle_candidate_paths();
-    bundled.extend(bundled_cloakbrowser_candidates(&root));
+    bundled.extend(local_bundle_candidate_paths(&root));
     if cfg!(target_os = "macos") {
         bundled.extend([
             "/Applications/CloakBrowser.app/Contents/MacOS/CloakBrowser".into(),
@@ -335,6 +335,15 @@ fn candidate_paths() -> Vec<PathBuf> {
     ]);
     bundled.extend(cache_candidate_paths());
     bundled
+}
+
+fn local_bundle_candidate_paths(root: &Path) -> Vec<PathBuf> {
+    let mut candidates = bundled_cloakbrowser_candidates(root);
+    // 源码开发复用安装脚本的默认输出；安装目录中的运行时仍然优先。
+    candidates.extend(bundled_cloakbrowser_candidates(
+        &root.join("dist-local/MediaGen-local"),
+    ));
+    candidates
 }
 
 fn env_bundle_candidate_paths() -> Vec<PathBuf> {
@@ -436,7 +445,34 @@ fn path_exists(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{browser_launch_url, parse_runtime_port};
+    use super::{browser_launch_url, local_bundle_candidate_paths, parse_runtime_port};
+    use mediagen_core::{bundled_cloakbrowser_candidates, first_existing_browser_binary};
+
+    #[test]
+    fn local_bundle_resolution_reuses_packaged_runtime_and_prefers_install_directory() {
+        let root = std::env::temp_dir().join(format!("mediagen-runtime-{}", uuid::Uuid::new_v4()));
+        let installed = bundled_cloakbrowser_candidates(&root).remove(0);
+        let packaged =
+            bundled_cloakbrowser_candidates(&root.join("dist-local/MediaGen-local")).remove(0);
+        let resolve = || first_existing_browser_binary(local_bundle_candidate_paths(&root));
+        assert_eq!(resolve(), None);
+
+        std::fs::create_dir_all(packaged.parent().unwrap()).unwrap();
+        // 目录不能被误认为浏览器可执行文件。
+        std::fs::create_dir(&packaged).unwrap();
+        let directory_result = resolve();
+        std::fs::remove_dir(&packaged).unwrap();
+        std::fs::write(&packaged, b"").unwrap();
+        let packaged_result = resolve();
+        std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+        std::fs::write(&installed, b"").unwrap();
+        let installed_result = resolve();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert_eq!(directory_result, None);
+        assert_eq!(packaged_result, Some(packaged));
+        assert_eq!(installed_result, Some(installed));
+    }
 
     #[test]
     fn browser_starts_blank_before_cdp_guards_are_ready() {

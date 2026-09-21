@@ -1,10 +1,9 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use mediagen_core::TaskKind;
 use serde_json::Value;
-use uuid::Uuid;
 
 use crate::access_control::hash_secret;
-use crate::image_api_response::{new_image_task, openai_error, openai_image_stream};
+use crate::image_api_response::{new_image_task, openai_error};
 use crate::image_assets::cleanup_temp_files;
 use crate::image_flow_execution::{execute_image_flow, prepare_flow_request};
 use crate::image_multipart::parse_image_request;
@@ -50,8 +49,9 @@ async fn handle_json_image(
         return openai_error(401, "authentication_error", "invalid api key");
     }
     let caller_key = api_key_from_request(&request);
+    let request_id = crate::request_identity::id(&request);
     body.apply_endpoint_defaults(endpoint);
-    handle_image_request(state, body, endpoint, caller_key).await
+    handle_image_request(state, body, endpoint, caller_key, request_id).await
 }
 
 async fn handle_payload_image(
@@ -64,12 +64,13 @@ async fn handle_payload_image(
         return openai_error(401, "authentication_error", "invalid api key");
     }
     let caller_key = api_key_from_request(&request);
+    let request_id = crate::request_identity::id(&request);
     let mut body = match parse_image_request(request, payload).await {
         Ok(body) => body,
         Err((status, code, message)) => return openai_error(status, code, &message),
     };
     body.apply_endpoint_defaults(endpoint);
-    handle_image_request(state, body, endpoint, caller_key).await
+    handle_image_request(state, body, endpoint, caller_key, request_id).await
 }
 
 async fn handle_image_request(
@@ -77,6 +78,7 @@ async fn handle_image_request(
     mut body: OpenAiImageRequest,
     endpoint: ImageEndpoint,
     caller_key: Option<String>,
+    request_id: String,
 ) -> HttpResponse {
     let owner_hash = caller_key.as_deref().map(hash_secret).unwrap_or_default();
     if let Err((status, code, message)) =
@@ -87,6 +89,21 @@ async fn handle_image_request(
     }
     if let Err((status, code, message)) = body.validate(endpoint) {
         return openai_error(status, code, &message);
+    }
+    if let Some((manifest, model)) = state.plugin_loader.resolve_model(&body.model) {
+        if let Err(message) = crate::image_parameters::validate(
+            &body,
+            endpoint,
+            &crate::image_parameters::model_limits(
+                manifest
+                    .extra
+                    .get("image_capabilities")
+                    .unwrap_or(&Value::Null),
+                model.extra.get("capabilities").unwrap_or(&Value::Null),
+            ),
+        ) {
+            return openai_error(400, "unsupported_parameter", &message);
+        }
     }
     if body.async_generation {
         if endpoint != ImageEndpoint::Generation {
@@ -101,15 +118,22 @@ async fn handle_image_request(
         };
         return crate::generation_queue::enqueue_image(state, caller_key, body).await;
     }
-    let stream = body.stream == Some(true);
-    match run_image_flow(state, body, endpoint, caller_key).await {
-        Ok(response_body) => {
-            if stream {
-                openai_image_stream(response_body, endpoint)
-            } else {
-                HttpResponse::Ok().json(response_body)
-            }
+    if body.stream == Some(true) {
+        if let Err((status, code, message)) = resolve_image_flow_context_with_task_id(
+            &state,
+            &body,
+            caller_key.as_deref(),
+            request_id.clone(),
+        ) {
+            return openai_error(status, code, &message);
         }
+        return crate::image_stream::response(
+            endpoint,
+            run_image_flow(state, body, endpoint, caller_key, request_id),
+        );
+    }
+    match run_image_flow(state, body, endpoint, caller_key, request_id).await {
+        Ok(response_body) => HttpResponse::Ok().json(response_body),
         Err((status, code, message)) => openai_error(status, code, &message),
     }
 }
@@ -132,6 +156,10 @@ pub(crate) async fn run_queued_image_flow(
         state.store.start_task(task_id);
         Ok(context)
     })?;
+    let _execution_guard = ImageExecutionGuard {
+        store: state.store.clone(),
+        task_id: context.task_id.clone(),
+    };
     state
         .store
         .add_task_event(task_id, "info", "任务开始执行".to_string());
@@ -145,11 +173,29 @@ pub(crate) async fn run_queued_image_flow(
     .await
 }
 
+struct ImageExecutionGuard {
+    store: std::sync::Arc<crate::store::AppStore>,
+    task_id: String,
+}
+
+impl Drop for ImageExecutionGuard {
+    fn drop(&mut self) {
+        if self
+            .store
+            .task_by_id(&self.task_id)
+            .is_some_and(|task| matches!(task.status.as_str(), "queued" | "processing"))
+        {
+            self.store.cancel_task(&self.task_id);
+        }
+    }
+}
+
 async fn run_image_flow(
     state: web::Data<ServerState>,
     body: OpenAiImageRequest,
     endpoint: ImageEndpoint,
     caller_key: Option<String>,
+    request_id: String,
 ) -> Result<Value, (u16, &'static str, String)> {
     let settings = state.store.settings();
     let reservation = state
@@ -157,7 +203,12 @@ async fn run_image_flow(
         .reserve(&settings)
         .map_err(|message| (429, "queue_full", message))?;
     let context = state.store.with_account_dispatch(|| {
-        let context = resolve_image_flow_context(&state, &body, caller_key.as_deref())?;
+        let context = resolve_image_flow_context_with_task_id(
+            &state,
+            &body,
+            caller_key.as_deref(),
+            request_id.clone(),
+        )?;
         state.store.insert_task(new_image_task(
             &context.task_id,
             context.manifest,
@@ -167,6 +218,10 @@ async fn run_image_flow(
         ));
         Ok(context)
     })?;
+    let _execution_guard = ImageExecutionGuard {
+        store: state.store.clone(),
+        task_id: context.task_id.clone(),
+    };
     state
         .store
         .add_task_event(&context.task_id, "info", "任务进入队列".to_string());
@@ -195,9 +250,19 @@ async fn run_image_attempts(
         match run_single_image_attempt(state, &body, endpoint, &context).await {
             Ok(result) => {
                 ensure_task_not_cancelled(state, &context.task_id)?;
-                return complete_attempt_success(state, &context, result).await;
+                return complete_attempt_success(state, &context, &body, result).await;
             }
             Err(message) => {
+                if message.contains("invalid_input:") {
+                    state
+                        .store
+                        .fail_task(&context.task_id, "输入参数或参考素材无效".into());
+                    return Err((
+                        400,
+                        "invalid_request_error",
+                        "输入参数或参考素材无效".into(),
+                    ));
+                }
                 if let Some(response) = handle_attempt_failure(
                     state,
                     &mut context,
@@ -224,7 +289,7 @@ async fn run_single_image_attempt(
     context: &MediaFlowContext<'_>,
 ) -> Result<Value, String> {
     let (mut flow_request, ref_image_locals) =
-        prepare_flow_request(body, context.model, endpoint, &context.account.proxy_url).await;
+        prepare_flow_request(body, context.model, endpoint, &context.account.proxy_url).await?;
     flow_request.task_id = Some(context.task_id.clone());
     let result = execute_image_flow(state, context.manifest, &context.account, flow_request).await;
     cleanup_temp_files(&ref_image_locals).await;
@@ -234,6 +299,7 @@ async fn run_single_image_attempt(
 async fn complete_attempt_success(
     state: &web::Data<ServerState>,
     context: &MediaFlowContext<'_>,
+    body: &OpenAiImageRequest,
     result: Value,
 ) -> Result<Value, (u16, &'static str, String)> {
     ensure_task_not_cancelled(state, &context.task_id)?;
@@ -248,20 +314,14 @@ async fn complete_attempt_success(
         ),
         Some(context.task_id.clone()),
     );
-    complete_image_task(state, &context.task_id, &context.account.proxy_url, result).await
-}
-
-fn resolve_image_flow_context<'a>(
-    state: &'a web::Data<ServerState>,
-    body: &OpenAiImageRequest,
-    caller_key: Option<&str>,
-) -> Result<MediaFlowContext<'a>, (u16, &'static str, String)> {
-    resolve_image_flow_context_with_task_id(
+    complete_image_task(
         state,
+        &context.task_id,
+        &context.account.proxy_url,
         body,
-        caller_key,
-        format!("task-{}", Uuid::new_v4()),
+        result,
     )
+    .await
 }
 
 fn resolve_image_flow_context_with_task_id<'a>(

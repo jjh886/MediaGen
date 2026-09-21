@@ -161,3 +161,41 @@ fn test_state(name: &str) -> ServerState {
     std::fs::create_dir_all(&root).unwrap();
     server_state(root, PluginLoader::empty())
 }
+
+#[actix_web::test]
+async fn file_list_pagination_filters_and_errors_follow_openai_shape() {
+    let state = test_state("openai-file-pagination");
+    state.store.update_settings(SettingsUpdate {
+        api_keys: Some("file-key=default".into()),
+        ..SettingsUpdate::default()
+    });
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::new(state))
+            .configure(crate::configure_routes),
+    )
+    .await;
+    for _ in 0..2 {
+        let response = actix_test::call_service(&app, upload_request!()).await;
+        assert!(response.status().is_success());
+    }
+    let response = actix_test::call_service(&app, auth_get!("/v1/files?limit=1&order=asc")).await;
+    let first: serde_json::Value = actix_test::read_body_json(response).await;
+    assert_eq!(first["data"].as_array().unwrap().len(), 1);
+    assert_eq!(first["has_more"], true);
+    let path = format!(
+        "/v1/files?limit=1&order=asc&after={}",
+        first["last_id"].as_str().unwrap()
+    );
+    let response = actix_test::call_service(&app, auth_get!(&path)).await;
+    let second: serde_json::Value = actix_test::read_body_json(response).await;
+    assert_eq!(second["has_more"], false);
+    assert_ne!(first["last_id"], second["last_id"]);
+    let response = actix_test::call_service(&app, auth_get!("/v1/files?purpose=batch")).await;
+    let empty: serde_json::Value = actix_test::read_body_json(response).await;
+    assert_eq!(empty["data"].as_array().unwrap().len(), 0);
+    let response = actix_test::call_service(&app, auth_get!("/v1/files?limit=0")).await;
+    assert_eq!(response.status(), 400);
+    let error: serde_json::Value = actix_test::read_body_json(response).await;
+    assert!(error["error"].get("param").is_some());
+}

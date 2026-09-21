@@ -29,6 +29,8 @@ function main(ctx) {
       height: dimensions.height,
       revised_prompt: result.revised_prompt || null,
       usage: result.usage || null,
+      quality: result.quality || null,
+      background: result.background || null,
     })
     codexImageCheckpoint({ phase: 'ready', images })
   }
@@ -39,8 +41,37 @@ function main(ctx) {
     source: 'codex',
     imageCount: images.length,
     partial_images: partialImages,
+    quality: images[0]?.quality,
+    background: images[0]?.background,
+    usage: codexImageUsage(images),
     images,
   }
+}
+
+// 只汇总上游明确提供的图片用量；不能把 Responses 文本 token 伪装成图片用量。
+function codexImageUsage(images) {
+  const usage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    input_tokens_details: { image_tokens: 0, text_tokens: 0 },
+  }
+  for (const image of images) {
+    const value = image.usage
+    for (const key of ['input_tokens', 'output_tokens', 'total_tokens']) {
+      if (!Number.isFinite(value?.[key]) || value[key] < 0) return undefined
+      usage[key] += value[key]
+    }
+    for (const key of ['image_tokens', 'text_tokens']) {
+      if (
+        !Number.isFinite(value?.input_tokens_details?.[key]) ||
+        value.input_tokens_details[key] < 0
+      )
+        return undefined
+      usage.input_tokens_details[key] += value.input_tokens_details[key]
+    }
+  }
+  return images.length ? usage : undefined
 }
 
 function buildRequest(ctx) {
@@ -185,6 +216,7 @@ function requestImage(accessToken, accountId, payload) {
 
 function requestImageStream(headers, url, payload) {
   const result = newImageResult()
+  const options = payload.tools?.find((tool) => tool.type === 'image_generation') || payload
   const types = []
   const sse = host.stream(
     'http.sse_request',
@@ -212,7 +244,18 @@ function requestImageStream(headers, url, payload) {
         if (!saved.pending_image?.image)
           codexImageCheckpoint({ ...saved, phase: 'image_ready', pending_image: result })
       }
-      // 图片 Base64 已进入 result，不能让 host.stream 再复制并转发一次。
+      if (String(event.type || '').endsWith('.partial_image')) {
+        return {
+          type: 'image.partial',
+          b64_json: event.b64_json || event.partial_image_b64,
+          partial_image_index: event.partial_image_index || 0,
+          created_at: event.created_at || Math.floor(Date.now() / 1000),
+          background: event.background || options.background || 'auto',
+          quality: event.quality || options.quality || 'auto',
+          size: event.size || options.size || 'auto',
+          output_format: event.output_format || options.output_format || 'png',
+        }
+      }
       return null
     }
   )

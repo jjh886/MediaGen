@@ -226,3 +226,76 @@ test('文本图片输入保留图片并要求真实上传，不能静默丢弃',
   assert.equal(input[0].images[0], 'https://example.test/image.png')
   assert.throws(() => ctx.chatgptApiUploadTextImages({}, { input }), /data URL/)
 })
+
+test('Codex 实时通道转换路由字段时保留原始请求', () => {
+  const ctx = context('codex', ['realtime.js'])
+  const request = { sdp: 'v=0', session: { model: 'gpt-live-1', instructions: 'hello' } }
+  const upstream = ctx.codexRealtimeRequest(request)
+  assert.equal(upstream.session.model, undefined)
+  assert.equal(upstream.session.type, 'quicksilver')
+  assert.equal(upstream.session.instructions, 'hello')
+  assert.equal(request.session.model, 'gpt-live-1')
+})
+
+test('模型目录只公布网页文本通道可执行的模型', () => {
+  const ctx = context('chatgpt-api', ['conversation.js', 'list_models.js'])
+  ctx.chatgptApiRefreshSession = (value) => value
+  ctx.chatgptApiReadAuth = () => ({})
+  ctx.chatgptApiRequest = () => ({
+    body: {
+      models: [{ slug: 'gpt-5-6-instant' }, { slug: 'gpt-6-astra-wm' }, { slug: 'research' }],
+    },
+  })
+  ctx.chatgptApiRequireOk = (value) => value
+  const models = ctx.main({}).models
+  assert.deepEqual(
+    Array.from(models, (item) => item.model_id),
+    ['gpt-5-6-instant']
+  )
+})
+
+test('图片用量只汇总完整的图片 token，缺失时不能编造', () => {
+  const ctx = context('codex', ['generate_image.js'])
+  const item = {
+    usage: {
+      input_tokens: 3,
+      output_tokens: 4,
+      total_tokens: 7,
+      input_tokens_details: { image_tokens: 1, text_tokens: 2 },
+    },
+  }
+  assert.equal(ctx.codexImageUsage([item, item]).total_tokens, 14)
+  assert.equal(ctx.codexImageUsage([{}]), undefined)
+  assert.equal(
+    ctx.codexImageUsage([
+      {
+        usage: {
+          input_tokens: 3,
+          output_tokens: 4,
+          total_tokens: 7,
+          input_tokens_details: { cached_tokens: 0 },
+        },
+      },
+    ]),
+    undefined
+  )
+})
+
+test('模型家族目录包含可路由的关闭思考与思考档位', () => {
+  const ctx = context('chatgpt-api', ['conversation.js'])
+  const models = [
+    { slug: 'gpt-5-6', thinking_efforts: [] },
+    { slug: 'gpt-5-6-instant' },
+    {
+      slug: 'gpt-5-6-thinking',
+      thinking_efforts: ['standard', 'extended'],
+      default_thinking_effort: 'standard',
+    },
+  ]
+  assert.deepEqual(Array.from(ctx.chatgptApiDiscoveredReasoning(models[0], models).efforts), [
+    'none',
+    'standard',
+    'extended',
+  ])
+  assert.equal(ctx.chatgptApiModelSelection('gpt-5-6', 'none', models, {}).model, 'gpt-5-6-instant')
+})

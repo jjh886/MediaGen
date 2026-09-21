@@ -34,6 +34,7 @@ pub struct ImageFlowRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OpenAiImageRequest {
     #[serde(default)]
     pub model: String,
@@ -119,8 +120,22 @@ impl OpenAiImageRequest {
     }
 
     pub fn validate(&self, endpoint: ImageEndpoint) -> Result<(), (u16, &'static str, String)> {
+        self.output_dimensions()
+            .map_err(|message| (400, "invalid_request_error", message))?;
         if self.model.trim().is_empty() {
             return request_error("model 不能为空");
+        }
+        if self.n.is_some_and(|n| !(1..=4).contains(&n)) {
+            return request_error("n 必须在 1 到 4 之间");
+        }
+        if self.output_compression.is_some() && self.output_format() == "png" {
+            return request_error("output_compression 只适用于 jpeg 和 webp");
+        }
+        if self.background() == "transparent" && self.output_format() == "jpeg" {
+            return request_error("透明背景只支持 png 和 webp");
+        }
+        if self.partial_images.is_some_and(|n| n > 0) && self.stream != Some(true) {
+            return request_error("partial_images 需要 stream=true");
         }
         if self.prompt_text().trim().is_empty() {
             return request_error("prompt 不能为空");
@@ -147,7 +162,7 @@ impl OpenAiImageRequest {
         validate_choice(
             "quality",
             &self.quality(),
-            &["auto", "low", "medium", "high"],
+            &["auto", "low", "medium", "high", "xhigh", "max"],
         )?;
         validate_choice(
             "background",
@@ -282,6 +297,26 @@ impl OpenAiImageRequest {
         self.size.clone().unwrap_or_else(|| "auto".to_string())
     }
 
+    pub(crate) fn output_dimensions(&self) -> Result<Option<(u32, u32)>, String> {
+        let size = self.size.as_deref().unwrap_or("auto");
+        if size == "auto" {
+            return Ok(None);
+        }
+        let dimensions = size
+            .split_once('x')
+            .and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)));
+        dimensions
+            .filter(|(w, h)| {
+                *w > 0
+                    && *h > 0
+                    && *w <= 8192
+                    && *h <= 8192
+                    && u64::from(*w) * u64::from(*h) <= 32 * 1024 * 1024
+            })
+            .map(Some)
+            .ok_or_else(|| "size 必须是 auto 或有效的 宽x高，且不超过 3200 万像素".into())
+    }
+
     fn image_aspect_ratio(&self) -> String {
         if let Some(value) = self
             .image_aspect_ratio
@@ -292,10 +327,10 @@ impl OpenAiImageRequest {
         }
         match self.requested_size().as_str() {
             "auto" => "auto",
-            "1536x1024" => "16:9",
-            "1024x1536" => "9:16",
+            "1536x1024" => "3:2",
+            "1024x1536" => "2:3",
             "1024x1024" => "1:1",
-            _ => "9:16",
+            _ => "auto",
         }
         .to_string()
     }

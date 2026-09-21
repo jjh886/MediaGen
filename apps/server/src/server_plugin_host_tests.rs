@@ -347,3 +347,108 @@ async fn file_primitives_validate_sizes_and_real_image_headers() {
     );
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// 手动真实账号诊断：只读账号快照，不创建服务、不写业务存储；结果写入调用者指定的私有文件。
+#[tokio::test]
+#[ignore = "需要显式提供真实账号诊断配置"]
+async fn live_plugin_diagnostic() {
+    use serde_json::Value;
+    use std::path::{Path, PathBuf};
+    let path = std::env::var("MEDIAGEN_LIVE_PROBE").expect("缺少诊断配置");
+    let config: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let root = PathBuf::from(config["root"].as_str().unwrap());
+    let snapshot =
+        crate::store_persistence::read_store_snapshot(&root.join("data/mediagen.sqlite"));
+    let account = snapshot
+        .accounts
+        .into_iter()
+        .find(|account| account.id == config["account_id"])
+        .unwrap();
+    let loader = mediagen_plugin_runtime::PluginLoader::load_from(&root.join("plugins")).unwrap();
+    let manifest = loader.get_plugin(&account.platform).unwrap();
+    let step = &manifest.flows[config["flow"].as_str().unwrap()].steps[0];
+    let references = step["script_files"]
+        .as_array()
+        .map(|files| {
+            files
+                .iter()
+                .map(|file| file.as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|| vec![step["script_file"].as_str().unwrap().into()]);
+    let directory = loader.get_plugin_dir(&account.platform).unwrap();
+    let mut script = crate::plugin_scripts::read_plugin_scripts(directory, &references).unwrap();
+    if let Some(path) = config["inspect_script"].as_str() {
+        script.push_str(&std::fs::read_to_string(path).unwrap());
+    }
+    let cipher = std::sync::Arc::new(
+        crate::generation_queue::CredentialCipher::new(&root.join("data")).unwrap(),
+    );
+    let id = format!("diagnostic-{}", uuid::Uuid::new_v4());
+    let host = ServerPluginHost::new_for_account(&account)
+        .with_storage(cipher, &account.profile_dir, manifest)
+        .with_http_profile(manifest)
+        .with_events(None, id.clone());
+    // 复测长任务时恢复已有检查点，避免再次提交并消耗上游额度。
+    if let Some(model) = config["resume_model"].as_str() {
+        let mut files = std::fs::read_dir(Path::new(&account.profile_dir).join("checkpoints"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect::<Vec<_>>();
+        files.sort_by_key(|entry| std::cmp::Reverse(entry.metadata().unwrap().modified().unwrap()));
+        let mut resumed = false;
+        for file in files {
+            let value = host.read_json(&json!({"path":file.path()})).await.unwrap();
+            if value["model"] == model && value["conversation_id"].is_string() {
+                host.checkpoint(&json!({"value":value})).await.unwrap();
+                resumed = true;
+                break;
+            }
+        }
+        assert!(resumed, "没有可恢复的检查点，拒绝重复提交");
+    }
+    let context = json!({"account":account,"account_id":account.id,"profile_dir":account.profile_dir,"scripts_dir":directory.join("scripts"),"request":config["request"],"request_id":id,"task_id":id,"platform_config":snapshot.settings.platform_generation_config(&account.platform)});
+    let result = mediagen_plugin_runtime::run_js_step(script, context, host).await;
+    let output = match result {
+        Ok(value) => json!({"ok":true,"result":value}),
+        Err(message) => json!({"ok":false,"message":message}),
+    };
+    crate::account_login_credentials::write_private_file(
+        Path::new(config["output"].as_str().unwrap()),
+        output.to_string().as_bytes(),
+    )
+    .await
+    .unwrap();
+    println!("diagnostic completed: success={}", output["ok"]);
+}
+
+#[tokio::test]
+async fn streaming_transport_delivers_json_fallback_to_plugin() {
+    use mediagen_plugin_runtime::PluginHost;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = [0u8; 4096];
+        assert!(socket.read(&mut request).await.unwrap() > 0);
+        let body = r#"{"created":123,"data":[{"b64_json":"encoded-image"}]}"#;
+        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+    let host = ServerPluginHost::new_with_metadata(String::new(), &Default::default());
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    let response = host
+        .stream(
+            "http.sse_request",
+            &json!({"url":format!("http://{address}"),"proxy":"direct"}),
+            sender,
+        )
+        .await;
+    assert!(response.success);
+    assert_eq!(
+        receiver.recv().await.unwrap()["data"][0]["b64_json"],
+        "encoded-image"
+    );
+    server.await.unwrap();
+}

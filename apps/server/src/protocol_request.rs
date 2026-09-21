@@ -4,6 +4,102 @@ pub(crate) fn validate_request(body: &Value, endpoint: &str) -> Result<(), Strin
     if !body.is_object() {
         return Err("请求体必须是 JSON 对象".into());
     }
+    let fields: &[&str] = match endpoint {
+        "speech" => &[
+            "model",
+            "input",
+            "voice",
+            "response_format",
+            "speed",
+            "instructions",
+            "stream_format",
+            "stream",
+        ],
+        "chat" => &[
+            "model",
+            "messages",
+            "audio",
+            "frequency_penalty",
+            "function_call",
+            "functions",
+            "logit_bias",
+            "logprobs",
+            "max_completion_tokens",
+            "max_tokens",
+            "metadata",
+            "modalities",
+            "n",
+            "parallel_tool_calls",
+            "prediction",
+            "presence_penalty",
+            "prompt_cache_key",
+            "prompt_cache_retention",
+            "reasoning_effort",
+            "response_format",
+            "safety_identifier",
+            "seed",
+            "service_tier",
+            "stop",
+            "store",
+            "stream",
+            "stream_options",
+            "temperature",
+            "tool_choice",
+            "tools",
+            "top_logprobs",
+            "top_p",
+            "user",
+            "verbosity",
+            "web_search_options",
+        ],
+        "compact" => &[
+            "model",
+            "input",
+            "instructions",
+            "previous_response_id",
+            "reasoning",
+        ],
+        _ => &[
+            "model",
+            "input",
+            "instructions",
+            "background",
+            "context_management",
+            "conversation",
+            "include",
+            "max_output_tokens",
+            "max_tool_calls",
+            "metadata",
+            "parallel_tool_calls",
+            "previous_response_id",
+            "prompt",
+            "prompt_cache_key",
+            "prompt_cache_retention",
+            "reasoning",
+            "safety_identifier",
+            "service_tier",
+            "store",
+            "stream",
+            "stream_options",
+            "temperature",
+            "text",
+            "tool_choice",
+            "tools",
+            "top_logprobs",
+            "top_p",
+            "truncation",
+            "user",
+            "options",
+        ],
+    };
+    if let Some(key) = body
+        .as_object()
+        .unwrap()
+        .keys()
+        .find(|key| !fields.contains(&key.as_str()))
+    {
+        return Err(format!("不支持参数 {key}"));
+    }
     if body["model"]
         .as_str()
         .is_none_or(|value| value.trim().is_empty())
@@ -11,7 +107,10 @@ pub(crate) fn validate_request(body: &Value, endpoint: &str) -> Result<(), Strin
         return Err("model 必须是非空字符串".into());
     }
     for field in ["stream", "store", "background", "parallel_tool_calls"] {
-        if body.get(field).is_some_and(|value| !value.is_boolean()) {
+        if body
+            .get(field)
+            .is_some_and(|value| !value.is_null() && !value.is_boolean())
+        {
             return Err(format!("{field} 必须是布尔值"));
         }
     }
@@ -61,6 +160,11 @@ pub(crate) fn validate_request(body: &Value, endpoint: &str) -> Result<(), Strin
             }
         }
         "chat" => {
+            if body["store"] == true {
+                return Err(
+                    "Chat Completions 暂不支持 store=true，请使用 Responses 保存和查询会话".into(),
+                );
+            }
             let messages = body["messages"].as_array().ok_or("messages 必须是数组")?;
             if messages.is_empty() {
                 return Err("messages 不能为空".into());
@@ -211,6 +315,18 @@ pub(crate) fn chat_usage(usage: &Value) -> Value {
 }
 
 pub(crate) fn validate_capabilities(body: &Value, capabilities: &Value) -> Result<(), String> {
+    if let Some(speed) = body.get("speed").filter(|v| !v.is_null()) {
+        let speed = speed.as_f64().ok_or("speed 必须是数字")?;
+        if capabilities["speed"]["minimum"]
+            .as_f64()
+            .is_some_and(|min| speed < min)
+            || capabilities["speed"]["maximum"]
+                .as_f64()
+                .is_some_and(|max| speed > max)
+        {
+            return Err("当前模型不支持此 speed".into());
+        }
+    }
     if let Some(effort) = body["reasoning"]["effort"].as_str() {
         if capabilities["reasoning"]["efforts"]
             .as_array()
@@ -283,6 +399,7 @@ mod tests {
     #[test]
     fn rejects_invalid_scalar_types_and_metadata_without_silent_coercion() {
         for (field, value) in [
+            ("unknown", json!(true)),
             ("stream", json!("true")),
             ("store", json!(1)),
             ("background", json!(true)),
@@ -310,8 +427,10 @@ mod tests {
     }
     #[test]
     fn capability_validation_checks_actual_account_modalities_efforts_and_formats() {
-        let capabilities = json!({"input_modalities":["text","image"],"image_sources":["data_url","file_id"],"reasoning":{"efforts":["low","high"]},"tool_calling":false,"streaming":false,"voices":["voice"],"response_formats":["wav"],"unsupported_parameters":["temperature"]});
+        let capabilities = json!({"input_modalities":["text","image"],"image_sources":["data_url","file_id"],"reasoning":{"efforts":["low","high"]},"tool_calling":false,"streaming":false,"voices":["voice"],"response_formats":["wav"],"unsupported_parameters":["temperature"],"speed":{"minimum":1,"maximum":1}});
         for request in [
+            json!({"speed":2}),
+            json!({"speed":"1"}),
             json!({"reasoning":{"effort":"ultra"}}),
             json!({"tools":[{"type":"function","name":"f"}]}),
             json!({"stream":true}),

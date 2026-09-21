@@ -31,12 +31,16 @@ mod image_assets;
 mod image_file_refs;
 mod image_flow_execution;
 mod image_multipart;
+mod image_output;
+mod image_parameters;
 mod image_request;
+mod image_stream;
 mod image_task_completion;
 mod image_task_queue;
 mod js_flow_runner;
 mod media_execution;
 mod media_multipart;
+mod media_transcode;
 mod model_api;
 mod net_client;
 mod oauth_login;
@@ -270,6 +274,22 @@ fn configure_management_routes(cfg: &mut web::ServiceConfig) {
 }
 
 fn configure_openai_routes(cfg: &mut web::ServiceConfig) {
+    cfg.app_data(
+        web::JsonConfig::default()
+            .limit(50 * 1024 * 1024)
+            .error_handler(|error, request| {
+                if !request.path().starts_with("/v1/") {
+                    return error.into();
+                }
+                let status = actix_web::ResponseError::status_code(&error).as_u16();
+                let response = protocol_api::error(
+                    status,
+                    "invalid_request_error",
+                    "请求 JSON 无效、参数类型错误或请求体超出限制",
+                );
+                actix_web::error::InternalError::from_response(error, response).into()
+            }),
+    );
     cfg.route(
         "/v1/responses/compact",
         web::post().to(protocol_api::compact),

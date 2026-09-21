@@ -16,10 +16,17 @@ pub(crate) async fn prepare_flow_request(
     model: &ModelDef,
     endpoint: ImageEndpoint,
     proxy_url: &str,
-) -> (ImageFlowRequest, Vec<String>) {
+) -> Result<(ImageFlowRequest, Vec<String>), String> {
     let ref_urls = body.reference_urls();
     let ref_dataurls = fetch_ref_images_as_data_urls(&ref_urls, proxy_url).await;
+    if ref_dataurls.len() != ref_urls.len() {
+        return Err("invalid_input: 无法读取参考图片".into());
+    }
     let ref_image_locals = fetch_ref_images_as_local_files(&ref_urls, proxy_url).await;
+    if ref_image_locals.len() != ref_urls.len() {
+        crate::image_assets::cleanup_temp_files(&ref_image_locals).await;
+        return Err("invalid_input: 无法读取参考图片".into());
+    }
     let mask_dataurl = fetch_optional_data_url(
         body.mask
             .as_ref()
@@ -27,6 +34,10 @@ pub(crate) async fn prepare_flow_request(
         proxy_url,
     )
     .await;
+    if body.mask.is_some() && mask_dataurl.is_none() {
+        crate::image_assets::cleanup_temp_files(&ref_image_locals).await;
+        return Err("invalid_input: 无法读取蒙版图片".into());
+    }
     let mut flow_request = body.to_flow_request(
         model.display_name.clone(),
         endpoint,
@@ -34,7 +45,7 @@ pub(crate) async fn prepare_flow_request(
         mask_dataurl,
     );
     flow_request.ref_image_locals = ref_image_locals.clone();
-    (flow_request, ref_image_locals)
+    Ok((flow_request, ref_image_locals))
 }
 
 /// Rust 只选择通用执行器，具体平台步骤仍全部来自插件 manifest。

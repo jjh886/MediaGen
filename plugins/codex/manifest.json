@@ -12,7 +12,12 @@
       "display_name": "codex",
       "task_kind": "image",
       "aliases": ["gpt-image-2"],
-      "alias_priority": 40
+      "alias_priority": 40,
+      "capabilities": {
+        "parameter_values": {
+          "quality": ["auto", "low", "medium", "high"]
+        }
+      }
     },
     {
       "model_id": "gpt-6-astra",
@@ -301,7 +306,10 @@
         "input_modalities": ["text", "image"],
         "output_modalities": ["image"],
         "endpoints": ["/v1/images/generations", "/v1/images/edits"],
-        "response_formats": ["png", "jpeg", "webp"]
+        "response_formats": ["png", "jpeg", "webp"],
+        "parameter_values": {
+          "quality": ["auto", "low", "medium", "high"]
+        }
       }
     },
     {
@@ -317,7 +325,10 @@
         "input_modalities": ["text", "image"],
         "output_modalities": ["image"],
         "endpoints": ["/v1/images/generations", "/v1/images/edits"],
-        "response_formats": ["png", "jpeg", "webp"]
+        "response_formats": ["png", "jpeg", "webp"],
+        "parameter_values": {
+          "quality": ["auto", "low", "medium", "high"]
+        }
       }
     },
     {
@@ -333,7 +344,10 @@
         "input_modalities": ["text", "image"],
         "output_modalities": ["image"],
         "endpoints": ["/v1/images/generations", "/v1/images/edits"],
-        "response_formats": ["png", "jpeg", "webp"]
+        "response_formats": ["png", "jpeg", "webp"],
+        "parameter_values": {
+          "quality": ["auto", "low", "medium", "high", "xhigh", "max"]
+        }
       }
     },
     {
@@ -349,7 +363,10 @@
         "input_modalities": ["text", "image"],
         "output_modalities": ["image"],
         "endpoints": ["/v1/images/generations", "/v1/images/edits"],
-        "response_formats": ["png", "jpeg", "webp"]
+        "response_formats": ["png", "jpeg", "webp"],
+        "parameter_values": {
+          "quality": ["auto", "low", "medium", "high", "xhigh", "max"]
+        }
       }
     },
     {
@@ -365,7 +382,10 @@
         "input_modalities": ["text", "image"],
         "output_modalities": ["image"],
         "endpoints": ["/v1/images/generations", "/v1/images/edits"],
-        "response_formats": ["png", "jpeg", "webp"]
+        "response_formats": ["png", "jpeg", "webp"],
+        "parameter_values": {
+          "quality": ["auto", "low", "medium", "high", "xhigh", "max"]
+        }
       }
     },
     {
@@ -381,7 +401,10 @@
         "input_modalities": ["text", "image"],
         "output_modalities": ["image"],
         "endpoints": ["/v1/images/generations", "/v1/images/edits"],
-        "response_formats": ["png", "jpeg", "webp"]
+        "response_formats": ["png", "jpeg", "webp"],
+        "parameter_values": {
+          "quality": ["auto", "low", "medium", "high", "xhigh", "max"]
+        }
       }
     }
   ],
@@ -404,7 +427,14 @@
     "supports_edit": true,
     "supports_mask": true,
     "max_reference_images": 16,
-    "supported_output_formats": ["png", "jpeg", "webp"]
+    "supported_output_formats": ["png", "jpeg", "webp"],
+    "supports_variation": false,
+    "streaming": true,
+    "partial_images": true,
+    "compression_formats": ["jpeg", "webp"],
+    "compression_requirements": {
+      "webp": ["ffmpeg"]
+    }
   },
   "failure_policy": [
     {

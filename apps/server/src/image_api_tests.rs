@@ -122,7 +122,7 @@ async fn async_generation_posts_callback_with_openai_image_data() {
     assert_eq!(callback["event"], "image_generation.completed");
     assert_eq!(callback["task_id"], task_id);
     assert_eq!(callback["status"], "completed");
-    assert_eq!(callback["data"]["data"][0]["b64_json"], "aGVsbG8=");
+    assert_eq!(callback["data"]["data"][0]["b64_json"], "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==");
 }
 
 #[actix_web::test]
@@ -374,7 +374,7 @@ fn failover_manifest() -> &'static str {
           "steps": [
             {
               "action": "plugin.run_js",
-              "script": "function main(ctx) { if (ctx.account_id === 'acc-primary') return { status: 'error', message: 'rate limit' }; return { images: [{ url: 'data:image/png;base64,aGVsbG8=' }] }; }",
+              "script": "function main(ctx) { if (ctx.account_id === 'acc-primary') return { status: 'error', message: 'rate limit' }; return { images: [{ url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==' }] }; }",
               "save_as": "result"
             }
           ]

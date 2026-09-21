@@ -310,7 +310,8 @@ fn catalog(state: &ServerState, key: &str) -> Vec<Value> {
         let variants = accounts.iter().filter(|account| account.platform == platform).filter_map(|account| {
             let entry = cache.get(&account.id)?;
             let model = entry.models.iter().find(|model| model.model_id == canonical)?;
-            Some(json!({"account_id":account.id,"capabilities":model.extra.get("capabilities"),"refreshed_at":entry.refreshed_at}))
+            let manifest = state.plugin_loader.get_plugin(&platform)?;
+            Some(json!({"account_id":account.id,"capabilities":model_capabilities(manifest, model),"refreshed_at":entry.refreshed_at}))
         }).collect::<Vec<_>>();
         if !variants.is_empty() {
             value["capabilities"] = merge_capabilities(
@@ -334,7 +335,10 @@ fn model_value(manifest: &PluginManifest, model: &ModelDef, id: &str) -> Value {
 }
 
 fn model_capabilities(manifest: &PluginManifest, model: &ModelDef) -> Value {
-    if let Some(value) = model.extra.get("capabilities") {
+    if let Some(value) = model.extra.get("capabilities").filter(|_| {
+        model.task_kind != mediagen_core::TaskKind::Image
+            && model.task_kind != mediagen_core::TaskKind::Video
+    }) {
         return value.clone();
     }
     let (kind, flow, endpoint) = match model.task_kind {
@@ -347,6 +351,10 @@ fn model_capabilities(manifest: &PluginManifest, model: &ModelDef) -> Value {
         .get(&format!("{kind}_capabilities"))
         .cloned()
         .unwrap_or(json!({}));
+    let limits = crate::image_parameters::model_limits(
+        &limits,
+        model.extra.get("capabilities").unwrap_or(&Value::Null),
+    );
     let mut endpoints = Vec::new();
     if manifest.flows.contains_key(flow) {
         endpoints.push(endpoint);
@@ -365,7 +373,19 @@ fn model_capabilities(manifest: &PluginManifest, model: &ModelDef) -> Value {
     } else {
         vec!["text"]
     };
-    json!({"input_modalities":modalities,"output_modalities":[kind],"endpoints":endpoints,"limits":limits,"input_schema":{"type":"object","required":["model","prompt"],"properties":{"model":{"type":"string"},"prompt":{"type":"string"},"size":{"type":"string"}}}})
+    let schema = if kind == "image" {
+        crate::image_parameters::schema(&limits)
+    } else {
+        json!({"type":"object","required":["model","prompt"],"properties":{"model":{"type":"string"},"prompt":{"type":"string"},"size":{"type":"string"}}})
+    };
+    let mut capabilities = json!({"input_modalities":modalities,"output_modalities":[kind],"endpoints":endpoints,"limits":limits,"streaming":kind=="image","input_schema":schema});
+    if let Some(declared) = model.extra.get("capabilities").and_then(Value::as_object) {
+        capabilities
+            .as_object_mut()
+            .unwrap()
+            .extend(declared.clone());
+    }
+    capabilities
 }
 
 /// 管理接口由统一管理鉴权中间件保护，不使用下游 API Key。

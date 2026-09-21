@@ -25,14 +25,9 @@ const CHATGPT_API_SPEECH_MIME_TYPES = {
 function chatgptApiGenerateSpeech(auth, input, requestedVoice, requestedFormat) {
   const voice = chatgptApiSpeechVoice(requestedVoice)
   const formats = chatgptApiSpeechFormat(requestedFormat)
-  const init = chatgptApiInitializeConversation(auth)
+  chatgptApiInitializeConversation(auth)
   const sentinelHeaders = chatgptApiSentinelHeaders(auth)
-  const prepared = chatgptApiPrepareSpeechConversation(
-    auth,
-    input,
-    String(init?.default_model_slug || 'auto'),
-    sentinelHeaders
-  )
+  const prepared = chatgptApiPrepareSpeechConversation(auth, input, 'auto', sentinelHeaders)
   const response = chatgptApiSendSpeechMessage(auth, input, prepared, sentinelHeaders)
   const ids = chatgptApiSpeechMessageIds(response.events, input)
   if (!ids.message_id || !ids.conversation_id) {

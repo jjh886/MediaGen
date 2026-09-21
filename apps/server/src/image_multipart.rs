@@ -78,7 +78,7 @@ async fn parse_multipart(mut multipart: Multipart) -> Result<OpenAiImageRequest,
             }
             continue;
         }
-        apply_text_field(&mut request, &name, &String::from_utf8_lossy(&bytes));
+        apply_text_field(&mut request, &name, &String::from_utf8_lossy(&bytes))?;
     }
     Ok(request)
 }
@@ -116,27 +116,46 @@ async fn read_field(field: &mut Field, total: &mut usize) -> Result<Bytes, Parse
     Ok(body.freeze())
 }
 
-fn apply_text_field(request: &mut OpenAiImageRequest, name: &str, value: &str) {
+fn apply_text_field(
+    request: &mut OpenAiImageRequest,
+    name: &str,
+    value: &str,
+) -> Result<(), ParseError> {
     let value = value.trim();
+    let invalid = || (400, "invalid_request_error", format!("{name} 参数无效"));
     match name {
         "model" => request.model = value.to_string(),
         "prompt" => request.prompt = Some(Value::String(value.to_string())),
-        "n" => request.n = value.parse().ok(),
+        "n" => request.n = Some(value.parse().map_err(|_| invalid())?),
         "size" => request.size = Some(value.to_string()),
         "quality" => request.quality = Some(value.to_string()),
         "response_format" => request.response_format = Some(value.to_string()),
         "output_format" => request.output_format = Some(value.to_string()),
         "background" => request.background = Some(value.to_string()),
-        "stream" => request.stream = Some(matches!(value, "true" | "1")),
-        "async" => request.async_generation = matches!(value, "true" | "1"),
-        "partial_images" => request.partial_images = value.parse().ok(),
-        "output_compression" => request.output_compression = value.parse().ok(),
+        "stream" | "async" => {
+            let enabled = match value {
+                "true" | "1" => true,
+                "false" | "0" => false,
+                _ => return Err(invalid()),
+            };
+            if name == "stream" {
+                request.stream = Some(enabled);
+            } else {
+                request.async_generation = enabled;
+            }
+        }
+        "partial_images" => request.partial_images = Some(value.parse().map_err(|_| invalid())?),
+        "output_compression" => {
+            request.output_compression = Some(value.parse().map_err(|_| invalid())?)
+        }
         "moderation" => request.moderation = Some(value.to_string()),
         "input_fidelity" => request.input_fidelity = Some(value.to_string()),
         "user" => request.user = Some(value.to_string()),
         "image_aspect_ratio" => request.image_aspect_ratio = Some(value.to_string()),
-        _ => {}
+        "callback_url" | "webhook_url" => request.callback_url = Some(value.to_string()),
+        _ => return Err((400, "unsupported_parameter", format!("不支持参数 {name}"))),
     }
+    Ok(())
 }
 
 pub(crate) fn field_name(field: &Field) -> String {
@@ -183,15 +202,17 @@ mod tests {
     #[test]
     fn text_fields_update_request_values() {
         let mut request = OpenAiImageRequest::empty();
-        apply_text_field(&mut request, "model", " gpt-image-1 ");
-        apply_text_field(&mut request, "prompt", " draw ");
-        apply_text_field(&mut request, "n", "2");
-        apply_text_field(&mut request, "stream", "1");
-        apply_text_field(&mut request, "async", "true");
-        apply_text_field(&mut request, "partial_images", "3");
-        apply_text_field(&mut request, "output_compression", "80");
-        apply_text_field(&mut request, "image_aspect_ratio", "16:9");
-        apply_text_field(&mut request, "unknown", "ignored");
+        apply_text_field(&mut request, "model", " gpt-image-1 ").unwrap();
+        apply_text_field(&mut request, "prompt", " draw ").unwrap();
+        apply_text_field(&mut request, "n", "2").unwrap();
+        apply_text_field(&mut request, "stream", "1").unwrap();
+        apply_text_field(&mut request, "async", "true").unwrap();
+        apply_text_field(&mut request, "partial_images", "3").unwrap();
+        apply_text_field(&mut request, "output_compression", "80").unwrap();
+        apply_text_field(&mut request, "image_aspect_ratio", "16:9").unwrap();
+        assert!(apply_text_field(&mut request, "unknown", "ignored").is_err());
+        assert!(apply_text_field(&mut request, "n", "invalid").is_err());
+        assert!(apply_text_field(&mut request, "stream", "invalid").is_err());
 
         assert_eq!(request.model, "gpt-image-1");
         assert_eq!(

@@ -88,6 +88,11 @@ pub(crate) fn new_image_task(
 }
 
 pub(crate) fn openai_error(status: u16, code: &'static str, message: &str) -> HttpResponse {
+    let message = if status >= 500 {
+        "上游媒体请求未成功完成，请通过请求标识检查任务"
+    } else {
+        message
+    };
     HttpResponse::build(
         actix_web::http::StatusCode::from_u16(status)
             .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR),
@@ -95,24 +100,35 @@ pub(crate) fn openai_error(status: u16, code: &'static str, message: &str) -> Ht
     .json(json!({
         "error": {
             "message": message,
-            "type": code,
+            "type": if status == 401 {"authentication_error"} else if status == 429 {"rate_limit_error"} else if status < 500 {"invalid_request_error"} else {"server_error"},
             "code": code,
+            "param": null,
         }
     }))
 }
 
-pub(crate) fn openai_image_stream(body: Value, endpoint: ImageEndpoint) -> HttpResponse {
+pub(crate) fn image_completed_events(body: Value, endpoint: ImageEndpoint) -> Vec<Value> {
     let event = match endpoint {
         ImageEndpoint::Generation => "image_generation.completed",
         ImageEndpoint::Edit => "image_edit.completed",
         ImageEndpoint::Variation => "image_variation.completed",
     };
-    HttpResponse::Ok()
-        .insert_header(("content-type", "text/event-stream; charset=utf-8"))
-        .insert_header(("cache-control", "no-cache"))
-        .body(format!(
-            "event: {event}\ndata: {body}\n\nevent: done\ndata: [DONE]\n\n"
-        ))
+    body["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|image| {
+            let mut result = image.clone();
+            result["type"] = json!(event);
+            result["created_at"] = body["created"].clone();
+            for key in ["background", "output_format", "quality", "size", "usage"] {
+                if let Some(value) = body.get(key) {
+                    result[key] = value.clone();
+                }
+            }
+            result
+        })
+        .collect()
 }
 
 #[cfg(test)]

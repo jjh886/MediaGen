@@ -1,6 +1,6 @@
 use actix_web::web;
 use mediagen_core::PluginManifest;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::account_browser_profile::browser_metadata_from_account;
 use crate::image_api_response::image_result_metadata;
@@ -62,7 +62,8 @@ pub(crate) async fn complete_image_task(
     state: &web::Data<ServerState>,
     task_id: &str,
     proxy_url: &str,
-    result: Value,
+    body: &crate::image_request::OpenAiImageRequest,
+    mut result: Value,
 ) -> Result<Value, (u16, &'static str, String)> {
     let images = collect_b64_images(&result, proxy_url)
         .await
@@ -70,13 +71,34 @@ pub(crate) async fn complete_image_task(
             state.store.fail_task(task_id, message.clone());
             (502, "image_result_error", message)
         })?;
-    state
-        .store
-        .complete_task(task_id, image_result_metadata(&result));
-    Ok(json!({
-        "created": chrono::Utc::now().timestamp(),
-        "data": images.into_iter().map(|b64| json!({ "b64_json": b64 })).collect::<Vec<_>>(),
-    }))
+    let format = body.output_format.clone().unwrap_or_else(|| "png".into());
+    for (field, requested) in [("quality", &body.quality), ("background", &body.background)] {
+        if result[field].is_null() {
+            result[field] = serde_json::json!(requested.as_deref().unwrap_or("auto"));
+        }
+    }
+    let compression = body.output_compression;
+    let dimensions = body
+        .output_dimensions()
+        .map_err(|message| (400, "invalid_request_error", message))?;
+    let metadata = image_result_metadata(&result);
+    let mut response = tokio::task::spawn_blocking(move || {
+        crate::image_output::encode(images, result, &format, compression, dimensions)
+    })
+    .await
+    .map_err(|_| (502, "image_result_error", "图片编码任务失败".into()))?
+    .map_err(|message| {
+        state.store.fail_task(task_id, message.clone());
+        (502, "image_result_error", message)
+    })?;
+    crate::image_output::apply_webp_compression(&mut response, compression)
+        .await
+        .map_err(|message| {
+            state.store.fail_task(task_id, message.clone());
+            (502, "image_result_error", message)
+        })?;
+    state.store.complete_task(task_id, metadata);
+    Ok(response)
 }
 
 #[cfg(test)]

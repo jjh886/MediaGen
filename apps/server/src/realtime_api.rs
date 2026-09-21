@@ -142,15 +142,23 @@ async fn create(
                 task_id: task_id.clone(),
             };
             crate::media_execution::classify_and_apply_failure(&state, &context, &message);
-            state.store.fail_task(
-                &task_id,
-                "实时会话建立失败，需检查设备证明与账号权限".into(),
-            );
-            return error(
-                503,
-                "realtime_unavailable",
-                "实时会话不可用，需要受支持设备、官方应用及账号权限",
-            );
+            let (status, code, public) = if message.contains("attestation_unavailable") {
+                (
+                    503,
+                    "attestation_unavailable",
+                    "无法生成设备证明，需要受支持设备和官方应用".into(),
+                )
+            } else if message.contains("realtime_contract_error") {
+                (
+                    502,
+                    "realtime_contract_error",
+                    "上游拒绝了实时会话协议参数，当前通道暂不可用".into(),
+                )
+            } else {
+                crate::protocol_api::public_failure(&message)
+            };
+            state.store.fail_task(&task_id, public.clone());
+            return error(status, code, &public);
         }
     };
     let call_id = result["call_id"].as_str().unwrap_or("").to_string();
