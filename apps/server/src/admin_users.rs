@@ -11,15 +11,15 @@ pub(crate) fn configure(cfg: &mut web::ServiceConfig) {
         .route("/api/admin-users/{id}/password", web::post().to(password));
 }
 fn actor(state: &ServerState, request: &HttpRequest) -> Result<Option<String>, HttpResponse> {
+    if !state.admin.enabled {
+        return Err(
+            HttpResponse::NotFound().json(json!({"error":"后台用户管理仅在 Linux 服务端启用"}))
+        );
+    }
     if let Some(user) = crate::admin_auth::request_user(request, state) {
         return Ok(Some(user.id));
     }
-    if (!state.admin.enabled
-        && request
-            .peer_addr()
-            .is_some_and(|addr| addr.ip().is_loopback()))
-        || crate::admin_access::http_token_matches(request)
-    {
+    if crate::admin_access::http_token_matches(request) {
         return Ok(None);
     }
     Err(HttpResponse::Unauthorized().json(json!({"error":"请先登录管理员账号"})))

@@ -1,6 +1,12 @@
 import type { Account } from '../types/account'
 
-export default function AccountQuotaSummary({ account }: { account: Account }) {
+export default function AccountQuotaSummary({
+  account,
+  compact = false,
+}: {
+  account: Account
+  compact?: boolean
+}) {
   const windows = account.quota_windows || []
   const holds = Object.entries(account.quota_holds || {}).filter(
     ([, hold]) => !hold.until || Date.parse(hold.until) > Date.now()
@@ -8,7 +14,7 @@ export default function AccountQuotaSummary({ account }: { account: Account }) {
   if (!windows.length && !holds.length)
     return <span style={{ color: 'var(--text-disabled)' }}>平台未提供额度数据</span>
   return (
-    <div style={{ display: 'grid', gap: 10, minWidth: 170 }}>
+    <div style={{ display: 'grid', gap: compact ? 8 : 10, minWidth: compact ? 0 : 170 }}>
       {holds.map(([kind, hold]) => (
         <div key={kind} style={{ fontSize: 11, color: 'var(--color-warning)' }}>
           {kind === 'text' ? '文本' : '图片 / 媒体'}额度已用完
@@ -19,13 +25,22 @@ export default function AccountQuotaSummary({ account }: { account: Account }) {
       ))}
       {windows.map((window, index) => (
         <div key={`${window.name}-${index}`}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12 }}>
-            <span>{window.name}</span>
-            <strong>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: compact ? 6 : 12,
+              fontSize: compact ? 11 : 12,
+            }}
+          >
+            <span style={{ minWidth: 0 }} title={window.name}>
+              {window.name}
+            </span>
+            <strong style={{ flexShrink: 0 }}>
               {typeof window.remaining_percent === 'number'
-                ? `${Math.round(window.remaining_percent * 10) / 10}% 剩余`
+                ? `${Math.round(window.remaining_percent * 10) / 10}%${compact ? '' : ' 剩余'}`
                 : typeof window.remaining_count === 'number'
-                  ? `剩余 ${window.remaining_count} ${window.unit || '次'}`
+                  ? `${compact ? '' : '剩余 '}${window.remaining_count} ${window.unit || '次'}`
                   : '未知'}
             </strong>
           </div>
@@ -48,8 +63,19 @@ export default function AccountQuotaSummary({ account }: { account: Account }) {
             />
           )}
           {window.reset_at && (
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-              恢复：{new Date(window.reset_at).toLocaleString()}
+            <div
+              style={{ fontSize: 11, color: 'var(--text-secondary)' }}
+              title={`恢复：${new Date(window.reset_at).toLocaleString()}`}
+            >
+              恢复：
+              {compact
+                ? new Date(window.reset_at).toLocaleString(undefined, {
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                : new Date(window.reset_at).toLocaleString()}
             </div>
           )}
         </div>

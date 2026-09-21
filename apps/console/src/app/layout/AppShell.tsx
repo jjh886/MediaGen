@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import type { PageId } from '../../App'
 import Sidebar from './Sidebar'
 import AdminUsersPage from '../../features/admin/components/AdminUsersPage'
@@ -16,6 +17,7 @@ import {
 } from '../../features/admin/components/AdminPages'
 
 interface AppShellProps {
+  adminEnabled?: boolean
   currentPage: PageId
   verificationTaskId: string | null
   logTaskId: string | null
@@ -25,10 +27,17 @@ interface AppShellProps {
 }
 
 export default function AppShell(props: AppShellProps) {
+  useEffect(() => {
+    if (props.currentPage === 'admin-users' && !props.adminEnabled) props.onNavigate('accounts')
+  }, [props.currentPage, props.adminEnabled, props.onNavigate])
   return (
     <div className="app-shell">
       <div className="app-shell__body">
-        <Sidebar currentPage={props.currentPage} onNavigate={props.onNavigate} />
+        <Sidebar
+          currentPage={props.currentPage}
+          onNavigate={props.onNavigate}
+          adminEnabled={!!props.adminEnabled}
+        />
         <main className="app-shell__main">
           <PageContent {...props} />
         </main>
@@ -46,7 +55,8 @@ function PageContent(props: AppShellProps) {
   if (currentPage === 'generation-queue') return <GenerationQueueList />
   if (currentPage === 'weixin') return <WeixinPage />
   if (currentPage === 'accounts') return <AccountPage />
-  if (currentPage === 'admin-users') return <AdminUsersPage />
+  if (currentPage === 'admin-users')
+    return props.adminEnabled ? <AdminUsersPage /> : <AccountPage />
   if (currentPage === 'api-docs') return <ApiDocsPage />
   if (currentPage === 'api-keys') return <ApiKeysPage />
   if (currentPage === 'proxies') return <ProxiesPage />

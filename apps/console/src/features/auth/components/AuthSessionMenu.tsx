@@ -27,7 +27,13 @@ export function AuthSessionMenu() {
   if (!authConfigured) return null
 
   return (
-    <button className="sidebar__auth-logout" onClick={logout} type="button">
+    <button
+      className="sidebar__auth-logout"
+      aria-label="退出登录"
+      title="退出登录"
+      onClick={logout}
+      type="button"
+    >
       <LogOut size={16} />
       <span>退出登录</span>
     </button>

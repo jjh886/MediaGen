@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use actix_web::{web, HttpResponse, Responder};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;
@@ -8,7 +6,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::net_client::{http_client, proxy_url_with_auth, proxy_url_without_auth};
+use crate::net_client::{proxy_url_with_auth, proxy_url_without_auth};
 use crate::pagination::{paginate, PageQuery};
 use crate::store::{ApiKeyRecord, AuditLogRecord, ProxyRecord};
 use crate::ServerState;
@@ -219,7 +217,7 @@ pub async fn test_proxy(
     }
 
     let proxy_url = proxy_url_with_auth(&proxy.server, &proxy.username, &proxy.password);
-    match run_proxy_test(&target, &proxy_url).await {
+    match crate::net_client::test_proxy_connection(&target, &proxy_url).await {
         Ok(status) => HttpResponse::Ok()
             .json(json!({ "data": { "ok": true, "status": status, "url": target } })),
         Err(error) => HttpResponse::BadGateway().json(json!({
@@ -327,41 +325,6 @@ fn valid_proxy_test_target(value: &str) -> bool {
         return false;
     };
     matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
-}
-
-async fn run_proxy_test(target: &str, proxy_url: &str) -> Result<u16, String> {
-    let client = http_client(proxy_url)?;
-    let response = tokio::time::timeout(
-        Duration::from_secs(20),
-        client
-            .get(target)
-            .header(reqwest::header::USER_AGENT, "MediaGen proxy test")
-            .send(),
-    )
-    .await
-    .map_err(|_| "代理测试超时，请检查代理地址、端口和服务器网络".to_string())?
-    .map_err(|error| {
-        use std::error::Error;
-        let mut causes = Vec::new();
-        let mut source = error.source();
-        while let Some(cause) = source.filter(|_| causes.len() < 8) {
-            causes.push(cause.to_string());
-            source = cause.source();
-        }
-        let detail = causes.join("；");
-        format!(
-            "代理测试失败（连接未降级为直连）: {}；{}",
-            error.without_url(),
-            detail
-        )
-    })?;
-    if response.status().as_u16() == 407 || response.status().as_u16() >= 600 {
-        return Err(format!(
-            "代理服务器拒绝请求（HTTP {}），请核对协议、认证和供应商状态；未改用直连",
-            response.status().as_u16()
-        ));
-    }
-    Ok(response.status().as_u16())
 }
 
 fn sanitize_proxy_error(error: &str, proxy_url: &str) -> String {

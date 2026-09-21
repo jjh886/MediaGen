@@ -3,6 +3,7 @@ import type React from 'react'
 export interface Column<T> {
   key: string
   title: string
+  renderHeader?: () => React.ReactNode
   width?: number | string
   minWidth?: number
   maxWidth?: number
@@ -52,7 +53,7 @@ export const tableStyles = {
     color: 'rgba(255,255,255,0.6)',
     fontSize: 13,
     fontWeight: 500 as const,
-    padding: '0 16px',
+    padding: '0 var(--kt-table-cell-padding-x, 16px)',
     height: 40,
     textAlign: 'left' as const,
     borderBottom: '1px solid rgba(255,255,255,0.05)',
@@ -66,7 +67,7 @@ export const tableStyles = {
     transition: 'background 150ms ease',
   },
   cell: {
-    padding: '0 16px',
+    padding: '0 var(--kt-table-cell-padding-x, 16px)',
     fontSize: 14,
     color: 'rgba(255,255,255,0.85)',
     overflow: 'hidden' as const,

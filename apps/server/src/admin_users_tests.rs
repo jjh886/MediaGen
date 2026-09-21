@@ -203,3 +203,30 @@ fn browser_origins_must_match_management_host() {
         assert_eq!(crate::admin_access::origin_allowed(&request), expected);
     }
 }
+
+#[actix_web::test]
+async fn desktop_does_not_expose_admin_users_even_from_loopback() {
+    let state = crate::test_fixtures::server_state(
+        std::env::temp_dir().join(format!("desktop-admin-{}", uuid::Uuid::new_v4())),
+        mediagen_plugin_runtime::PluginLoader::empty(),
+    );
+    let app = at::init_service(
+        App::new()
+            .app_data(web::Data::new(state))
+            .configure(crate::admin_auth::configure),
+    )
+    .await;
+    for method in [actix_web::http::Method::GET, actix_web::http::Method::POST] {
+        let response = at::call_service(
+            &app,
+            at::TestRequest::default()
+                .method(method)
+                .uri("/api/admin-users")
+                .peer_addr("127.0.0.1:1234".parse().unwrap())
+                .set_json(json!({"username":"operator","password":"safe-test-password"}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 404);
+    }
+}

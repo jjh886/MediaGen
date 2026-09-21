@@ -1,0 +1,164 @@
+.account-table {
+  --kt-table-cell-padding-x: 10px;
+}
+.account-table th {
+  white-space: nowrap;
+}
+.account-table__identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+}
+.account-table__avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-tertiary);
+  display: grid;
+  place-items: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.account-table__identity-text {
+  min-width: 0;
+  flex: 1;
+}
+.account-table__identity-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.account-table__identity-name > :last-child {
+  flex-shrink: 0;
+}
+.account-table__ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.account-table__contact {
+  color: var(--text-secondary);
+  font-size: 11px;
+  margin-top: 5px;
+}
+.account-table__state {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+  white-space: normal;
+}
+.account-table__state > span:not(:first-child) {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.account-table__reset {
+  overflow-wrap: anywhere;
+}
+.account-table__quota,
+.account-table__quota-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.account-table__quota {
+  align-items: flex-start;
+  padding: 12px 0;
+  white-space: normal;
+}
+.account-table__quota-content {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.account-table__refresh {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  padding: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.account-table__refresh:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+.account-table__refresh:focus-visible {
+  outline: 2px solid #5ab0fe;
+  outline-offset: 2px;
+}
+.account-table__refresh:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.account-table__spinning {
+  animation: account-quota-spin 1s linear infinite;
+}
+.account-table__usage {
+  display: grid;
+  gap: 5px;
+  font-size: 11px;
+  padding: 10px 0;
+  font-variant-numeric: tabular-nums;
+}
+.account-table__usage > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  align-items: baseline;
+}
+.account-table__usage > div > :first-child {
+  color: var(--text-secondary);
+}
+.account-table__usage > div > :last-child {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  min-width: 0;
+}
+.account-table__small,
+.account-table__browser {
+  font-size: 12px;
+}
+.account-table__browser {
+  display: grid;
+  gap: 4px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.account-table__browser > :last-child {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.account-table__actions {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0 4px;
+  padding: 8px 0;
+}
+.account-table__actions > button {
+  white-space: nowrap;
+}
+@keyframes account-quota-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .account-table__spinning {
+    animation: none;
+  }
+}

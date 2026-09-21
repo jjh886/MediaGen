@@ -49,14 +49,16 @@ export function SystemControlMenu() {
       <div className="sidebar__system-title">应用控制</div>
       <p className="sidebar__system-text">退出会停止本机后台服务。</p>
       <KtButton
-        variant="danger"
+        aria-label="退出 MediaGen"
+        title="退出 MediaGen"
+        variant="default"
         size="sm"
         loading={exiting}
         onClick={handleExit}
         style={{ width: '100%' }}
       >
         <Power size={15} />
-        退出 MediaGen
+        <span className="sidebar__system-label">退出 MediaGen</span>
       </KtButton>
       {message && <div className="sidebar__system-message">{message}</div>}
     </div>

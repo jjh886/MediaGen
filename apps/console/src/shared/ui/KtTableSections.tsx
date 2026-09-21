@@ -25,7 +25,7 @@ function HeaderCell<T>({ column, onResizeStart }: HeaderCellProps<T>) {
         width: column.measuredWidth,
       }}
     >
-      {column.title}
+      {column.renderHeader ? column.renderHeader() : column.title}
       {column.resizable !== false && (
         <span
           aria-label={`调整${column.title || '当前'}列宽`}

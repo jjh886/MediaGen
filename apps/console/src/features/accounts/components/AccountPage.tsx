@@ -148,14 +148,6 @@ export default function AccountPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <KtTabs items={platformTabs} activeKey={activePlatform} onChange={handlePlatformChange} />
         <div style={{ display: 'flex', gap: 8 }}>
-          <KtButton
-            size="sm"
-            loading={quotaBusy === 'all'}
-            disabled={!!quotaBusy || !accounts.length}
-            onClick={() => void handleRefreshQuota()}
-          >
-            刷新额度
-          </KtButton>
           <KtButton variant="default" size="sm" onClick={handleCheckLogin} disabled={checking}>
             {checking ? '检查中...' : '检查登录态'}
           </KtButton>
@@ -189,6 +181,7 @@ export default function AccountPage() {
             <AccountTable
               accounts={accounts}
               onRefreshQuota={(account) => void handleRefreshQuota(account)}
+              onRefreshAllQuota={() => void handleRefreshQuota()}
               quotaBusy={quotaBusy}
               onConfigure={handleConfigure}
               onRelogin={handleRelogin}
