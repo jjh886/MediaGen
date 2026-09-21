@@ -24,6 +24,11 @@ pub(crate) async fn responses(
         .aggregate_continuations()
         .max_continuation_size(8 * 1024 * 1024);
     actix_web::rt::spawn(async move {
+        request
+            .extensions_mut()
+            .insert(crate::conversation_affinity::ConnectionId(
+                uuid::Uuid::new_v4().to_string(),
+            ));
         let mut previous: Option<(Value, Value)> = None;
         let mut last_model = String::new();
         while let Some(message) = messages.next().await {

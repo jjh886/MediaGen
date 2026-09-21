@@ -1,6 +1,7 @@
 import { KtTable, KtBadge, KtButton } from '@/shared/ui'
 import type { Column } from '@/shared/ui'
 import type { Account } from '../types/account'
+import AccountQuotaSummary from './AccountQuotaSummary'
 import { accountResetText, accountStateLabel, accountStateVariant } from '../utils/account-status'
 
 const browserOsLabel: Record<string, string> = {
@@ -104,6 +105,13 @@ export default function AccountTable({
     },
     {
       key: 'used_today',
+      title: '平台剩余额度',
+      width: 230,
+      minWidth: 180,
+      render: (r) => <AccountQuotaSummary account={r} />,
+    },
+    {
+      key: 'media_used_today',
       title: '图片/媒体今日用量',
       width: 120,
       minWidth: 100,

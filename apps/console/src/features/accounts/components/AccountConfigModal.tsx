@@ -1,12 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import AccountQuotaSummary from './AccountQuotaSummary'
 import { KtModal, KtButton, KtInput, KtSelect } from '@/shared/ui'
-import { fetchAllProxies, type ProxyItem } from '@/shared/services/proxy-service'
+import { fetchAllProxies, proxyOptionLabel, type ProxyItem } from '@/shared/services/proxy-service'
 import type { Account } from '../types/account'
-import {
-  fetchAccountModels,
-  type AccountModelCatalog,
-  type AccountConfigUpdate,
-} from '../services/account-service'
+import type { AccountConfigUpdate } from '../services/account-service'
 import AccountBrowserProfileFields from './AccountBrowserProfileFields'
 import AccountProxyFields from './AccountProxyFields'
 import {
@@ -59,12 +56,11 @@ export default function AccountConfigModal({
   onSave,
 }: AccountConfigModalProps) {
   const [priority, setPriority] = useState('0')
+  const initialized = useRef('')
   const [textConcurrency, setTextConcurrency] = useState('0')
   const [textDaily, setTextDaily] = useState('0')
   const [textTotal, setTextTotal] = useState('0')
-  const [catalog, setCatalog] = useState<AccountModelCatalog | null>(null)
-  const [modelsLoading, setModelsLoading] = useState(false)
-  const [modelsError, setModelsError] = useState('')
+  const [tab, setTab] = useState('limits')
   const [tier, setTier] = useState('')
   const [concurrency, setConcurrency] = useState('')
   const [dailyLimit, setDailyLimit] = useState('')
@@ -80,13 +76,18 @@ export default function AccountConfigModal({
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
+    if (!open) {
+      initialized.current = ''
+      return
+    }
+    if (initialized.current === account?.id) return
     if (account) {
+      initialized.current = account.id
       setPriority(String(account.priority ?? 0))
       setTextConcurrency(String(account.text_concurrency_limit ?? 0))
       setTextDaily(String(account.text_daily_limit ?? 0))
       setTextTotal(String(account.text_total_limit ?? 0))
-      setCatalog(null)
-      setModelsError('')
+      setTab('limits')
       setTier(account.tier)
       setConcurrency(String(account.concurrency_limit))
       setDailyLimit(String(account.daily_limit))
@@ -101,7 +102,7 @@ export default function AccountConfigModal({
       setApiKey('')
       setErrorText('')
     }
-  }, [account])
+  }, [account, open])
 
   useEffect(() => {
     if (!open) return
@@ -158,21 +159,6 @@ export default function AccountConfigModal({
     }
     return updates
   }
-  const loadModels = async () => {
-    if (!account) return
-    setModelsLoading(true)
-    setModelsError('')
-    try {
-      const result = await fetchAccountModels(account.id, true)
-      setCatalog(result)
-      if (result.refresh_error)
-        setModelsError(`刷新失败（${result.refresh_error}），保留上次目录。`)
-    } catch (error) {
-      setModelsError(error instanceof Error ? error.message : '模型目录获取失败')
-    } finally {
-      setModelsLoading(false)
-    }
-  }
   const platformStatusText = account ? accountStatusText(account) : ''
 
   return (
@@ -180,6 +166,7 @@ export default function AccountConfigModal({
       open={open}
       onClose={onClose}
       title="账号配置"
+      width={760}
       closeOnOverlayClick={false}
       footer={
         <>
@@ -192,160 +179,196 @@ export default function AccountConfigModal({
         </>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {account && (
-          <div style={fieldStyle}>
-            <label style={labelStyle}>平台状态</label>
-            <span style={{ color: 'var(--text-primary)', fontSize: 13 }}>{platformStatusText}</span>
-          </div>
-        )}
-        <div style={fieldStyle}>
-          <KtButton loading={modelsLoading} onClick={() => void loadModels()}>
-            获取账号支持的模型
-          </KtButton>
-          {modelsError && <span role="alert">{modelsError}</span>}
-          {catalog && !catalog.discovery_supported && <span>此插件提供随版本发布的模型目录。</span>}
-          {catalog?.models.map((model) => (
-            <details key={model.id}>
-              <summary>
-                {model.display_name}（{model.id}）
-              </summary>
-              <p>
-                输入：{model.capabilities.input_modalities?.join('、') || '见插件参数'}；输出：
-                {model.capabilities.output_modalities?.join('、') || model.task_kind}
-              </p>
-              <p>接口：{model.capabilities.endpoints?.join('、') || '见插件说明'}</p>
-              {model.capabilities.unsupported_parameters?.length ? (
-                <p>不支持的参数：{model.capabilities.unsupported_parameters.join('、')}</p>
-              ) : null}
-              <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                {JSON.stringify(model.capabilities.input_schema, null, 2)}
-              </pre>
-            </details>
+      <div style={{ display: 'grid', gap: 20 }}>
+        <div
+          style={{
+            padding: 16,
+            borderRadius: 10,
+            background: 'var(--bg-secondary)',
+            display: 'grid',
+            gap: 6,
+          }}
+        >
+          <strong>{account?.name}</strong>
+          <span style={labelStyle}>{platformStatusText}</span>
+          <span style={labelStyle}>
+            最近检查：
+            {account?.last_check_at ? new Date(account.last_check_at).toLocaleString() : '尚未检查'}
+          </span>
+        </div>
+        <div role="tablist" aria-label="账号配置分类" style={{ display: 'flex', gap: 8 }}>
+          {[
+            ['limits', '额度与调度'],
+            ['network', '代理与浏览器'],
+            ['access', '账号与授权'],
+          ].map(([id, label]) => (
+            <KtButton
+              key={id}
+              role="tab"
+              aria-selected={tab === id}
+              variant={tab === id ? 'primary' : 'default'}
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </KtButton>
           ))}
         </div>
-        {[
-          { label: '调度优先级（数字越小越优先）', value: priority, setter: setPriority },
-          { label: '文本并发数（0 为不限）', value: textConcurrency, setter: setTextConcurrency },
-          { label: '文本每日限额（0 为不限）', value: textDaily, setter: setTextDaily },
-          { label: '文本总限额（0 为不限）', value: textTotal, setter: setTextTotal },
-        ].map((field) => (
-          <div key={field.label} style={fieldStyle}>
-            <label style={labelStyle}>{field.label}</label>
-            <KtInput
-              aria-label={field.label}
-              type="number"
-              min={0}
-              value={field.value}
-              onChange={(event) => field.setter(event.target.value)}
-            />
+        {tab === 'limits' && (
+          <div role="tabpanel" style={{ display: 'grid', gap: 18 }}>
+            {account && <AccountQuotaSummary account={account} />}
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderSpacing: '0 10px', textAlign: 'left' }}>
+                <thead>
+                  <tr>
+                    <th>能力</th>
+                    <th>并发</th>
+                    <th>每日限额</th>
+                    <th>累计限额</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    {
+                      label: '文本',
+                      fields: [
+                        [textConcurrency, setTextConcurrency],
+                        [textDaily, setTextDaily],
+                        [textTotal, setTextTotal],
+                      ] as const,
+                      used: `今日 ${account?.text_used_today ?? 0} · 累计 ${account?.text_used_total ?? 0}`,
+                    },
+                    {
+                      label: '图片 / 媒体',
+                      fields: [
+                        [concurrency, setConcurrency],
+                        [dailyLimit, setDailyLimit],
+                        [totalLimit, setTotalLimit],
+                      ] as const,
+                      used: `今日 ${account?.used_today ?? 0} · 累计 ${account?.used_total ?? 0}`,
+                    },
+                  ].map((row) => (
+                    <tr key={row.label}>
+                      <td style={{ paddingRight: 12, minWidth: 130 }}>
+                        <strong>{row.label}</strong>
+                        <div style={{ ...labelStyle, fontSize: 11, marginTop: 5 }}>{row.used}</div>
+                      </td>
+                      {row.fields.map(([value, set], i) => (
+                        <td key={i} style={{ paddingRight: 8 }}>
+                          <KtInput
+                            aria-label={`${row.label}${['并发', '每日限额', '累计限额'][i]}`}
+                            type="number"
+                            min={row.label === '图片 / 媒体' && i === 0 ? 1 : 0}
+                            value={value}
+                            onChange={(e) => set(e.target.value)}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={labelStyle}>
+              每日及累计限额为 0 表示不限；文本并发为 0
+              表示不限。两类用量独立计算，平台额度另行生效。
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <label style={fieldStyle}>
+                调度优先级
+                <KtInput
+                  aria-label="调度优先级"
+                  type="number"
+                  min={0}
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value)}
+                />
+                <small style={labelStyle}>数字越小越优先；已有对话优先沿用原账号。</small>
+              </label>
+              <label style={fieldStyle}>
+                任务间隔（秒）
+                <KtInput
+                  aria-label="任务间隔"
+                  type="number"
+                  min={0}
+                  value={taskInterval}
+                  onChange={(e) => setTaskInterval(e.target.value)}
+                />
+                <small style={labelStyle}>任务结束后的最短等待时间。</small>
+              </label>
+            </div>
           </div>
-        ))}
-        {account && (
-          <span>
-            文本用量：今日 {account.text_used_today ?? 0}，累计 {account.text_used_total ?? 0}
-            ；最近检查：
-            {account.last_check_at ? new Date(account.last_check_at).toLocaleString() : '尚未检查'}
-          </span>
         )}
-        <div style={fieldStyle}>
-          <label style={labelStyle}>账号代理</label>
-          <KtSelect
-            value={proxySource}
-            onChange={(value) => {
-              setProxySource(value)
-              setProxyDirty(value !== 'manual')
-            }}
-            options={proxyOptions(proxies)}
-          />
-          {proxySource === 'manual' && (
-            <AccountProxyFields
-              value={proxyForm}
-              onChange={(value) => {
-                setProxyDirty(true)
-                setProxyForm(value)
-              }}
-            />
-          )}
-        </div>
-        <div style={fieldStyle}>
-          <label style={labelStyle}>浏览器环境</label>
-          <AccountBrowserProfileFields
-            value={browserProfileForm}
-            onChange={setBrowserProfileForm}
-          />
-        </div>
-        <div style={fieldStyle}>
-          <label style={labelStyle}>授权 API Key</label>
-          <textarea
-            rows={4}
-            placeholder={
-              account?.api_key_configured
-                ? `${account.api_key_masked || '已保存'}；留空表示不修改`
-                : '每行一个 API Key；留空表示不设置单账号授权'
-            }
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            style={{
-              width: '100%',
-              resize: 'vertical',
-              border: '1px solid var(--border-muted)',
-              borderRadius: 8,
-              background: 'var(--bg-secondary)',
-              color: 'var(--text-primary)',
-              padding: 10,
-              boxSizing: 'border-box',
-            }}
-          />
-          <span style={{ color: 'var(--text-disabled)', fontSize: 12 }}>
-            已保存的 Key 不会回显；需要变更时重新填写即可。
-          </span>
-        </div>
-        {errorText && <div style={{ color: 'var(--color-error)', fontSize: 13 }}>{errorText}</div>}
-        <div style={fieldStyle}>
-          <label style={labelStyle}>等级</label>
-          <KtSelect value={tier} onChange={setTier} options={tierOptions} />
-        </div>
-        <div style={fieldStyle}>
-          <label style={labelStyle}>图片/媒体并发数</label>
-          <KtInput
-            type="number"
-            min={0}
-            max={10}
-            value={concurrency}
-            onChange={(e) => setConcurrency(e.target.value)}
-          />
-        </div>
-        <div style={fieldStyle}>
-          <label style={labelStyle}>图片/媒体每日限额</label>
-          <KtInput
-            type="number"
-            min={0}
-            value={dailyLimit}
-            onChange={(e) => setDailyLimit(e.target.value)}
-          />
-        </div>
-        <div style={fieldStyle}>
-          <label style={labelStyle}>图片/媒体总限额</label>
-          <KtInput
-            type="number"
-            min={0}
-            value={totalLimit}
-            onChange={(e) => setTotalLimit(e.target.value)}
-          />
-        </div>
-        <div style={fieldStyle}>
-          <label style={labelStyle}>任务间隔（秒）</label>
-          <KtInput
-            type="number"
-            min={0}
-            value={taskInterval}
-            onChange={(e) => setTaskInterval(e.target.value)}
-          />
-          <span style={{ color: 'var(--text-disabled)', fontSize: 12 }}>
-            一个任务结束后，至少等待这么久再让这个账号接下一单；0 表示不等待。
-          </span>
-        </div>
+        {tab === 'network' && (
+          <div role="tabpanel" style={{ display: 'grid', gap: 22 }}>
+            <div style={fieldStyle}>
+              <label style={labelStyle}>账号代理</label>
+              <KtSelect
+                aria-label="账号代理"
+                value={proxySource}
+                onChange={(value) => {
+                  setProxySource(value)
+                  setProxyDirty(value !== 'manual')
+                }}
+                options={proxyOptions(proxies)}
+              />
+            </div>
+            {proxySource === 'manual' && (
+              <AccountProxyFields
+                value={proxyForm}
+                onChange={(value) => {
+                  setProxyDirty(true)
+                  setProxyForm(value)
+                }}
+              />
+            )}
+            <div style={labelStyle}>
+              绑定代理后，登录、额度检查和生成请求均使用该代理；代理失效会报错，不会自动改成直连。
+            </div>
+            <details>
+              <summary style={{ cursor: 'pointer', marginBottom: 12 }}>浏览器指纹设置</summary>
+              <AccountBrowserProfileFields
+                value={browserProfileForm}
+                onChange={setBrowserProfileForm}
+              />
+            </details>
+          </div>
+        )}
+        {tab === 'access' && (
+          <div role="tabpanel" style={{ display: 'grid', gap: 18 }}>
+            <div style={fieldStyle}>
+              <label style={labelStyle}>账号等级</label>
+              <KtSelect value={tier} onChange={setTier} options={tierOptions} />
+            </div>
+            <label style={fieldStyle}>
+              授权 API Key
+              <textarea
+                aria-label="授权 API Key"
+                rows={4}
+                placeholder={
+                  account?.api_key_configured ? '留空保留已保存的 Key' : '每行一个 API Key'
+                }
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: 12,
+                  borderRadius: 8,
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-muted)',
+                }}
+              />
+            </label>
+            <span style={labelStyle}>已保存的 Key 不回显；留空不会修改。</span>
+          </div>
+        )}
+        {errorText && (
+          <div role="alert" style={{ color: 'var(--color-error)' }}>
+            {errorText}
+          </div>
+        )}
       </div>
     </KtModal>
   )
@@ -362,6 +385,7 @@ function proxyOptions(proxies: ProxyItem[]) {
     { value: 'manual', label: '手动设置代理' },
     ...proxies
       .filter((proxy) => proxy.enabled)
-      .map((proxy) => ({ value: `saved:${proxy.id}`, label: proxy.name || proxy.server })),
+      .sort((a, b) => (a.bound_account_count ?? 0) - (b.bound_account_count ?? 0))
+      .map((proxy) => ({ value: `saved:${proxy.id}`, label: proxyOptionLabel(proxy) })),
   ]
 }

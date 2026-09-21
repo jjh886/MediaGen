@@ -32,6 +32,7 @@ pub(crate) struct BrowserTarget {
 
 #[derive(Clone)]
 pub(crate) struct BrowserRuntime {
+    bridge: Option<Arc<crate::proxy_bridge::Bridge>>,
     pub debugging_port: u16,
     child: Arc<Mutex<Option<Child>>>,
     port_file: PathBuf,
@@ -41,6 +42,7 @@ impl BrowserRuntime {
     pub(crate) fn owned(debugging_port: u16, child: Child, profile_dir: &str) -> Self {
         Self {
             debugging_port,
+            bridge: None,
             child: Arc::new(Mutex::new(Some(child))),
             port_file: runtime_port_file(profile_dir),
         }
@@ -49,6 +51,7 @@ impl BrowserRuntime {
     fn attached(debugging_port: u16, profile_dir: &str) -> Self {
         Self {
             debugging_port,
+            bridge: crate::proxy_bridge::existing(profile_dir),
             child: Arc::new(Mutex::new(None)),
             port_file: runtime_port_file(profile_dir),
         }
@@ -101,9 +104,22 @@ pub(crate) async fn launch_cloakbrowser(
     tokio::fs::create_dir_all(&session.profile_dir)
         .await
         .map_err(|err| BrowserGatewayError::BrowserLaunch(err.to_string()))?;
+    let bridge_config = crate::proxy_bridge::config(session);
     if let Some(runtime) = attach_registered_runtime(&session.profile_dir).await {
-        return Ok(runtime);
+        if proxy::runtime_config_matches(&runtime_port_file(&session.profile_dir), session).await
+            && (bridge_config.is_none() || runtime.0.bridge.is_some())
+        {
+            return Ok(runtime);
+        }
+        // 代理或指纹变化、以及重启后转接丢失时，必须重启浏览器使新配置生效。
+        request_browser_close(runtime.0.debugging_port).await?;
+        sleep(Duration::from_secs(1)).await;
     }
+    let bridge = if let Some(config) = bridge_config {
+        Some(crate::proxy_bridge::start(&session.profile_dir, config).await?)
+    } else {
+        None
+    };
 
     let executable = resolve_cloakbrowser_path(config)?;
     let debugging_port = get_free_port().await?;
@@ -128,8 +144,13 @@ pub(crate) async fn launch_cloakbrowser(
     if let Some(fingerprint) = BrowserFingerprint::from_metadata(&session.metadata) {
         args.push(format!("--user-agent={}", fingerprint.user_agent()));
     }
-    if let Some(proxy_server) = proxy::proxy_server_from_session(session) {
+    if let Some(proxy_server) = bridge
+        .as_ref()
+        .map(|b| b.address.clone())
+        .or_else(|| proxy::proxy_server_from_session(session))
+    {
         args.push(format!("--proxy-server={proxy_server}"));
+        args.push("--proxy-bypass-list=<-loopback>".into());
     }
     // 先打开空白页，等 CDP 原生弹窗 guard 安装完成后再导航到目标页，避免页面抢先弹出系统认证框。
     args.push(browser_launch_url().to_string());
@@ -155,16 +176,21 @@ pub(crate) async fn launch_cloakbrowser(
         Err(error) => {
             // 两个服务实例同时启动时，另一个实例可能刚写好端口登记；失败后再接管一次。
             if let Some(runtime) = attach_registered_runtime(&session.profile_dir).await {
-                return Ok(runtime);
+                if proxy::runtime_config_matches(&runtime_port_file(&session.profile_dir), session)
+                    .await
+                    && (crate::proxy_bridge::config(session).is_none()
+                        || runtime.0.bridge.is_some())
+                {
+                    return Ok(runtime);
+                }
             }
             return Err(error);
         }
     };
-    write_runtime_port(&session.profile_dir, debugging_port).await?;
-    Ok((
-        BrowserRuntime::owned(debugging_port, child, &session.profile_dir),
-        target,
-    ))
+    write_runtime_port(session, debugging_port).await?;
+    let mut runtime = BrowserRuntime::owned(debugging_port, child, &session.profile_dir);
+    runtime.bridge = bridge;
+    Ok((runtime, target))
 }
 
 async fn attach_registered_runtime(profile_dir: &str) -> Option<(BrowserRuntime, BrowserTarget)> {
@@ -190,14 +216,20 @@ async fn attach_registered_runtime(profile_dir: &str) -> Option<(BrowserRuntime,
 }
 
 async fn write_runtime_port(
-    profile_dir: &str,
+    session: &BrowserSession,
     debugging_port: u16,
 ) -> Result<(), BrowserGatewayError> {
-    tokio::fs::write(runtime_port_file(profile_dir), debugging_port.to_string())
-        .await
-        .map_err(|err| {
-            BrowserGatewayError::BrowserLaunch(format!("记录 CloakBrowser 调试端口失败: {err}"))
+    tokio::fs::write(
+        runtime_port_file(&session.profile_dir),
+        serde_json::json!({
+            "port": debugging_port, "settings": proxy::runtime_signature(session)
         })
+        .to_string(),
+    )
+    .await
+    .map_err(|err| {
+        BrowserGatewayError::BrowserLaunch(format!("记录 CloakBrowser 调试端口失败: {err}"))
+    })
 }
 
 fn runtime_port_file(profile_dir: &str) -> PathBuf {
@@ -205,7 +237,18 @@ fn runtime_port_file(profile_dir: &str) -> PathBuf {
 }
 
 fn parse_runtime_port(raw: &str) -> Option<u16> {
-    raw.trim().parse::<u16>().ok().filter(|port| *port > 0)
+    raw.trim()
+        .parse::<u16>()
+        .ok()
+        .or_else(|| {
+            serde_json::from_str::<serde_json::Value>(raw)
+                .ok()?
+                .get("port")?
+                .as_u64()?
+                .try_into()
+                .ok()
+        })
+        .filter(|port| *port > 0)
 }
 
 fn browser_launch_url() -> &'static str {
@@ -444,45 +487,5 @@ fn path_exists(path: &Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{browser_launch_url, local_bundle_candidate_paths, parse_runtime_port};
-    use mediagen_core::{bundled_cloakbrowser_candidates, first_existing_browser_binary};
-
-    #[test]
-    fn local_bundle_resolution_reuses_packaged_runtime_and_prefers_install_directory() {
-        let root = std::env::temp_dir().join(format!("mediagen-runtime-{}", uuid::Uuid::new_v4()));
-        let installed = bundled_cloakbrowser_candidates(&root).remove(0);
-        let packaged =
-            bundled_cloakbrowser_candidates(&root.join("dist-local/MediaGen-local")).remove(0);
-        let resolve = || first_existing_browser_binary(local_bundle_candidate_paths(&root));
-        assert_eq!(resolve(), None);
-
-        std::fs::create_dir_all(packaged.parent().unwrap()).unwrap();
-        // 目录不能被误认为浏览器可执行文件。
-        std::fs::create_dir(&packaged).unwrap();
-        let directory_result = resolve();
-        std::fs::remove_dir(&packaged).unwrap();
-        std::fs::write(&packaged, b"").unwrap();
-        let packaged_result = resolve();
-        std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
-        std::fs::write(&installed, b"").unwrap();
-        let installed_result = resolve();
-        std::fs::remove_dir_all(&root).unwrap();
-
-        assert_eq!(directory_result, None);
-        assert_eq!(packaged_result, Some(packaged));
-        assert_eq!(installed_result, Some(installed));
-    }
-
-    #[test]
-    fn browser_starts_blank_before_cdp_guards_are_ready() {
-        assert_eq!(browser_launch_url(), "about:blank");
-    }
-
-    #[test]
-    fn runtime_port_parser_rejects_invalid_registry_values() {
-        assert_eq!(parse_runtime_port("52500\n"), Some(52500));
-        assert_eq!(parse_runtime_port("0"), None);
-        assert_eq!(parse_runtime_port("not-a-port"), None);
-    }
-}
+#[path = "runtime_tests.rs"]
+mod tests;

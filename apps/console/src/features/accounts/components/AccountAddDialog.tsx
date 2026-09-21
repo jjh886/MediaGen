@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import BrowserHistoryControls from '@/shared/browser/BrowserHistoryControls'
 import RemoteBrowserPanel from '@/shared/browser/RemoteBrowserPanel'
-import { fetchAllProxies, type ProxyItem } from '@/shared/services/proxy-service'
+import { fetchAllProxies, proxyOptionLabel, type ProxyItem } from '@/shared/services/proxy-service'
 import { KtModal, KtButton, KtSelect } from '@/shared/ui'
 import {
   browserSessionHistory,
@@ -212,6 +212,22 @@ export default function AccountAddDialog({
         {browserSession ? (
           <>
             <RemoteBrowserPanel session={browserSession} mode="login" />
+            {typeof browserSession.metadata?.login_instructions === 'string' && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 12,
+                  left: 24,
+                  right: 24,
+                  padding: 12,
+                  borderRadius: 8,
+                  color: 'var(--text-primary)',
+                  background: 'var(--bg-primary)',
+                }}
+              >
+                {browserSession.metadata.login_instructions}
+              </div>
+            )}
             {errorText && (
               <div
                 style={{
@@ -322,9 +338,10 @@ function proxyModeOptions(isRelogin: boolean, proxies: ProxyItem[]) {
     : [{ value: 'none', label: '不使用代理' }]
   const saved = proxies
     .filter((proxy) => proxy.enabled)
+    .sort((a, b) => (a.bound_account_count ?? 0) - (b.bound_account_count ?? 0))
     .map((proxy) => ({
       value: `saved:${proxy.id}`,
-      label: `使用保存代理：${proxy.name || proxy.server}`,
+      label: proxyOptionLabel(proxy),
     }))
   return [...base, ...saved, { value: 'manual', label: '手动填写代理' }]
 }

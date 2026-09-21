@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import type { ProxyItem } from '@/shared/services/proxy-service'
 import { KtButton, KtInput, KtModal, KtSelect } from '@/shared/ui'
 import { parseProxyUrlParts } from '@/shared/utils/proxy-url'
 import {
@@ -163,7 +164,7 @@ function ProxyEndpointFields({
 }) {
   const updateHost = (raw: string) => {
     const parsed = parseProxyUrlParts(raw)
-    if (parsed && raw.includes('://')) onPatch(parsed)
+    if (parsed && (raw.includes('://') || raw.includes('@'))) onPatch(parsed)
     else onChange('host', raw)
   }
 
@@ -192,7 +193,7 @@ function ProxyEndpointFields({
       <FormField label="代理地址" error={errors.host}>
         <KtInput
           aria-label="代理地址"
-          placeholder="127.0.0.1、proxy.example.com 或完整 socks5h:// 地址"
+          placeholder="主机、完整代理 URL 或 username:password@ip:port"
           value={values.host}
           onChange={(event) => updateHost(event.target.value)}
           error={Boolean(errors.host)}
@@ -260,9 +261,27 @@ function ProxyFields({
   )
 }
 
-export function ProxyCreateDialog({ open, onClose, onSubmit }: DialogProps<ProxyCreateValues>) {
+export function ProxyCreateDialog({
+  open,
+  onClose,
+  onSubmit,
+  initial,
+}: DialogProps<ProxyCreateValues> & { initial?: ProxyItem | null }) {
   const formId = 'proxy-create-form'
-  const { values, errors, setErrors, update, patch } = useCreateForm(open, initialProxyForm)
+  const defaults = useMemo(
+    () =>
+      initial
+        ? {
+            ...initialProxyForm,
+            ...parseProxyUrlParts(initial.server),
+            name: initial.name,
+            username: initial.username,
+            password: '',
+          }
+        : initialProxyForm,
+    [initial]
+  )
+  const { values, errors, setErrors, update, patch } = useCreateForm(open, defaults)
   const [saving, setSaving] = useState(false)
   const [submitError, setSubmitError] = useState('')
 
@@ -282,13 +301,18 @@ export function ProxyCreateDialog({ open, onClose, onSubmit }: DialogProps<Proxy
     <CreateDialogFrame
       open={open}
       onClose={onClose}
-      title="新增代理"
+      title={initial ? '编辑代理' : '新增代理'}
       formId={formId}
       saving={saving}
       submitError={submitError}
       onSubmit={submit}
     >
       <ProxyFields values={values} errors={errors} onChange={update} onPatch={patch} />
+      {initial && (
+        <p style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+          密码留空保留原密码。保存后，已绑定账号的后续请求使用新配置。
+        </p>
+      )}
     </CreateDialogFrame>
   )
 }

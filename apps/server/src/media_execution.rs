@@ -100,6 +100,9 @@ pub(crate) fn classify_and_apply_failure(
     };
     apply_account_state_for_failure(state, context, &decision);
     if decision.account_state.is_some() {
+        state.account_refresh.notify_schedule_changed();
+    }
+    if decision.account_state.is_some() {
         state.store.record_account_failure(
             &context.account.id,
             &decision.category,

@@ -42,6 +42,14 @@ pub(crate) async fn transcribe(
     ) {
         return error(400, "unsupported_parameter", &message);
     }
+    let flow = if request.path().ends_with("/translations") {
+        "translate_audio"
+    } else {
+        "transcribe_audio"
+    };
+    if !manifest.flows.contains_key(flow) {
+        return error(400, "unsupported_endpoint", "模型不支持此音频接口");
+    }
     let task_id = crate::request_identity::id(&request);
     let (mut account, _lease) = match crate::protocol_task::reserve(
         &state,
@@ -54,11 +62,6 @@ pub(crate) async fn transcribe(
     ) {
         Ok(value) => value,
         Err(_) => return error(429, "account_unavailable", "没有可用账号或账号代理不可用"),
-    };
-    let flow = if request.path().ends_with("/translations") {
-        "translate_audio"
-    } else {
-        "transcribe_audio"
     };
     let format = body["response_format"]
         .as_str()

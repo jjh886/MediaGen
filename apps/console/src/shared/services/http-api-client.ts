@@ -96,11 +96,15 @@ export async function apiGet<T>(path: string): Promise<T> {
   return unwrapData<T>(payload)
 }
 
-export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+export async function apiPost<T>(
+  path: string,
+  body?: unknown,
+  method: 'POST' | 'PATCH' = 'POST'
+): Promise<T> {
   const response = await fetch(
     apiUrl(path),
     requestInit({
-      method: 'POST',
+      method,
       headers: {
         ...jsonPostHeaders(),
       },
@@ -112,6 +116,10 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
     throw new HttpApiError(errorMessage(payload, response.status), response.status)
   }
   return unwrapData<T>(payload)
+}
+
+export function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return apiPost<T>(path, body, 'PATCH')
 }
 
 export async function apiDelete<T>(path: string): Promise<T> {

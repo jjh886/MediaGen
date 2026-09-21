@@ -92,6 +92,17 @@ impl ServerPluginHost {
         proxy_url: String,
         metadata: &std::collections::HashMap<String, Value>,
     ) -> Self {
+        let proxy_url = crate::net_client::proxy_url_with_auth(
+            &proxy_url,
+            metadata
+                .get("proxy_username")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            metadata
+                .get("proxy_password")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+        );
         Self::with_fingerprint(proxy_url, BrowserFingerprint::from_metadata(metadata))
     }
 
@@ -164,6 +175,10 @@ impl ServerPluginHost {
             "http.request" => self.http_request(params, false).await,
             "http.sse_request" => self.http_request(params, true).await,
             "crypto.random_base64url" => random_base64url(params),
+            "crypto.random_uuid" => Ok(json!({"value": uuid::Uuid::new_v4().to_string()})),
+            "crypto.sha256_hex" => Ok(
+                json!({"value": format!("{:x}", Sha256::digest(required_str(params, "text")?.as_bytes()))}),
+            ),
             "crypto.sha256_base64url" => sha256_base64url(params),
             "crypto.base64_encode_utf8" => base64_encode_utf8(params),
             "crypto.base64_encode_latin1" => base64_encode_latin1(params),

@@ -159,6 +159,8 @@ pub(crate) fn public_account(account: AccountRecord) -> Value {
         "text_used_today": account.policy.text_used_today,
         "text_used_total": account.policy.text_used_total,
         "quota_task_kind": account.policy.quota_task_kind,
+        "quota_windows": account.policy.quota_windows,
+        "quota_holds": account.policy.quota_holds,
         "login_state_reason": account.policy.login_state_reason,
         "last_check_at": account.policy.last_check_at,
         "last_success_at": account.policy.last_success_at,

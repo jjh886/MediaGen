@@ -20,6 +20,7 @@ use uuid::Uuid;
 pub use crate::settings::{AppSettings, SettingsUpdate};
 
 pub struct AppStore {
+    pub(crate) session_affinity: Mutex<std::collections::HashMap<String, (String, i64)>>,
     pub(crate) path: PathBuf,
     pub(crate) account_dispatch: Mutex<()>,
     pub(crate) protocol_leases: Mutex<std::collections::HashSet<String>>,
@@ -64,6 +65,7 @@ impl AppStore {
             eprintln!("[mediagen-server] 已结束 {recovered} 个上次退出时中断的同步生成任务");
         }
         let store = Self {
+            session_affinity: Default::default(),
             path,
             account_dispatch: Mutex::new(()),
             protocol_leases: Default::default(),
@@ -324,6 +326,7 @@ impl AppStore {
     pub fn mark_account_state(&self, id: &str, login_state: &str) -> Option<AccountRecord> {
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         let account = accounts.iter_mut().find(|account| account.id == id)?;
+        crate::store_quota::remember(account);
         account.policy.login_state_reason = login_state.to_string();
         account.policy.last_check_at = Some(Utc::now().to_rfc3339());
         if login_state == "available" {
@@ -347,6 +350,7 @@ impl AppStore {
     ) -> Option<AccountRecord> {
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         let account = accounts.iter_mut().find(|account| account.id == id)?;
+        crate::store_quota::remember(account);
         account.policy.login_state_reason = login_state.to_string();
         account.policy.last_check_at = Some(Utc::now().to_rfc3339());
         if login_state == "available" {
@@ -439,6 +443,9 @@ impl AppStore {
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         for account in accounts.iter_mut() {
             if account_hold_has_expired(account, now) {
+                if let Some(kind) = account.policy.quota_task_kind.clone() {
+                    crate::store_quota::clear_confirmed(account, &kind);
+                }
                 account.login_state = "available".to_string();
                 account.cooldown_until = None;
                 account.policy.quota_task_kind = None;

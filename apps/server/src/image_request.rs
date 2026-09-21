@@ -56,6 +56,8 @@ pub struct OpenAiImageRequest {
     pub stream: Option<bool>,
     #[serde(default, rename = "async")]
     pub async_generation: bool,
+    #[serde(default)]
+    pub sync: Option<bool>,
     /// MediaGen 扩展字段：OpenAI 图片接口没有逐请求 callback_url，这里只在 async=true 时生效。
     #[serde(default, alias = "webhook_url")]
     pub callback_url: Option<String>,
@@ -96,6 +98,7 @@ impl OpenAiImageRequest {
             background: None,
             stream: None,
             async_generation: false,
+            sync: None,
             callback_url: None,
             partial_images: None,
             output_compression: None,
@@ -109,6 +112,9 @@ impl OpenAiImageRequest {
     }
 
     pub fn apply_endpoint_defaults(&mut self, endpoint: ImageEndpoint) {
+        if self.sync == Some(false) {
+            self.async_generation = true;
+        }
         if self.model.trim().is_empty() {
             self.model = "gpt-image-1".to_string();
         }
@@ -120,6 +126,12 @@ impl OpenAiImageRequest {
     }
 
     pub fn validate(&self, endpoint: ImageEndpoint) -> Result<(), (u16, &'static str, String)> {
+        if self.sync == Some(true) && self.async_generation {
+            return request_error("sync=true 与 async=true 不能同时使用");
+        }
+        if self.async_generation && self.stream == Some(true) {
+            return request_error("排队模式不能同时使用 stream=true，请通过任务接口获取结果");
+        }
         self.output_dimensions()
             .map_err(|message| (400, "invalid_request_error", message))?;
         if self.model.trim().is_empty() {

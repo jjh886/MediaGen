@@ -13,6 +13,25 @@ fn http_request_defaults_to_account_proxy() {
     );
 }
 
+#[tokio::test]
+async fn login_proxy_credentials_and_generic_crypto_atoms_are_preserved() {
+    use mediagen_plugin_runtime::PluginHost;
+    let metadata = HashMap::from([
+        ("proxy_username".into(), json!("u@a")),
+        ("proxy_password".into(), json!("p:a/ss")),
+    ]);
+    let host = ServerPluginHost::new_with_metadata("socks5h://proxy.test:1080".into(), &metadata);
+    assert_eq!(host.proxy_url, "socks5h://u%40a:p%3Aa%2Fss@proxy.test:1080");
+    let result = host.call("crypto.random_uuid", &json!({})).await;
+    let id = uuid::Uuid::parse_str(result.data["value"].as_str().unwrap()).unwrap();
+    assert_eq!(id.get_version_num(), 4);
+    let digest = host.call("crypto.sha256_hex", &json!({"text":"abc"})).await;
+    assert_eq!(
+        digest.data["value"],
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+}
+
 #[test]
 fn http_request_can_opt_out_of_account_proxy() {
     assert_eq!(

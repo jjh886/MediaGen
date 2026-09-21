@@ -34,8 +34,34 @@ pub(crate) struct AccountRefreshSummary {
 
 pub(crate) fn start_worker(state: web::Data<ServerState>) {
     actix_web::rt::spawn(async move {
+        if state.store.settings().check_interval_minutes > 0 {
+            let summary = refresh_accounts(&state).await;
+            record_automatic_refresh(&state.store, &summary);
+        }
         loop {
-            let interval = refresh_interval(state.store.settings().check_interval_minutes);
+            let interval =
+                refresh_interval(state.store.settings().check_interval_minutes).map(|interval| {
+                    state
+                        .store
+                        .list_accounts(None)
+                        .iter()
+                        .flat_map(|a| {
+                            a.cooldown_until.iter().chain(
+                                a.policy
+                                    .quota_holds
+                                    .values()
+                                    .filter_map(|hold| hold.until.as_ref()),
+                            )
+                        })
+                        .filter_map(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+                        .filter_map(|at| {
+                            let seconds = at.timestamp() - chrono::Utc::now().timestamp();
+                            (seconds > 0).then(|| Duration::from_secs(seconds as u64 + 1))
+                        })
+                        .min()
+                        .map(|reset| interval.min(reset))
+                        .unwrap_or(interval)
+                });
             run_scheduled_refresh(&state, interval).await;
         }
     });
@@ -134,6 +160,13 @@ fn apply_refresh_outcome(
     outcome: AccountLoginCheckOutcome,
     summary: &mut AccountRefreshSummary,
 ) {
+    if state
+        .store
+        .account_by_id(account_id)
+        .is_none_or(|account| account.login_state == "disabled")
+    {
+        return;
+    }
     summary.checked += 1;
     match outcome {
         AccountLoginCheckOutcome::Available(profile) => {

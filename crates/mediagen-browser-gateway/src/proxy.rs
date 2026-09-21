@@ -6,6 +6,35 @@ use serde_json::{json, Value};
 use crate::cdp::CdpClient;
 use crate::{BrowserGatewayError, BrowserSession};
 
+pub(crate) fn runtime_signature(session: &BrowserSession) -> String {
+    use sha2::{Digest, Sha256};
+    let values = [
+        "proxy_server",
+        "proxy_username",
+        "proxy_password",
+        "browser_os",
+        "browser_version",
+    ]
+    .map(|key| session.metadata.get(key).cloned().unwrap_or(Value::Null));
+    format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&values).unwrap_or_default())
+    )
+}
+
+pub(crate) async fn runtime_config_matches(
+    path: &std::path::Path,
+    session: &BrowserSession,
+) -> bool {
+    let Ok(bytes) = tokio::fs::read(path).await else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
+        return false;
+    };
+    value["settings"].as_str() == Some(runtime_signature(session).as_str())
+}
+
 #[derive(Debug, Clone)]
 struct ProxyAuth {
     username: String,
@@ -122,10 +151,14 @@ fn proxy_server_without_auth(raw: &str) -> String {
 }
 
 fn decode_url_part(value: &str) -> String {
-    value
-        .replace("%40", "@")
-        .replace("%3A", ":")
-        .replace("%2F", "/")
+    reqwest::Url::parse(&format!("http://local/?v={}", value.replace('+', "%2B")))
+        .ok()
+        .and_then(|url| {
+            url.query_pairs()
+                .next()
+                .map(|(_, value)| value.into_owned())
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

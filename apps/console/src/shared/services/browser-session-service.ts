@@ -34,6 +34,7 @@ export interface BrowserSession {
   updated_at: string
   cancelled_at?: string | null
   completed_at?: string | null
+  metadata?: Record<string, unknown>
 }
 
 export interface BrowserSessionCreateRequest {

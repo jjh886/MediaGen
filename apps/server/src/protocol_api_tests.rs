@@ -232,7 +232,9 @@ async fn invalid_requests_return_openai_errors_and_request_id() {
             .to_request(),
     )
     .await;
-    assert_eq!(response.status(), 404);
+    assert_eq!(response.status(), 400);
+    let body: Value = actix_test::read_body_json(response).await;
+    assert_eq!(body["error"]["code"], "missing_model");
 }
 
 #[test]

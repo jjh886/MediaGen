@@ -16,7 +16,57 @@ function main(ctx) {
     }
   }
 
-  return codexHealthFromHttpResult(result, auth)
+  const health = codexHealthFromHttpResult(result, auth)
+  if (health.status !== 'available') return health
+  const usage = host.tryCall('http.request', {
+    method: 'GET',
+    url: 'https://chatgpt.com/backend-api/wham/usage',
+    headers: codexUpstreamHeaders(codexAccessToken(auth), codexAccountId(auth), 'application/json'),
+    fingerprint: 'none',
+    timeout_ms: 20000,
+  })
+  if (!codexHttpSucceeded(usage))
+    return { ...health, status: 'inconclusive', reason: '登录有效，但额度暂时无法确认' }
+  return { ...health, ...codexUsageStatus(usage.data.body) }
+}
+
+function codexUsageStatus(body) {
+  const limit = body?.rate_limit
+  if (!limit) return { status: 'inconclusive', reason: '额度接口未返回有效窗口' }
+  const now = Date.now()
+  const windows = []
+  for (const [key, label] of [
+    ['primary_window', '短周期'],
+    ['secondary_window', '长周期'],
+  ]) {
+    const item = limit[key]
+    if (!item || typeof item.used_percent !== 'number') continue
+    const seconds = Number(item.limit_window_seconds)
+    const reset =
+      Number(item.reset_at) * 1000 ||
+      (Number(item.reset_after_seconds) > 0 ? now + item.reset_after_seconds * 1000 : 0)
+    windows.push({
+      name: seconds === 18000 ? '5 小时' : seconds === 604800 ? '每周' : label,
+      task_kind: 'text',
+      remaining_percent: Math.max(0, Math.min(100, 100 - item.used_percent)),
+      reset_at: reset > 0 ? new Date(reset).toISOString() : null,
+    })
+  }
+  const blocked = windows.filter(
+    (w) => w.remaining_percent === 0 && (!w.reset_at || Date.parse(w.reset_at) > now)
+  )
+  const limited = limit.allowed === false || limit.limit_reached === true || blocked.length > 0
+  const resets = blocked
+    .map((w) => Date.parse(w.reset_at))
+    .filter((t) => Number.isFinite(t) && t > now)
+  return {
+    quota_windows: windows,
+    quota_task_kind: 'text',
+    status: limited ? 'daily_quota_exhausted' : 'available',
+    cooldown_seconds:
+      limited && resets.length ? Math.ceil((Math.max(...resets) - now) / 1000) : null,
+    reason: limited ? '文本额度已用完，等待平台窗口恢复' : '登录与文本额度正常',
+  }
 }
 
 function codexHealthFromError(error) {
@@ -28,9 +78,10 @@ function codexHealthFromError(error) {
       reason: message.replace(/^AUTH_INCONCLUSIVE:\s*/, ''),
     }
   }
+  const expired = message.startsWith('LOGIN_EXPIRED:')
   return {
-    logged_in: false,
-    status: 'login_expired',
+    logged_in: expired ? false : null,
+    status: expired ? 'login_expired' : 'inconclusive',
     reason: message.replace(/^LOGIN_EXPIRED:\s*/, ''),
   }
 }

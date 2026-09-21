@@ -97,6 +97,17 @@ pub(crate) async fn complete_image_task(
             state.store.fail_task(task_id, message.clone());
             (502, "image_result_error", message)
         })?;
+    if state.store.generation_job(task_id, None).is_some() {
+        crate::generation_queue::result::save(state, task_id, &response)
+            .await
+            .map_err(|_| {
+                (
+                    500,
+                    "RESULT_STORAGE_ERROR",
+                    "图片已生成但本地保存失败，请勿重复生成".to_string(),
+                )
+            })?;
+    }
     state.store.complete_task(task_id, metadata);
     Ok(response)
 }

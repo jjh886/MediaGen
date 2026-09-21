@@ -17,7 +17,9 @@ interface AccountProxyFieldsProps {
 }
 
 const protocolOptions: { value: ProxyProtocol; label: string }[] = [
-  { value: 'socks5h', label: 'SOCKS5H（推荐）' },
+  { value: 'http', label: 'HTTP' },
+  { value: 'https', label: 'HTTPS' },
+  { value: 'socks5h', label: 'SOCKS5H' },
   { value: 'socks5', label: 'SOCKS5' },
 ]
 
@@ -25,7 +27,7 @@ const proxyGridStyle = accountTwoColumnGridStyle(120)
 
 function applyHostInput(value: ProxyFormState, raw: string): ProxyFormState {
   const parsed = parseProxyUrlParts(raw)
-  if (!parsed || !raw.includes('://')) {
+  if (!parsed || (!raw.includes('://') && !raw.includes('@'))) {
     return updateAccountFormField(value, 'host', raw)
   }
   return { ...value, enabled: true, ...parsed }
@@ -71,7 +73,7 @@ export default function AccountProxyFields({ value, onChange }: AccountProxyFiel
           <div style={accountFieldStyle}>
             <span style={accountFieldLabelStyle}>代理地址</span>
             <KtInput
-              placeholder="127.0.0.1、proxy.example.com 或完整 socks5h:// 地址"
+              placeholder="主机、完整代理 URL 或 username:password@ip:port"
               value={value.host}
               onChange={(event) => onChange(applyHostInput(value, event.target.value))}
             />

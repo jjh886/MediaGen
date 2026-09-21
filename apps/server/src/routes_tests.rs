@@ -182,7 +182,8 @@ async fn admin_api_key_routes_create_list_and_delete() {
 
 #[actix_web::test]
 async fn admin_proxy_routes_create_list_and_delete() {
-    let app = crate::init_admin_test_app!(test_state("admin-proxies"));
+    let state = test_state("admin-proxies");
+    let app = crate::init_admin_test_app!(state.clone());
 
     let bad_proxy = post_json!(app, "/api/proxies", json!({ "server": "http://proxy" }));
     assert_eq!(bad_proxy.status(), actix_web::http::StatusCode::BAD_REQUEST);
@@ -206,6 +207,37 @@ async fn admin_proxy_routes_create_list_and_delete() {
     assert_eq!(proxies["data"][0]["server"], "socks5h://proxy.example:1080");
     assert!(proxies["data"][0].get("password").is_none());
     assert_eq!(proxies["data"][0]["password_configured"], true);
+
+    let mut account = account_record("bound-proxy", "fake", "bound", "");
+    account.proxy_id = proxy_id.into();
+    state.store.insert_account(account);
+    let updated = call_json(
+        &app,
+        actix_test::TestRequest::patch()
+            .uri(&format!("/api/proxies/{proxy_id}"))
+            .set_json(json!({"name":"HTTP proxy","server":"http://proxy.example:6010"}))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(updated["data"]["server"], "http://proxy.example:6010");
+    assert_eq!(state.store.proxy_by_id(proxy_id).unwrap().password, "pass");
+    assert_eq!(
+        get_json!(app, "/api/proxies")["data"][0]["bound_account_count"],
+        1
+    );
+    let invalid = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::patch()
+            .uri(&format!("/api/proxies/{proxy_id}"))
+            .set_json(json!({"server":"ftp://proxy.example:21"}))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(invalid.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        state.store.proxy_by_id(proxy_id).unwrap().server,
+        "http://proxy.example:6010"
+    );
 
     assert!(delete_request!(app, &format!("/api/proxies/{proxy_id}"))
         .status()

@@ -5,6 +5,7 @@ import { appendUnique, LIST_PAGE_SIZE } from '@/shared/services/list-pagination'
 import {
   createApiKey,
   createProxy,
+  updateProxy,
   deleteApiKey,
   deleteProxy,
   fetchApiKeys,
@@ -156,12 +157,15 @@ export function ProxiesPage() {
   const pageRef = useRef<HTMLDivElement>(null)
   const proxyTests = useProxyTests()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editing, setEditing] = useState<ProxyItem | null>(null)
   const refresh = useCallback(async () => {
     pageRef.current?.closest('.app-shell__main')?.scrollTo({ top: 0 })
     await proxies.load()
   }, [proxies.load])
   const submit = async (values: ProxyCreateValues) => {
-    await createProxy(values)
+    if (editing)
+      await updateProxy(editing.id, { ...values, password: values.password || undefined })
+    else await createProxy(values)
     await refresh()
   }
   return (
@@ -170,12 +174,23 @@ export function ProxiesPage() {
         title="代理"
         onRefresh={refresh}
         action={
-          <KtButton variant="primary" onClick={() => setDialogOpen(true)}>
+          <KtButton
+            variant="primary"
+            onClick={() => {
+              setEditing(null)
+              setDialogOpen(true)
+            }}
+          >
             <Plus size={16} /> 新增代理
           </KtButton>
         }
       />
-      <ProxyCreateDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onSubmit={submit} />
+      <ProxyCreateDialog
+        open={dialogOpen}
+        initial={editing}
+        onClose={() => setDialogOpen(false)}
+        onSubmit={submit}
+      />
       <AdminEntityList
         items={proxies.items}
         loading={proxies.loading}
@@ -187,7 +202,23 @@ export function ProxiesPage() {
         emptyText="还没有代理。新增后可在添加账号或账号配置中绑定使用。"
         columns={(item) => proxyColumns(item, proxyTests.tests[item.id])}
         renderActions={(item) => (
-          <ProxyTestButton item={item} state={proxyTests.tests[item.id]} onTest={proxyTests.run} />
+          <>
+            <KtButton
+              size="sm"
+              aria-label={`编辑代理 ${item.name}`}
+              onClick={() => {
+                setEditing(item)
+                setDialogOpen(true)
+              }}
+            >
+              编辑
+            </KtButton>
+            <ProxyTestButton
+              item={item}
+              state={proxyTests.tests[item.id]}
+              onTest={proxyTests.run}
+            />
+          </>
         )}
         onDelete={(item) => deleteProxy(item.id).then(refresh)}
         deleteTitle="删除代理"
@@ -224,7 +255,11 @@ function useProxyTests() {
 }
 
 function proxyColumns(item: ProxyItem, state?: ProxyTestState) {
-  return [item.name, item.server, state?.message || proxyAuthText(item)]
+  return [
+    item.name,
+    `${item.server} · 已绑定 ${item.bound_account_count ?? 0} 个账号`,
+    state?.message || proxyAuthText(item),
+  ]
 }
 
 function proxyAuthText(item: ProxyItem) {

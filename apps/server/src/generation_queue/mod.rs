@@ -2,6 +2,7 @@ mod api;
 mod callback;
 mod credential;
 mod records;
+pub(crate) mod result;
 #[cfg(test)]
 mod store_tests;
 mod worker;

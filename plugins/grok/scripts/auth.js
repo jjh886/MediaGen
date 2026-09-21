@@ -59,21 +59,41 @@ function grokHeaders(ctx, auth, build = false) {
     'user-agent': (build ? 'grok-shell/' : 'xai-grok-build/') + GROK_VERSION + ' (linux; x86_64)',
   }
   if (build) {
+    const requestId = String(ctx.request_id || ctx.task_id || '').replace(/^req_/, '')
+    const wireId = /^[0-9a-f]{32}$/i.test(requestId)
+      ? grokUUID(requestId)
+      : host.call('crypto.random_uuid', {}).value
     Object.assign(headers, {
       'x-xai-token-auth': 'xai-grok-cli',
       'x-grok-client-version': GROK_VERSION,
       'x-grok-client-identifier': 'grok-shell',
       'x-grok-client-mode': 'headless',
       'x-grok-agent-id': auth.agent_id,
-      'x-grok-req-id': ctx.request_id || ctx.task_id || '',
+      'x-grok-req-id': wireId,
+      'x-client-request-id': ctx.request_id || ctx.task_id || wireId,
       'x-authenticateresponse': 'authenticate-response',
     })
     if (auth.user_id) headers['x-grok-user-id'] = auth.user_id
-    const cache = ctx.request?.prompt_cache_key
-    if (typeof cache === 'string' && /^[0-9a-f-]{36}$/i.test(cache))
-      headers['x-grok-session-id'] = headers['x-grok-conv-id'] = cache
+    if (ctx.request?.model) headers['x-grok-model-override'] = ctx.request.model
+    const cache = String(ctx.request?.prompt_cache_key || '').trim()
+    if (cache) {
+      const hash = host.call('crypto.sha256_hex', { text: 'mediagen:grok:session:' + cache }).value
+      const session = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(cache)
+        ? cache.toLowerCase()
+        : grokUUID(hash.slice(0, 12) + '8' + hash.slice(13, 16) + 'a' + hash.slice(17, 32))
+      headers['x-grok-session-id'] = headers['x-grok-conv-id'] = session
+    }
   }
   return headers
+}
+function grokUUID(hex) {
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32),
+  ].join('-')
 }
 function grokRequest(ctx, auth, path, body, options = {}) {
   const build = options.build === true
@@ -86,7 +106,16 @@ function grokRequest(ctx, auth, path, body, options = {}) {
     timeout_ms: 180000,
     ...options,
   })
-  if (!result.ok) grokError(result)
+  if (!result.ok) {
+    if (
+      result.status >= 400 &&
+      result.status < 500 &&
+      result.status !== 408 &&
+      host.checkpoint()?.phase === 'submitting'
+    )
+      host.checkpoint({ phase: 'ready' })
+    grokError(result)
+  }
   return result
 }
 function grokAsset(url) {

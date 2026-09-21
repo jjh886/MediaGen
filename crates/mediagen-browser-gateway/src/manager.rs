@@ -40,6 +40,10 @@ pub struct BrowserGateway {
 }
 
 impl BrowserGateway {
+    pub fn profile_root(&self) -> &std::path::Path {
+        &self.config.profile_root
+    }
+
     pub fn new(config: BrowserGatewayConfig) -> Self {
         Self {
             config,

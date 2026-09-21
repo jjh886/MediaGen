@@ -1,0 +1,226 @@
+.api-docs {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 8px 0 40px;
+  color: var(--text-primary);
+}
+.api-docs__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.api-docs h1 {
+  font-size: 28px;
+  letter-spacing: -0.8px;
+  margin: 10px 0;
+}
+.api-docs h2 {
+  font-size: 18px;
+}
+.api-docs p {
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+.api-docs__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--text-secondary);
+}
+.api-docs__intro {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding: 24px;
+  border: 1px solid var(--border-muted);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+}
+.api-docs__intro span {
+  display: block;
+  color: var(--text-disabled);
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  margin-bottom: 10px;
+}
+.api-docs__intro p {
+  grid-column: 1/-1;
+  font-size: 12px;
+  margin: 0;
+}
+.api-docs code,
+.api-docs pre {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+.api-docs__guide {
+  margin: 16px 0 24px;
+}
+.api-docs summary {
+  cursor: pointer;
+}
+.api-docs pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+  padding: 18px;
+  margin: 0;
+  color: var(--text-secondary);
+}
+.api-docs__guide pre {
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  margin-top: 12px;
+}
+.api-docs__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+}
+.api-docs__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 220px;
+}
+.api-docs__groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.api-docs__groups button {
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+.api-docs__groups button[aria-pressed='true'] {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border-color: var(--border-muted);
+}
+.api-docs__count {
+  font-size: 11px;
+  color: var(--text-disabled);
+  margin: 16px 0;
+}
+.api-docs__endpoint {
+  border: 1px solid var(--border-muted);
+  border-radius: 8px;
+  margin-bottom: 9px;
+  overflow: hidden;
+}
+.api-docs__endpoint summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  background: var(--bg-secondary);
+}
+.api-docs__endpoint summary > span:last-child {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.api-docs__method {
+  display: inline-block;
+  min-width: 48px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #77b9df;
+}
+.api-docs__method--post {
+  color: #94cba8;
+}
+.api-docs__method--delete {
+  color: #e69d86;
+}
+.api-docs__method--ws {
+  color: #cab783;
+}
+.api-docs__body {
+  padding: 4px 20px 20px;
+}
+.api-docs__body li {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.8;
+  margin-bottom: 5px;
+}
+.api-docs__examples {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.api-docs__examples section {
+  min-width: 0;
+  border: 1px solid var(--border-muted);
+  border-radius: 8px;
+  background: var(--bg-primary);
+}
+.api-docs__code-title {
+  padding: 10px 16px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 30px;
+  border-bottom: 1px solid var(--border-muted);
+}
+.api-docs__notice {
+  padding: 12px;
+  margin-bottom: 14px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+}
+.api-docs__errors {
+  margin-top: 32px;
+  overflow-x: auto;
+}
+.api-docs__errors table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+.api-docs__errors td,
+.api-docs__errors th {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border-muted);
+  line-height: 1.6;
+}
+.api-docs__errors td {
+  color: var(--text-secondary);
+}
+@media (max-width: 900px) {
+  .api-docs__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .api-docs__intro,
+  .api-docs__examples {
+    grid-template-columns: 1fr;
+  }
+  .api-docs__endpoint summary {
+    flex-wrap: wrap;
+  }
+  .api-docs__endpoint summary > span:last-child {
+    margin-left: 0;
+    width: 100%;
+  }
+  .api-docs__endpoint summary code {
+    overflow-wrap: anywhere;
+    min-width: 0;
+    flex: 1;
+  }
+}

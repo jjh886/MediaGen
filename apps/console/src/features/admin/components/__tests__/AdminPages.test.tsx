@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   deleteApiKey: vi.fn(),
   fetchProxies: vi.fn(),
   createProxy: vi.fn(),
+  updateProxy: vi.fn(),
   deleteProxy: vi.fn(),
   testProxy: vi.fn(),
 }))
@@ -18,6 +19,7 @@ vi.mock('../../services/admin-service', () => ({
   deleteApiKey: (...args: unknown[]) => mocks.deleteApiKey(...args),
   fetchProxies: (...args: unknown[]) => mocks.fetchProxies(...args),
   createProxy: (...args: unknown[]) => mocks.createProxy(...args),
+  updateProxy: (...args: unknown[]) => mocks.updateProxy(...args),
   deleteProxy: (...args: unknown[]) => mocks.deleteProxy(...args),
   testProxy: (...args: unknown[]) => mocks.testProxy(...args),
 }))
@@ -29,6 +31,8 @@ describe('AdminPages', () => {
     mocks.deleteApiKey.mockReset()
     mocks.fetchProxies.mockReset()
     mocks.createProxy.mockReset()
+    mocks.updateProxy.mockReset()
+    mocks.updateProxy.mockResolvedValue(undefined)
     mocks.deleteProxy.mockReset()
     mocks.testProxy.mockReset()
     mocks.fetchApiKeys.mockResolvedValue([
@@ -121,5 +125,39 @@ describe('AdminPages', () => {
       })
     })
     expect(mocks.fetchProxies).toHaveBeenCalledTimes(2)
+  })
+  it('编辑代理保留密码，支持粘贴 curl 的无协议认证地址', async () => {
+    render(<ProxiesPage />)
+    await screen.findByText('默认代理')
+    expect(screen.getByText(/已绑定 0 个账号/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '编辑代理 默认代理' }))
+    expect(screen.getByLabelText('密码')).toHaveValue('')
+    fireEvent.change(screen.getByLabelText('代理名称'), { target: { value: '改名代理' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() =>
+      expect(mocks.updateProxy).toHaveBeenCalledWith('proxy-1', {
+        name: '改名代理',
+        server: 'socks5h://proxy.example:1080',
+        username: '',
+      })
+    )
+    fireEvent.click(screen.getByRole('button', { name: '新增代理' }))
+    fireEvent.change(screen.getByLabelText('代理名称'), { target: { value: 'HTTP 代理' } })
+    fireEvent.change(screen.getByLabelText('代理地址'), {
+      target: { value: 'user:pass@proxy.example:6010' },
+    })
+    expect(screen.getByLabelText('代理地址')).toHaveValue('proxy.example')
+    expect(screen.getByLabelText('端口')).toHaveValue(6010)
+    expect(screen.getByLabelText('账号')).toHaveValue('user')
+    expect(screen.getByLabelText('密码')).toHaveValue('pass')
+    fireEvent.click(screen.getByRole('button', { name: '新增' }))
+    await waitFor(() =>
+      expect(mocks.createProxy).toHaveBeenCalledWith({
+        name: 'HTTP 代理',
+        server: 'http://proxy.example:6010',
+        username: 'user',
+        password: 'pass',
+      })
+    )
   })
 })

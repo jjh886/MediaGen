@@ -92,6 +92,15 @@ impl AppStore {
         changed
     }
 
+    pub fn update_proxy(&self, proxy: ProxyRecord) -> Option<ProxyRecord> {
+        let mut proxies = self.proxies.lock().unwrap_or_else(|e| e.into_inner());
+        let current = proxies.iter_mut().find(|p| p.id == proxy.id)?;
+        *current = proxy.clone();
+        drop(proxies);
+        self.save();
+        Some(proxy)
+    }
+
     pub fn list_audit_logs(&self) -> Vec<AuditLogRecord> {
         let mut logs = self
             .audit_logs

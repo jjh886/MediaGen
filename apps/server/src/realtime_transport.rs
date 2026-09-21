@@ -48,7 +48,10 @@ pub(crate) async fn connect(account: &AccountRecord, descriptor: &Value) -> Resu
             .and_then(|value| value.to_str().ok())
             != Some(derive_accept_key(key.as_bytes()).as_str())
     {
-        return Err("上游拒绝 WebSocket 握手".into());
+        return Err(format!(
+            "上游拒绝 WebSocket 握手（HTTP {}）",
+            response.status().as_u16()
+        ));
     }
     let stream = response.upgrade().await.map_err(|_| "WebSocket 升级失败")?;
     let config = WebSocketConfig::default()
@@ -163,7 +166,7 @@ async fn drive_connected(
     }
 }
 
-async fn send(socket: &mut Socket, message: Message) -> Result<(), String> {
+pub(crate) async fn send(socket: &mut Socket, message: Message) -> Result<(), String> {
     tokio::time::timeout(Duration::from_secs(5), socket.send(message))
         .await
         .map_err(|_| "实时连接写入超时".to_string())?

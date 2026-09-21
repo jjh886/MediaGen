@@ -2,6 +2,7 @@ import { apiDelete, apiGet, apiPost } from '@/shared/services/http-api-client'
 import { LIST_PAGE_SIZE, pagedQuery } from '@/shared/services/list-pagination'
 export {
   createProxy,
+  updateProxy,
   deleteProxy,
   fetchProxies,
   testProxy,

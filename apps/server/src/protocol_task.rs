@@ -49,8 +49,22 @@ pub(crate) fn reserve(
     id: &str,
     requirements: Option<&serde_json::Value>,
 ) -> Result<(crate::store::AccountRecord, Lease), String> {
+    reserve_affinity(state, manifest, model_id, kind, key, id, requirements, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn reserve_affinity(
+    state: &crate::ServerState,
+    manifest: &mediagen_core::PluginManifest,
+    model_id: &str,
+    kind: &str,
+    key: &str,
+    id: &str,
+    requirements: Option<&serde_json::Value>,
+    preferred: Option<&str>,
+) -> Result<(crate::store::AccountRecord, Lease), String> {
     let account = state.store.with_account_dispatch(|| {
-        let excluded = state
+        let mut excluded = state
             .store
             .list_accounts(Some(&manifest.platform_id))
             .into_iter()
@@ -75,6 +89,25 @@ pub(crate) fn reserve(
             })
             .map(|account| account.id)
             .collect::<Vec<_>>();
+        if let Some(preferred) = preferred
+            .and_then(|id| state.store.account_by_id(id))
+            .filter(|a| {
+                a.platform == manifest.platform_id
+                    && !excluded.contains(&a.id)
+                    && crate::store_helpers::account_ready_for_kind(a, &[], kind)
+                    && (state.store.global_api_key_allowed(key)
+                        || crate::access_control::account_key_allowed(&a.api_key, key))
+            })
+        {
+            excluded.extend(
+                state
+                    .store
+                    .list_accounts(Some(&manifest.platform_id))
+                    .into_iter()
+                    .filter(|a| a.id != preferred.id)
+                    .map(|a| a.id),
+            );
+        }
         let account = state
             .store
             .select_account(&manifest.platform_id, Some(key), &excluded, kind)

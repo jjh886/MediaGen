@@ -3,7 +3,17 @@ function main(ctx) {
   const pending = host.call('file.read_json', { path })
   if (Date.now() > pending.expires_at) throw new Error('Grok 授权码已过期，请重新登录')
   if (Date.now() < pending.next_poll_at) return { loggedIn: false }
-  if (!pending.device_code) throw new Error('Grok 授权流程尚未初始化，请重新登录')
+  if (!pending.device_code) {
+    const auth = host.call('file.read_json', { path: ctx.profile_dir + '/auth.json' })
+    if (!auth.access_token || !auth.user_id) throw new Error('Grok 授权流程尚未初始化，请重新登录')
+    return {
+      loggedIn: true,
+      userId: auth.user_id,
+      email: auth.email || '',
+      username: auth.email || auth.user_id,
+      tier: 'free',
+    }
+  }
   const result = host.call('http.request', {
     method: 'POST',
     url: 'https://auth.x.ai/oauth2/token',
@@ -36,7 +46,7 @@ function main(ctx) {
   }
   const userId = String(claims.sub || claims.user_id || '')
   if (!userId) throw new Error('Grok 授权缺少账号身份')
-  const agentId = host.call('crypto.random_base64url', { length: 24 }).value
+  const agentId = host.call('crypto.random_uuid', {}).value
   host.call('file.write_json', {
     path: ctx.profile_dir + '/auth.json',
     value: {

@@ -14,6 +14,9 @@ pub(crate) fn account_ready_for_kind(
     tasks: &[TaskRecord],
     kind: &str,
 ) -> bool {
+    if crate::store_quota::blocked(account, kind) {
+        return false;
+    }
     let mut scoped = account.clone();
     if account
         .policy
@@ -51,10 +54,17 @@ pub(crate) fn reset_daily_usage(account: &mut AccountRecord, today: &str) -> boo
     if account.used_today_date == today {
         return false;
     }
+    crate::store_quota::reset_daily(account);
     account.used_today = 0;
     account.policy.text_used_today = 0;
     account.used_today_date = today.to_string();
-    if account.login_state == "daily_quota_exhausted" {
+    if account.login_state == "daily_quota_exhausted"
+        && account
+            .cooldown_until
+            .as_deref()
+            .and_then(parse_time)
+            .is_none_or(|until| until <= Utc::now())
+    {
         account.login_state = "available".to_string();
         account.policy.quota_task_kind = None;
         account.policy.login_state_reason.clear();
@@ -144,6 +154,9 @@ pub(crate) fn apply_account_update(account: &mut AccountRecord, update: AccountU
 }
 
 pub(crate) fn apply_account_profile(account: &mut AccountRecord, profile: AccountLoginProfile) {
+    if let Some(windows) = profile.quota_windows {
+        account.policy.quota_windows = windows;
+    }
     set_non_empty(&mut account.policy.user_id, profile.user_id.clone());
     set_non_empty(&mut account.name, profile.username);
     set_non_empty(&mut account.email, profile.email);
@@ -316,6 +329,20 @@ mod tests {
         assert_eq!(account.used_today_date, "2026-08-11");
         assert_eq!(account.login_state, "available");
         assert!(!reset_daily_usage(&mut account, "2026-08-11"));
+    }
+
+    #[test]
+    fn new_calendar_day_does_not_release_platform_weekly_quota() {
+        let mut account = account_record("limited", "platform", "limited", "");
+        account.login_state = "daily_quota_exhausted".into();
+        account.policy.quota_task_kind = Some("text".into());
+        account.cooldown_until = Some((Utc::now() + Duration::days(5)).to_rfc3339());
+        account.used_today = 10;
+        assert!(reset_daily_usage(&mut account, "next-day"));
+        assert_eq!(account.used_today, 0);
+        assert_eq!(account.login_state, "daily_quota_exhausted");
+        assert!(!super::account_ready_for_kind(&account, &[], "text"));
+        assert!(super::account_ready_for_kind(&account, &[], "image"));
     }
 
     #[test]

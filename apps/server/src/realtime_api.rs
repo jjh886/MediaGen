@@ -34,14 +34,18 @@ impl Drop for ControllerLease {
 }
 
 pub(crate) fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.route("/v1/live/sessions", web::post().to(create))
-        .route(
-            "/v1/live/sessions/{call_id}/attach",
-            web::get().to(sideband_path),
-        )
-        .route("/v1/live/sessions/{call_id}/hangup", web::post().to(hangup))
-        .route("/v1/live", web::post().to(create))
-        .route("/v1/live/{call_id}", web::get().to(sideband_path));
+    cfg.route(
+        "/v1/realtime",
+        web::get().to(crate::realtime_primary::connect),
+    )
+    .route("/v1/live/sessions", web::post().to(create))
+    .route(
+        "/v1/live/sessions/{call_id}/attach",
+        web::get().to(sideband_path),
+    )
+    .route("/v1/live/sessions/{call_id}/hangup", web::post().to(hangup))
+    .route("/v1/live", web::post().to(create))
+    .route("/v1/live/{call_id}", web::get().to(sideband_path));
 }
 
 async fn create(

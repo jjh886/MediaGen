@@ -120,7 +120,9 @@ function chatgptApiApplySession(auth, session) {
   auth.auth.expires = session.expires || auth.auth.expires || ''
   auth.auth.account = session.account
   auth.auth.user = session.user || auth.auth.user || {}
-  auth.runtime_session_id = chatgptApiSessionId()
+  // 账号的浏览器会话身份跨请求保留，不在每次保活时随机更换。
+  auth.auth.session_id = auth.auth.session_id || chatgptApiSessionId()
+  auth.runtime_session_id = auth.auth.session_id
   return auth
 }
 

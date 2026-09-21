@@ -119,12 +119,22 @@ pub async fn retrieve_video_content(
     let Some(url) = video_asset_url(&task, variant) else {
         return openai_error(400, "unsupported_variant", "该视频不支持请求的资源类型");
     };
-    let proxy_url = task
+    let account = task
         .account_id
         .as_deref()
         .and_then(|id| state.store.account_by_id(id))
-        .map(|account| account.proxy_url)
-        .unwrap_or_default();
+        .map(|account| state.store.account_with_required_runtime_proxy(account))
+        .transpose();
+    let proxy_url = match account {
+        Ok(Some(account)) => account.proxy_url,
+        _ => {
+            return openai_error(
+                409,
+                "proxy_unavailable",
+                "原账号或绑定代理已不可用，拒绝自动直连下载",
+            )
+        }
+    };
     let client = match crate::net_client::http_client(&proxy_url) {
         Ok(client) => client,
         Err(message) => return openai_error(502, "download_failed", &message),

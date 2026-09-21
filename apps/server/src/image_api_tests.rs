@@ -67,7 +67,7 @@ async fn async_generation_worker_executes_persisted_job() {
         actix_test::TestRequest::post()
             .uri("/v1/images/generations")
             .insert_header(("authorization", "Bearer image-key"))
-            .set_json(json!({ "model": "fake-image", "prompt": "draw", "async": true }))
+            .set_json(json!({ "model": "fake-image", "prompt": "draw", "sync": false }))
             .to_request(),
     )
     .await;
@@ -90,6 +90,27 @@ async fn async_generation_worker_executes_persisted_job() {
         state.store.generation_job(task_id, None).unwrap().state,
         crate::store::GenerationJobState::Completed
     );
+    let result = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::get()
+            .uri(&format!("/api/v2/generation-tasks/{task_id}"))
+            .insert_header(("authorization", "Bearer image-key"))
+            .to_request(),
+    )
+    .await;
+    let result: serde_json::Value = actix_test::read_body_json(result).await;
+    assert!(result["data"]["result"]["data"][0]["b64_json"]
+        .as_str()
+        .is_some_and(|s| !s.is_empty()));
+    let denied = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::get()
+            .uri(&format!("/api/v2/generation-tasks/{task_id}"))
+            .insert_header(("authorization", "Bearer wrong-key"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(denied.status(), 401);
 }
 
 #[actix_web::test]

@@ -21,6 +21,14 @@ export interface Account {
   text_used_today?: number
   text_used_total?: number
   quota_task_kind?: string | null
+  quota_holds?: Record<string, { state: string; until: string | null }>
+  quota_windows?: {
+    name: string
+    task_kind: string
+    remaining_percent?: number | null
+    remaining_count?: number | null
+    reset_at?: string | null
+  }[]
   login_state_reason?: string
   last_check_at?: string | null
   last_success_at?: string | null

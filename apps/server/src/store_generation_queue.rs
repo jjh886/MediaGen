@@ -138,6 +138,20 @@ impl AppStore {
             .iter_mut()
             .filter(|job| job.state == GenerationJobState::Leased)
         {
+            if let Some(task) = tasks.iter().find(|task| {
+                task.id == job.task_id && matches!(task.status.as_str(), "completed" | "cancelled")
+            }) {
+                job.state = if task.status == "completed" {
+                    GenerationJobState::Completed
+                } else {
+                    GenerationJobState::Cancelled
+                };
+                job.lease_until = None;
+                job.completed_at = task.completed_at.clone().or_else(|| Some(now.to_rfc3339()));
+                job.updated_at = now.to_rfc3339();
+                recovered += 1;
+                continue;
+            }
             job.state = GenerationJobState::RetryWait;
             job.lease_until = None;
             job.next_attempt_at = now.to_rfc3339();

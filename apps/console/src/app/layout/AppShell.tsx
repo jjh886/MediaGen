@@ -4,6 +4,7 @@ import StatusBar from './StatusBar'
 import TaskList from '../../features/tasks/components/TaskList'
 import GenerationQueueList from '../../features/tasks/components/GenerationQueueList'
 import AccountPage from '../../features/accounts/components/AccountPage'
+import ApiDocsPage from '../../features/api-docs/ApiDocsPage'
 import WeixinPage from '../../features/weixin/components/WeixinPage'
 import { LogPage } from '../../features/logs/components/LogPage'
 import { SettingsPage } from '../../features/settings/components/SettingsPage'
@@ -44,6 +45,7 @@ function PageContent(props: AppShellProps) {
   if (currentPage === 'generation-queue') return <GenerationQueueList />
   if (currentPage === 'weixin') return <WeixinPage />
   if (currentPage === 'accounts') return <AccountPage />
+  if (currentPage === 'api-docs') return <ApiDocsPage />
   if (currentPage === 'api-keys') return <ApiKeysPage />
   if (currentPage === 'proxies') return <ProxiesPage />
   if (currentPage === 'verifications') {

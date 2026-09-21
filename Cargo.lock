@@ -2265,8 +2265,10 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-socks",
  "tokio-tungstenite",
  "uuid",
 ]

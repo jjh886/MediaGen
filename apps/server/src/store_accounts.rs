@@ -23,6 +23,12 @@ impl AppStore {
     ) -> Option<AccountRecord> {
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         let account = accounts.iter_mut().find(|account| account.id == id)?;
+        crate::store_quota::remember(account);
+        if login_state == "available" {
+            if let Some(kind) = profile.as_ref().and_then(|p| p.quota_task_kind.as_deref()) {
+                crate::store_quota::clear_confirmed(account, kind);
+            }
+        }
         let keep_quota = login_state == "available"
             && matches!(
                 account.login_state.as_str(),
@@ -147,6 +153,7 @@ impl AppStore {
                 "daily_quota_exhausted" | "total_quota_exhausted"
             ) {
                 account.policy.quota_task_kind = Some(kind.into());
+                crate::store_quota::remember(account);
             }
         }
         self.save();

@@ -32,7 +32,7 @@ export type ApiKeyFormState = {
 
 export type ProxyFormState = {
   name: string
-  protocol: 'socks5h' | 'socks5'
+  protocol: 'socks5h' | 'socks5' | 'http' | 'https'
   host: string
   port: string
   username: string
@@ -48,6 +48,8 @@ export const gridStyle: React.CSSProperties = {
 }
 
 export const proxyProtocolOptions = [
+  { value: 'http', label: 'HTTP' },
+  { value: 'https', label: 'HTTPS' },
   { value: 'socks5h', label: 'SOCKS5H' },
   { value: 'socks5', label: 'SOCKS5' },
 ]
@@ -175,10 +177,12 @@ function DialogFooter({
   formId,
   saving,
   onClose,
+  label,
 }: {
   formId: string
   saving: boolean
   onClose: () => void
+  label: string
 }) {
   return (
     <>
@@ -186,7 +190,7 @@ function DialogFooter({
         取消
       </KtButton>
       <KtButton variant="primary" type="submit" form={formId} loading={saving}>
-        新增
+        {label}
       </KtButton>
     </>
   )
@@ -217,7 +221,14 @@ export function CreateDialogFrame({
       onClose={onClose}
       title={title}
       closeOnOverlayClick={false}
-      footer={<DialogFooter formId={formId} saving={saving} onClose={onClose} />}
+      footer={
+        <DialogFooter
+          formId={formId}
+          saving={saving}
+          onClose={onClose}
+          label={title.startsWith('编辑') ? '保存' : '新增'}
+        />
+      }
     >
       <form id={formId} noValidate onSubmit={onSubmit} style={{ display: 'grid', gap: 14 }}>
         {submitError && (

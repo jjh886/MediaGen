@@ -1,0 +1,535 @@
+{
+  "platform_id": "grok",
+  "display_name": "Grok",
+  "sort_order": 30,
+  "adapter_mode": "api",
+  "login_url": "https://auth.x.ai/",
+  "workspace_url": "https://grok.com/",
+  "protected_json_files": ["auth.json", "login.json"],
+  "login_prepare": {
+    "script_files": ["auth.js", "start_login.js"]
+  },
+  "login_detection": {
+    "method": "plugin_script",
+    "script_file": "finish_login.js"
+  },
+  "models": [
+    {
+      "model_id": "grok-4.5",
+      "display_name": "grok-4.5",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": true,
+        "transports": ["http"],
+        "unsupported_parameters": [
+          "audio",
+          "modalities",
+          "prediction",
+          "stop",
+          "logit_bias",
+          "seed",
+          "frequency_penalty",
+          "presence_penalty",
+          "logprobs"
+        ],
+        "reasoning": {
+          "efforts": ["low", "medium", "high"]
+        },
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "tools": {
+              "type": "array"
+            },
+            "reasoning": {
+              "type": "object"
+            },
+            "text": {
+              "type": "object"
+            },
+            "max_output_tokens": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "model_id": "grok-4.6",
+      "display_name": "grok-4.6",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": true,
+        "transports": ["http"],
+        "unsupported_parameters": [
+          "audio",
+          "modalities",
+          "prediction",
+          "stop",
+          "logit_bias",
+          "seed",
+          "frequency_penalty",
+          "presence_penalty",
+          "logprobs"
+        ],
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh"]
+        },
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "tools": {
+              "type": "array"
+            },
+            "reasoning": {
+              "type": "object"
+            },
+            "text": {
+              "type": "object"
+            },
+            "max_output_tokens": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "model_id": "grok-build-0.1",
+      "display_name": "grok-build-0.1",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": true,
+        "transports": ["http"],
+        "unsupported_parameters": [
+          "audio",
+          "modalities",
+          "prediction",
+          "stop",
+          "logit_bias",
+          "seed",
+          "frequency_penalty",
+          "presence_penalty",
+          "logprobs"
+        ],
+        "reasoning": {
+          "efforts": ["none"]
+        },
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "tools": {
+              "type": "array"
+            },
+            "reasoning": {
+              "type": "object"
+            },
+            "text": {
+              "type": "object"
+            },
+            "max_output_tokens": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "model_id": "grok-imagine-image",
+      "display_name": "grok-imagine-image",
+      "task_kind": "image",
+      "capabilities": {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "endpoints": ["/v1/images/generations", "/v1/images/edits"],
+        "streaming": true,
+        "response_formats": ["png", "jpeg", "webp"]
+      }
+    },
+    {
+      "model_id": "grok-imagine-image-quality",
+      "display_name": "grok-imagine-image-quality",
+      "task_kind": "image",
+      "capabilities": {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "endpoints": ["/v1/images/generations", "/v1/images/edits"],
+        "streaming": true,
+        "response_formats": ["png", "jpeg", "webp"]
+      }
+    },
+    {
+      "model_id": "grok-imagine-image-2.0",
+      "display_name": "grok-imagine-image-2.0",
+      "task_kind": "image",
+      "capabilities": {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "endpoints": ["/v1/images/generations", "/v1/images/edits"],
+        "streaming": true,
+        "response_formats": ["png", "jpeg", "webp"],
+        "parameter_values": {
+          "quality": ["auto", "low", "medium"]
+        }
+      }
+    },
+    {
+      "model_id": "grok-imagine-video-1.5-preview",
+      "aliases": ["grok-imagine-video-1.5"],
+      "display_name": "Grok Imagine Video 1.5",
+      "task_kind": "video",
+      "capabilities": {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["video"],
+        "endpoints": ["/v1/videos", "/v1/videos/{video_id}", "/v1/videos/{video_id}/content"]
+      }
+    },
+    {
+      "model_id": "grok-tts",
+      "display_name": "Grok 语音合成",
+      "task_kind": "audio_speech",
+      "capabilities": {
+        "input_modalities": ["text"],
+        "output_modalities": ["audio"],
+        "endpoints": ["/v1/audio/speech"],
+        "streaming": false,
+        "response_formats": ["mp3", "wav", "pcm", "flac", "aac", "opus"],
+        "speed": {
+          "minimum": 0.7,
+          "maximum": 1.5
+        },
+        "unsupported_parameters": ["instructions"],
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input", "voice"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "type": "string"
+            },
+            "voice": {
+              "type": "string"
+            },
+            "response_format": {
+              "enum": ["mp3", "wav", "pcm", "flac", "aac", "opus"]
+            },
+            "speed": {
+              "type": "number",
+              "minimum": 0.7,
+              "maximum": 1.5
+            },
+            "stream_format": {
+              "enum": ["audio"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "model_id": "grok-voice-transcribe-2.0",
+      "aliases": ["grok-stt"],
+      "display_name": "Grok 语音转写",
+      "task_kind": "audio_transcription",
+      "capabilities": {
+        "input_modalities": ["audio"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/audio/transcriptions"],
+        "streaming": false,
+        "response_formats": ["json", "text"],
+        "unsupported_parameters": [
+          "prompt",
+          "temperature",
+          "timestamp_granularities",
+          "include",
+          "chunking_strategy"
+        ],
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "file"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "file": {
+              "type": "string",
+              "format": "binary"
+            },
+            "language": {
+              "type": "string"
+            },
+            "response_format": {
+              "enum": ["json", "text"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "model_id": "grok-voice-latest",
+      "display_name": "Grok 实时语音",
+      "task_kind": "realtime",
+      "capabilities": {
+        "input_modalities": ["text", "audio"],
+        "output_modalities": ["text", "audio"],
+        "endpoints": ["/v1/realtime"],
+        "transports": ["websocket"],
+        "streaming": true,
+        "tool_calling": true,
+        "voices": ["eve", "ara", "rex", "sal", "leo"],
+        "input_schema": {
+          "type": "object",
+          "required": ["model"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "session": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "realtime"
+                },
+                "instructions": {
+                  "type": "string"
+                },
+                "audio": {
+                  "type": "object"
+                },
+                "tools": {
+                  "type": "array"
+                },
+                "output_modalities": {
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "tiers": {
+    "free": {
+      "display_name": "OAuth 账号",
+      "is_default": true,
+      "concurrency_limit": 1,
+      "daily_limit": 0,
+      "total_limit": 0,
+      "cooldown_seconds": 30,
+      "task_interval_seconds": 0,
+      "text_concurrency_limit": 0,
+      "text_daily_limit": 0,
+      "text_total_limit": 0
+    }
+  },
+  "image_capabilities": {
+    "supports_generation": true,
+    "supports_edit": true,
+    "supports_mask": false,
+    "supports_variation": false,
+    "max_reference_images": 3,
+    "supported_output_formats": ["png", "jpeg", "webp"],
+    "streaming": true,
+    "partial_images": false,
+    "compression_formats": ["jpeg", "webp"],
+    "compression_requirements": {
+      "webp": ["ffmpeg"]
+    },
+    "exact_size_method": "resize_to_fill",
+    "parameter_values": {
+      "quality": ["auto"],
+      "background": ["auto", "opaque"],
+      "partial_images": [0],
+      "moderation": ["auto"],
+      "input_fidelity": []
+    }
+  },
+  "video_capabilities": {
+    "supports_generation": true,
+    "supports_image_reference": true,
+    "max_reference_images": 7,
+    "min_duration_seconds": 1,
+    "max_duration_seconds": 15,
+    "default_duration_seconds": 6,
+    "default_size": "1280x720",
+    "supported_sizes": ["1280x720", "720x1280", "1920x1080", "1080x1920"],
+    "supported_aspect_ratios": ["16:9", "9:16"]
+  },
+  "flows": {
+    "generate_text": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "text.js", "generate_text.js"],
+          "timeout_ms": 660000
+        }
+      ]
+    },
+    "list_models": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "text.js", "list_models.js"],
+          "timeout_ms": 60000
+        }
+      ]
+    },
+    "generate_image": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "generate_image.js"],
+          "timeout_ms": 600000
+        }
+      ]
+    },
+    "generate_video": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "generate_video.js"],
+          "timeout_ms": 1800000
+        }
+      ]
+    },
+    "generate_audio": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "generate_audio.js"],
+          "timeout_ms": 300000
+        }
+      ]
+    },
+    "transcribe_audio": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "transcribe_audio.js"],
+          "timeout_ms": 300000
+        }
+      ]
+    },
+    "connect_realtime": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "connect_realtime.js"],
+          "timeout_ms": 60000
+        }
+      ]
+    },
+    "check_account": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "check_account.js"],
+          "timeout_ms": 60000
+        }
+      ]
+    }
+  },
+  "registration": {
+    "enabled": false
+  },
+  "failure_strategy": [
+    {
+      "contains_any": ["LOGIN_EXPIRED"],
+      "category": "login_expired",
+      "retry_action": "failover",
+      "account_state": "login_expired",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["rate_limit_exceeded"],
+      "category": "account_rate_limited",
+      "retry_action": "failover",
+      "account_state": "cooldown",
+      "cooldown_seconds": 60,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["invalid_input", "account_permission_denied"],
+      "category": "invalid_request",
+      "retry_action": "fail",
+      "usage_consumed": false
+    }
+  ]
+}

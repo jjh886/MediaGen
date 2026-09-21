@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import vm from 'node:vm'
+import './grok-plugin-contracts.test.mjs'
 
 function context(platform, scripts, host = {}) {
   const ctx = vm.createContext({ host })
@@ -13,7 +14,7 @@ function context(platform, scripts, host = {}) {
   return ctx
 }
 
-for (const platform of ['codex', 'chatgpt']) {
+for (const platform of ['codex', 'chatgpt', 'grok']) {
   test(`${platform} 所有声明流程可以独立编译`, () => {
     const manifest = JSON.parse(readFileSync(`plugins/${platform}/manifest.json`, 'utf8'))
     for (const [name, flow] of Object.entries(manifest.flows)) {
@@ -298,4 +299,35 @@ test('模型家族目录包含可路由的关闭思考与思考档位', () => {
     'extended',
   ])
   assert.equal(ctx.chatgptApiModelSelection('gpt-5-6', 'none', models, {}).model, 'gpt-5-6-instant')
+})
+
+test('Codex 额度区分窗口并返回真实剩余百分比和恢复时间', () => {
+  const ctx = context('codex', ['check_account.js'])
+  const now = Math.floor(Date.now() / 1000)
+  const result = ctx.codexUsageStatus({
+    rate_limit: {
+      allowed: false,
+      primary_window: { used_percent: 100, limit_window_seconds: 18000, reset_at: now + 60 },
+      secondary_window: { used_percent: 20, limit_window_seconds: 604800, reset_at: now + 3600 },
+    },
+  })
+  assert.equal(result.quota_windows[0].remaining_percent, 0)
+  assert.equal(result.quota_windows[1].remaining_percent, 80)
+  assert.equal(result.status, 'daily_quota_exhausted')
+  assert.ok(result.cooldown_seconds > 0 && result.cooldown_seconds <= 60)
+  assert.equal(ctx.codexUsageStatus({}).status, 'inconclusive')
+  assert.equal(ctx.codexHealthFromError(new Error('timeout')).status, 'inconclusive')
+  assert.equal(
+    ctx.codexHealthFromError(new Error('LOGIN_EXPIRED: revoked')).status,
+    'login_expired'
+  )
+})
+
+test('ChatGPT 保活更新令牌时保留账号的会话指纹', () => {
+  const ctx = context('chatgpt', ['auth.js'])
+  const auth = { auth: { session_id: 'stable-session', access_token: 'old' } }
+  ctx.chatgptApiApplySession(auth, { accessToken: 'new', account: { id: 'account' } })
+  assert.equal(auth.auth.access_token, 'new')
+  assert.equal(auth.auth.session_id, 'stable-session')
+  assert.equal(auth.runtime_session_id, 'stable-session')
 })

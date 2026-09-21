@@ -12,6 +12,7 @@ export type PageId =
   | 'verifications'
   | 'logs'
   | 'settings'
+  | 'api-docs'
 
 // 账号是使用 MediaGen 前最需要先确认的入口，所以应用首次打开默认进入账号页。
 const DEFAULT_PAGE: PageId = 'accounts'

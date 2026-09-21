@@ -1,5 +1,6 @@
 import {
   FileText,
+  BookOpen,
   KeyRound,
   Layers,
   ListOrdered,
@@ -22,6 +23,7 @@ interface SidebarProps {
 const NAV_ITEMS: { id: PageId; label: string; icon: LucideIcon }[] = [
   { id: 'accounts', label: '账号', icon: Users },
   { id: 'api-keys', label: 'API Key', icon: KeyRound },
+  { id: 'api-docs', label: '接口文档', icon: BookOpen },
   { id: 'tasks', label: '任务', icon: Zap },
   { id: 'generation-queue', label: '生成队列', icon: ListOrdered },
   { id: 'weixin', label: '微信', icon: MessageCircle },

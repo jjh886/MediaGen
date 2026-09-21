@@ -22,6 +22,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .route("/api/proxies", web::get().to(proxies))
         .route("/api/proxies", web::post().to(create_proxy))
         .route("/api/proxies/{id}/test", web::post().to(test_proxy))
+        .route("/api/proxies/{id}", web::patch().to(update_proxy))
         .route("/api/proxies/{id}", web::delete().to(delete_proxy))
         .route("/api/logs", web::get().to(logs))
         .route("/api/logs/audit", web::get().to(logs))
@@ -97,7 +98,17 @@ pub async fn proxies(
     proxies.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     let data = paginate(proxies, &query)
         .into_iter()
-        .map(proxy_response)
+        .map(|proxy| {
+            let count = state
+                .store
+                .list_accounts(None)
+                .iter()
+                .filter(|account| account.proxy_id == proxy.id)
+                .count();
+            let mut value = proxy_response(proxy);
+            value["bound_account_count"] = json!(count);
+            value
+        })
         .collect::<Vec<_>>();
     HttpResponse::Ok().json(json!({ "data": data }))
 }
@@ -120,7 +131,7 @@ pub async fn create_proxy(
 ) -> impl Responder {
     let payload = payload.into_inner();
     if !valid_proxy_server(&payload.server) {
-        return bad_request("代理地址必须是 socks5:// 或 socks5h:// 开头");
+        return bad_request("代理地址必须是有效的 HTTP、HTTPS、SOCKS5 或 SOCKS5H 地址");
     }
     let record = state.store.create_proxy(ProxyRecord {
         id: format!("proxy-{}", Uuid::new_v4()),
@@ -142,6 +153,46 @@ pub async fn delete_proxy(
         HttpResponse::Ok().json(json!({ "ok": true }))
     } else {
         not_found("代理不存在")
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ProxyUpdatePayload {
+    name: Option<String>,
+    server: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    enabled: Option<bool>,
+}
+pub async fn update_proxy(
+    state: web::Data<ServerState>,
+    path: web::Path<String>,
+    payload: web::Json<ProxyUpdatePayload>,
+) -> HttpResponse {
+    let Some(mut proxy) = state.store.proxy_by_id(&path) else {
+        return not_found("代理不存在");
+    };
+    if let Some(server) = &payload.server {
+        if !valid_proxy_server(server) {
+            return bad_request("代理地址必须是有效的 HTTP、HTTPS、SOCKS5 或 SOCKS5H 地址");
+        }
+        proxy.server = server.trim().into();
+    }
+    if let Some(name) = &payload.name {
+        proxy.name = first_non_empty(name, "代理");
+    }
+    if let Some(username) = &payload.username {
+        proxy.username = username.trim().into();
+    }
+    if let Some(password) = &payload.password {
+        proxy.password = password.clone();
+    }
+    if let Some(enabled) = payload.enabled {
+        proxy.enabled = enabled;
+    }
+    match state.store.update_proxy(proxy) {
+        Some(proxy) => HttpResponse::Ok().json(json!({"data":proxy_response(proxy)})),
+        None => not_found("代理不存在"),
     }
 }
 
@@ -257,9 +308,9 @@ fn valid_proxy_server(value: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(value.trim()) else {
         return false;
     };
-    matches!(url.scheme(), "socks5" | "socks5h")
+    matches!(url.scheme(), "http" | "https" | "socks5" | "socks5h")
         && url.host_str().is_some_and(|host| !host.trim().is_empty())
-        && url.port().is_some()
+        && url.port_or_known_default().is_some()
         && matches!(url.path(), "" | "/")
 }
 
@@ -281,7 +332,7 @@ fn valid_proxy_test_target(value: &str) -> bool {
 async fn run_proxy_test(target: &str, proxy_url: &str) -> Result<u16, String> {
     let client = http_client(proxy_url)?;
     let response = tokio::time::timeout(
-        Duration::from_secs(8),
+        Duration::from_secs(20),
         client
             .get(target)
             .header(reqwest::header::USER_AGENT, "MediaGen proxy test")
@@ -289,7 +340,27 @@ async fn run_proxy_test(target: &str, proxy_url: &str) -> Result<u16, String> {
     )
     .await
     .map_err(|_| "代理测试超时，请检查代理地址、端口和服务器网络".to_string())?
-    .map_err(|error| format!("代理测试失败: {error}"))?;
+    .map_err(|error| {
+        use std::error::Error;
+        let mut causes = Vec::new();
+        let mut source = error.source();
+        while let Some(cause) = source.filter(|_| causes.len() < 8) {
+            causes.push(cause.to_string());
+            source = cause.source();
+        }
+        let detail = causes.join("；");
+        format!(
+            "代理测试失败（连接未降级为直连）: {}；{}",
+            error.without_url(),
+            detail
+        )
+    })?;
+    if response.status().as_u16() == 407 || response.status().as_u16() >= 600 {
+        return Err(format!(
+            "代理服务器拒绝请求（HTTP {}），请核对协议、认证和供应商状态；未改用直连",
+            response.status().as_u16()
+        ));
+    }
     Ok(response.status().as_u16())
 }
 

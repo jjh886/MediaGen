@@ -93,6 +93,13 @@ fn upstream_quota_scope_and_health_checks_cannot_block_the_other_channel() {
     assert!(store.select_account("test", None, &[], "image").is_none());
     store.mark_account_state("scoped", "daily_quota_exhausted");
     store.record_account_failure("scoped", "quota_exhausted", "text");
+    assert!(store.select_account("test", None, &[], "image").is_none());
+    assert!(store.select_account("test", None, &[], "text").is_none());
+    let restored = AppStore::load(store.path.clone());
+    assert!(restored
+        .select_account("test", None, &[], "image")
+        .is_none());
+    assert!(restored.select_account("test", None, &[], "text").is_none());
     store.mark_login_check_result(
         "scoped",
         "available",

@@ -13,6 +13,7 @@ mod pointer_state;
 mod profile_sessions;
 mod profile_tabs;
 mod proxy;
+mod proxy_bridge;
 mod rendering;
 mod runtime;
 mod screenshot;

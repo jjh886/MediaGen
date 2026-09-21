@@ -132,13 +132,15 @@ fn apply_text_field(
         "response_format" => request.response_format = Some(value.to_string()),
         "output_format" => request.output_format = Some(value.to_string()),
         "background" => request.background = Some(value.to_string()),
-        "stream" | "async" => {
+        "stream" | "async" | "sync" => {
             let enabled = match value {
                 "true" | "1" => true,
                 "false" | "0" => false,
                 _ => return Err(invalid()),
             };
-            if name == "stream" {
+            if name == "sync" {
+                request.sync = Some(enabled);
+            } else if name == "stream" {
                 request.stream = Some(enabled);
             } else {
                 request.async_generation = enabled;

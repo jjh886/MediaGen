@@ -15,6 +15,8 @@ vi.mock('../../services/account-service', () => ({
 
 vi.mock('@/shared/services/proxy-service', () => ({
   fetchAllProxies: (...args: unknown[]) => mocks.fetchProxies(...args),
+  proxyOptionLabel: (proxy: { name: string; bound_account_count?: number }) =>
+    `${proxy.name} · 已绑定 ${proxy.bound_account_count ?? 0} 个账号`,
 }))
 
 vi.mock('@/shared/browser/RemoteBrowserPanel', () => ({
@@ -34,6 +36,18 @@ describe('AccountAddDialog', () => {
     mocks.completeBrowserSession.mockReset()
     mocks.fetchProxies.mockReset()
     mocks.fetchProxies.mockResolvedValue([])
+  })
+
+  it('显示插件返回的设备授权验证码提示', async () => {
+    mocks.startAccountLoginSession.mockResolvedValue({
+      id: 'device-session',
+      platform: 'grok',
+      status: 'active',
+      metadata: { login_instructions: '请在授权页面输入 ABCD-1234' },
+    })
+    render(<AccountAddDialog open platform="grok" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    fireEvent.click(screen.getByText('打开登录页'))
+    expect(await screen.findByText('请在授权页面输入 ABCD-1234')).toBeInTheDocument()
   })
 
   it('添加账号点击打开登录页后创建会话，失败时显示服务端错误', async () => {
@@ -69,7 +83,7 @@ describe('AccountAddDialog', () => {
     render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('账号代理'), { target: { value: 'manual' } })
     fireEvent.change(
-      screen.getByPlaceholderText('127.0.0.1、proxy.example.com 或完整 socks5h:// 地址'),
+      screen.getByPlaceholderText('主机、完整代理 URL 或 username:password@ip:port'),
       { target: { value: 'proxy.example.com' } }
     )
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '1080' } })

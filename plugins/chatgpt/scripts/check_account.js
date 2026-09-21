@@ -42,7 +42,7 @@ function chatgptApiFirstText(values) {
 
 function chatgptApiAccountCheckError(error) {
   const message = String(error?.message || error || 'ChatGPT 登录检查失败')
-  const inconclusive = message.startsWith('AUTH_INCONCLUSIVE:')
+  const inconclusive = !message.startsWith('LOGIN_EXPIRED:')
   return {
     logged_in: inconclusive ? null : false,
     status: inconclusive ? 'inconclusive' : 'login_expired',

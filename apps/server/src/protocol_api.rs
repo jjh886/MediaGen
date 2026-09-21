@@ -151,6 +151,14 @@ pub(crate) async fn dispatch(
         return error(400, "invalid_previous_response", &message);
     }
     let stored_input = crate::protocol_storage::input_items(&payload["input"]);
+    let (affinity_id, preferred) = crate::conversation_affinity::identify(
+        &state,
+        &request,
+        &key,
+        &manifest.platform_id,
+        &body,
+        &payload,
+    );
     if let Err(message) = crate::protocol_files::resolve(&state, &key, &mut payload).await {
         return error(400, "invalid_file_id", &message);
     }
@@ -159,7 +167,7 @@ pub(crate) async fn dispatch(
     let metadata = body.get("metadata").cloned().unwrap_or(json!({}));
     let request_id = crate::request_identity::id(&request);
     let task_id = request_id.clone();
-    let (mut account, lease) = match crate::protocol_task::reserve(
+    let (mut account, lease) = match crate::protocol_task::reserve_affinity(
         &state,
         &manifest,
         &model_id,
@@ -171,11 +179,15 @@ pub(crate) async fn dispatch(
         &key,
         &task_id,
         Some(&payload),
+        preferred.as_deref(),
     ) {
         Ok(value) => value,
         Err(_) => return error(429, "account_unavailable", "没有可用账号或账号代理不可用"),
     };
     let streaming = body["stream"] == true && endpoint != "speech";
+    if endpoint != "speech" {
+        crate::conversation_affinity::remember(&state.store, &affinity_id, &account.id);
+    }
     let (sender, mut receiver) = mpsc::channel(8);
     let events = streaming.then_some(sender.clone());
     let task_state = state.clone();
@@ -233,6 +245,13 @@ pub(crate) async fn dispatch(
         }
         match &result {
             Ok(value) => {
+                if !is_audio {
+                    crate::conversation_affinity::remember(
+                        &task_state.store,
+                        &affinity_id,
+                        &account.id,
+                    );
+                }
                 task_state.store.mark_account_usage_for(
                     &account.id,
                     if is_audio { "audio_speech" } else { "text" },

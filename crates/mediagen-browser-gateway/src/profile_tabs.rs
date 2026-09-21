@@ -93,6 +93,16 @@ impl BrowserGateway {
         session: &crate::BrowserSession,
     ) -> Result<Option<BrowserSessionRuntime>, BrowserGatewayError> {
         let mut state = self.lock_state()?;
+        if state.sessions.values().any(|existing| {
+            existing.status == BrowserSessionStatus::Active
+                && existing.profile_dir.trim() == session.profile_dir.trim()
+                && crate::proxy::runtime_signature(existing)
+                    != crate::proxy::runtime_signature(session)
+        }) {
+            return Err(BrowserGatewayError::BrowserLaunch(
+                "代理或浏览器配置已变更，请结束该账号的旧浏览器会话后重试；不会沿用旧代理".into(),
+            ));
+        }
         let shared_browser = state.sessions.iter().find_map(|(id, existing)| {
             (existing.status == BrowserSessionStatus::Active
                 && existing.profile_dir.trim() == session.profile_dir.trim())
@@ -172,5 +182,19 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first, &second));
         assert!(!Arc::ptr_eq(&first, &other));
+    }
+
+    #[test]
+    fn active_profile_cannot_reuse_a_different_proxy() {
+        let gateway = BrowserGateway::new(Default::default());
+        let mut previous = gateway.build_session(BrowserSessionCreateRequest::default());
+        previous.profile_dir = "/tmp/proxy-profile".into();
+        let mut next = previous.clone();
+        next.metadata.insert(
+            "proxy_server".into(),
+            serde_json::json!("http://proxy.test:8080"),
+        );
+        gateway.insert_session(previous).unwrap();
+        assert!(gateway.reserve_shared_runtime(&next).is_err());
     }
 }

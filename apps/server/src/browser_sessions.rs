@@ -100,6 +100,13 @@ pub async fn create_browser_session(
     if let Err(err) = release_relogin_profile(&state, &request).await {
         return gateway_error_response(err);
     }
+    if let Some(manifest) = state.plugin_loader.get_plugin(&request.platform) {
+        if let Err(message) =
+            crate::plugin_login_prepare::prepare(&state, manifest, &mut request).await
+        {
+            return HttpResponse::BadRequest().json(json!({"ok": false, "error": message}));
+        }
+    }
     let oauth_state = oauth_login::oauth_meta(&request.metadata).map(|meta| meta.state);
     if let Some(oauth_state) = oauth_state.as_deref() {
         if let Err(message) = state.oauth_logins.start_login(state.clone(), oauth_state) {

@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost } from './http-api-client'
+import { apiDelete, apiGet, apiPost, apiPatch } from './http-api-client'
 import { LIST_PAGE_SIZE, pagedQuery } from './list-pagination'
 
 export interface ProxyItem {
@@ -9,6 +9,7 @@ export interface ProxyItem {
   password_configured: boolean
   enabled: boolean
   created_at: string
+  bound_account_count?: number
 }
 
 export interface ProxyCreatePayload {
@@ -43,6 +44,17 @@ export async function createProxy(payload: ProxyCreatePayload): Promise<void> {
 
 export async function deleteProxy(id: string): Promise<void> {
   await apiDelete(`/api/proxies/${encodeURIComponent(id)}`)
+}
+
+export async function updateProxy(
+  id: string,
+  payload: Partial<ProxyCreatePayload> & { enabled?: boolean }
+): Promise<void> {
+  await apiPatch(`/api/proxies/${encodeURIComponent(id)}`, payload)
+}
+
+export function proxyOptionLabel(proxy: ProxyItem): string {
+  return `${proxy.name || proxy.server} · 已绑定 ${proxy.bound_account_count ?? 0} 个账号`
 }
 
 export async function testProxy(id: string): Promise<ProxyTestResult> {

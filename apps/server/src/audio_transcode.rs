@@ -7,6 +7,8 @@ pub(crate) async fn transcode(params: &Value) -> Result<Value, String> {
         "wav" => ("wav", "pcm_s16le", "audio/wav"),
         "pcm" => ("s16le", "pcm_s16le", "audio/pcm"),
         "flac" => ("flac", "flac", "audio/flac"),
+        "aac" => ("adts", "aac", "audio/aac"),
+        "opus" => ("ogg", "libopus", "audio/ogg"),
         _ => return Err("不支持的转码格式".into()),
     };
     let source = BASE64_STANDARD
@@ -86,6 +88,8 @@ mod tests {
             ("flac", b"fLaC".as_slice()),
             ("wav", b"RIFF".as_slice()),
             ("pcm", b"\0\0".as_slice()),
+            ("aac", b"\xff\xf1".as_slice()),
+            ("opus", b"OggS".as_slice()),
         ] {
             let result = transcode(&json!({"format":format,"base64":BASE64_STANDARD.encode(&wav)}))
                 .await

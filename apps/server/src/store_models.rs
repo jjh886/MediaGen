@@ -39,6 +39,8 @@ pub struct AccountRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AccountPolicy {
+    pub quota_holds: std::collections::BTreeMap<String, AccountQuotaHold>,
+    pub quota_windows: Vec<serde_json::Value>,
     pub user_id: String,
     pub priority: i32,
     pub text_concurrency_limit: u32,
@@ -55,6 +57,8 @@ pub struct AccountPolicy {
 impl Default for AccountPolicy {
     fn default() -> Self {
         Self {
+            quota_holds: Default::default(),
+            quota_windows: Vec::new(),
             user_id: String::new(),
             priority: 0,
             text_concurrency_limit: 0,
@@ -69,6 +73,12 @@ impl Default for AccountPolicy {
             last_success_at: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountQuotaHold {
+    pub state: String,
+    pub until: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

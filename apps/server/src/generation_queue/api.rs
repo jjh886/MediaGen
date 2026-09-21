@@ -49,10 +49,12 @@ pub(crate) fn enqueue_image_job(
     if !state.generation_queue_enabled {
         return Err(queue_error(503, "QUEUE_DISABLED", "异步生成队列未启用"));
     }
-    let Some((manifest, _)) = state.plugin_loader.resolve_model(&body.model) else {
+    let Some((manifest, model)) = state.plugin_loader.resolve_model(&body.model) else {
         return Err(queue_error(404, "MODEL_NOT_FOUND", "生成模型不存在"));
     };
-    if !manifest.flows.contains_key("generate_image") {
+    if model.task_kind != mediagen_core::TaskKind::Image
+        || !manifest.flows.contains_key("generate_image")
+    {
         return Err(queue_error(400, "FLOW_NOT_FOUND", "模型不支持图片生成"));
     }
     if state.store.active_generation_job_count() >= MAX_ACTIVE_GENERATION_JOBS {
@@ -158,7 +160,7 @@ pub(crate) async fn task_detail(
         return public_error(401, "UNAUTHORIZED", "无效的 Bearer Token");
     };
     let task_id = path.into_inner();
-    match build_task_detail(&state, &owner, &task_id, &queue_positions(&state, &owner)) {
+    match build_task_detail(&state, &owner, &task_id, &queue_positions(&state, &owner)).await {
         Some(detail) => HttpResponse::Ok().json(json!({ "success": true, "data": detail })),
         None => public_error(404, "TASK_NOT_FOUND", "异步任务不存在"),
     }
@@ -180,7 +182,7 @@ pub(crate) async fn batch_task_details(
     let mut items = Vec::new();
     let mut missing = Vec::new();
     for task_id in task_ids {
-        match build_task_detail(&state, &owner, &task_id, &positions) {
+        match build_task_detail(&state, &owner, &task_id, &positions).await {
             Some(item) => items.push(item),
             None => missing.push(task_id),
         }
@@ -276,7 +278,7 @@ fn queue_item(
     }))
 }
 
-fn build_task_detail(
+async fn build_task_detail(
     state: &ServerState,
     owner: &str,
     task_id: &str,
@@ -285,10 +287,21 @@ fn build_task_detail(
     let job = state.store.generation_job(task_id, Some(owner))?;
     let task = state.store.task_by_id(task_id)?;
     let status = visible_status(&job.state, &task.status);
-    let result = task
+    let metadata = task
         .result_data
         .as_deref()
         .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok());
+    let result = if status == "completed" {
+        match super::result::read(state, task_id).await {
+            Ok(Some(value)) => Some(value),
+            Ok(None) => metadata,
+            Err(_) => Some(
+                json!({"error":{"code":"RESULT_STORAGE_ERROR","message":"图片结果暂时无法读取"}}),
+            ),
+        }
+    } else {
+        metadata
+    };
     Some(json!({
         "taskId": task.id,
         "platform": task.platform,
@@ -376,5 +389,57 @@ mod tests {
     #[test]
     fn queue_limit_matches_aiduanju() {
         assert_eq!(MAX_ACTIVE_GENERATION_JOBS, 10_000);
+    }
+
+    #[tokio::test]
+    async fn completed_task_exposes_image_before_worker_finishes_lease() {
+        let root = std::env::temp_dir().join(format!("queue-result-race-{}", Uuid::new_v4()));
+        let state = crate::test_fixtures::server_state(
+            root.clone(),
+            mediagen_plugin_runtime::PluginLoader::empty(),
+        );
+        let body: OpenAiImageRequest =
+            serde_json::from_value(json!({"model":"test", "prompt":"image"})).unwrap();
+        let (task, mut job) = queued_image_records(
+            "task-race".into(),
+            "test".into(),
+            &body,
+            "key",
+            String::new(),
+            Utc::now().to_rfc3339(),
+        )
+        .unwrap();
+        job.state = GenerationJobState::Leased;
+        state.store.create_generation_job(task, job).unwrap();
+        let result = json!({"created":1,"data":[{"b64_json":"image-base64"}]});
+        super::super::result::save(&state, "task-race", &result)
+            .await
+            .unwrap();
+        state
+            .store
+            .complete_task("task-race", json!({"image_count":1}));
+        let detail = build_task_detail(&state, &owner_key("key"), "task-race", &HashMap::new())
+            .await
+            .unwrap();
+        assert_eq!(detail["status"], "completed");
+        assert_eq!(detail["result"], result);
+        assert_eq!(state.store.recover_leased_generation_jobs(Utc::now()), 1);
+        assert_eq!(
+            state.store.generation_job("task-race", None).unwrap().state,
+            GenerationJobState::Completed
+        );
+        assert_eq!(
+            state.store.task_by_id("task-race").unwrap().status,
+            "completed"
+        );
+        assert!(build_task_detail(
+            &state,
+            &owner_key("another-key"),
+            "task-race",
+            &HashMap::new()
+        )
+        .await
+        .is_none());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

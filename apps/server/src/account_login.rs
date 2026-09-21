@@ -13,6 +13,8 @@ use crate::ServerState;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AccountLoginProfile {
     #[serde(default)]
+    pub quota_windows: Option<Vec<Value>>,
+    #[serde(default)]
     pub quota_task_kind: Option<String>,
     #[serde(default, alias = "loggedIn")]
     pub logged_in: bool,
@@ -151,6 +153,10 @@ pub fn default_tier(manifest: &PluginManifest) -> String {
 }
 
 pub fn profile_from_value(value: &Value) -> AccountLoginProfile {
+    let quota_windows = value
+        .get("quota_windows")
+        .and_then(Value::as_array)
+        .cloned();
     let quota_scope = value["quota_task_kind"].as_str().map(ToOwned::to_owned);
     let value = if let Some(account) = value.get("account") {
         account.clone()
@@ -160,6 +166,7 @@ pub fn profile_from_value(value: &Value) -> AccountLoginProfile {
     let mut profile = serde_json::from_value::<AccountLoginProfile>(value)
         .unwrap_or_else(|_| AccountLoginProfile::default());
     profile.quota_task_kind = quota_scope.or(profile.quota_task_kind);
+    profile.quota_windows = quota_windows.or(profile.quota_windows);
     if !profile.username.trim().is_empty()
         || !profile.email.trim().is_empty()
         || !profile.user_id.trim().is_empty()
