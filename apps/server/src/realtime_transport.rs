@@ -38,6 +38,9 @@ pub(crate) async fn connect(account: &AccountRecord, descriptor: &Value) -> Resu
         .await
         .map_err(|_| "WebSocket 握手超时")?
         .map_err(|_| "WebSocket 连接失败")?;
+    if response.status() == reqwest::StatusCode::FORBIDDEN {
+        return Err("account_permission_denied: 上游账号未获实时语音授权".into());
+    }
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Err("call_not_found".into());
     }

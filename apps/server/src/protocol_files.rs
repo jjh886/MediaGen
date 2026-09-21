@@ -11,7 +11,7 @@ pub(crate) async fn resolve(
         return Ok(());
     };
     for item in input {
-        let Some(parts) = item["content"].as_array_mut() else {
+        let Some(parts) = item.get_mut("content").and_then(Value::as_array_mut) else {
             continue;
         };
         for part in parts {
@@ -40,4 +40,20 @@ pub(crate) async fn resolve(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn resolving_files_preserves_tool_and_reasoning_history_without_content() {
+        let state = crate::protocol_api_tests::state();
+        let mut request = serde_json::json!({"input":[
+            {"type":"reasoning","encrypted_content":"opaque","summary":[]},
+            {"type":"function_call","name":"result","call_id":"call","arguments":"{}"},
+            {"type":"function_call_output","call_id":"call","output":"OK"}
+        ]});
+        let before = request.clone();
+        super::resolve(&state, "key", &mut request).await.unwrap();
+        assert_eq!(request, before);
+    }
 }

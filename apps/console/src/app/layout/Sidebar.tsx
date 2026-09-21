@@ -30,6 +30,7 @@ const NAV_ITEMS: { id: PageId; label: string; icon: LucideIcon }[] = [
   { id: 'proxies', label: '代理', icon: ShieldCheck },
   { id: 'verifications', label: '人机接管', icon: Layers },
   { id: 'logs', label: '日志', icon: FileText },
+  { id: 'admin-users', label: '后台用户', icon: Users },
   { id: 'settings', label: '设置', icon: SettingsIcon },
 ]
 

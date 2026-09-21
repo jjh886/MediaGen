@@ -50,6 +50,8 @@ function grokTextCapabilities(id) {
 function grokText(ctx, auth, request, publish = true) {
   const body = JSON.parse(JSON.stringify(request))
   if (Array.isArray(body.input)) body.input = body.input.map(grokInputItem)
+  // metadata 由公共 Responses 存储层保存，上游 CLI 接口不接受此字段。
+  delete body.metadata
   delete body.options
   delete body.client_metadata
   delete body.stream_options

@@ -45,6 +45,7 @@ ACME_WEBROOT="${MEDIAGEN_ACME_WEBROOT:-/opt/iflow/acme/www}"
 SSH_TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
 SSH_OPTS=(-p "${DEPLOY_PORT}" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 GENERATED_PASSWORD="0"
+ADMIN_USERS_PRESERVED="0"
 
 log() {
   printf '\n\033[1;34m[deploy]\033[0m %s\n' "$*"
@@ -516,6 +517,15 @@ verify_deploy() {
   [[ "${status_code}" == "401" ]] || die "未登录保护异常，/api/accounts 返回 ${status_code}"
   verify_clash_anonymous "${base_url}"
 
+  # 用户数据库只在首次部署时读取初始化密码；后续部署不能覆盖后台重置过的密码。
+  local auth_status
+  auth_status="$(curl -fsS --http2 "${base_url}/api/auth/status")"
+  if AUTH_STATUS="${auth_status}" node -e 'const s=JSON.parse(process.env.AUTH_STATUS).data;process.exit(s.configured && s.initialized_from_env === false ? 0 : 1)'; then
+    ADMIN_USERS_PRESERVED="1"
+    log "已有后台用户数据库，保留现有账号密码；已验证未登录访问保护"
+    return
+  fi
+
   if [[ -n "${ADMIN_PASSWORD}" ]]; then
     cookie_file="$(mktemp)"
     login_body="$(mktemp)"
@@ -538,6 +548,10 @@ verify_deploy() {
 
 print_success() {
   log "部署完成"
+  if [[ "${ADMIN_USERS_PRESERVED}" == "1" ]]; then
+    printf '访问地址：https://%s\n后台用户及密码已保留，请使用原账号登录；可在“后台用户”中管理和重置密码。\n' "${DEPLOY_DOMAIN}"
+    return
+  fi
   cat <<SUCCESS
 访问地址：https://${DEPLOY_DOMAIN}
 管理员账号：${ADMIN_USERNAME}
@@ -551,7 +565,8 @@ SUCCESS
     cat <<'SUCCESS'
 
 提示：本次密码是脚本自动生成的。
-下次如果希望保持同一个密码，请把下面两项保存到 .env.deploy.local：
+账号创建后由后台用户数据库管理，后续部署会保留已有密码。
+下面的环境变量仅用于首次初始化，不会覆盖后台修改后的密码：
   MEDIAGEN_ADMIN_USERNAME=admin
   MEDIAGEN_ADMIN_PASSWORD=上面打印的密码
 SUCCESS

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { usePageRoute } from './app/routing/usePageRoute'
 import AppShell from './app/layout/AppShell'
 import AuthGate from './features/auth/components/AuthGate'
 
@@ -13,34 +13,30 @@ export type PageId =
   | 'logs'
   | 'settings'
   | 'api-docs'
-
-// 账号是使用 MediaGen 前最需要先确认的入口，所以应用首次打开默认进入账号页。
-const DEFAULT_PAGE: PageId = 'accounts'
+  | 'admin-users'
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<PageId>(DEFAULT_PAGE)
-  const [verificationTaskId, setVerificationTaskId] = useState<string | null>(null)
-  const [logTaskId, setLogTaskId] = useState<string | null>(null)
-
-  const openVerification = (taskId: string) => {
-    setVerificationTaskId(taskId)
-    setCurrentPage('verifications')
-  }
-  const openTaskLogs = (taskId: string) => {
-    setLogTaskId(taskId)
-    setCurrentPage('logs')
-  }
-
+  const { route, navigate } = usePageRoute()
   return (
     <AuthGate>
-      <AppShell
-        currentPage={currentPage}
-        verificationTaskId={verificationTaskId}
-        logTaskId={logTaskId}
-        onNavigate={setCurrentPage}
-        onOpenVerification={openVerification}
-        onOpenTaskLogs={openTaskLogs}
-      />
+      {route.page ? (
+        <AppShell
+          currentPage={route.page}
+          verificationTaskId={route.page === 'verifications' ? route.taskId : null}
+          logTaskId={route.page === 'logs' ? route.taskId : null}
+          onNavigate={navigate}
+          onOpenVerification={(taskId) => navigate('verifications', taskId)}
+          onOpenTaskLogs={(taskId) => navigate('logs', taskId)}
+        />
+      ) : (
+        <div className="auth-screen">
+          <div className="auth-panel">
+            <h1>页面不存在</h1>
+            <p>请检查地址，或返回账号页面。</p>
+            <a href="/accounts">返回账号</a>
+          </div>
+        </div>
+      )}
     </AuthGate>
   )
 }

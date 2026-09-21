@@ -9,14 +9,14 @@ export interface ApiField {
   description: string
   location: FieldLocation
 }
-export type FieldRow = [
+export type FieldRow = readonly [
   name: string,
   type: string,
   required: string,
   defaultValue: string,
   description: string,
 ]
-export function fields(rows: FieldRow[], location: FieldLocation = 'body'): ApiField[] {
+export function fields(rows: readonly FieldRow[], location: FieldLocation = 'body'): ApiField[] {
   return rows.map(([name, type, required, defaultValue, description]) => ({
     name,
     type,
@@ -26,13 +26,13 @@ export function fields(rows: FieldRow[], location: FieldLocation = 'body'): ApiF
     location,
   }))
 }
-export const output = (rows: FieldRow[]) => fields(rows, 'response')
+export const output = (rows: readonly FieldRow[]) => fields(rows, 'response')
 export const prefix = (items: ApiField[], parent: string) =>
   items.map((item) => ({ ...item, name: parent + item.name }))
 export interface ApiContract {
-  request: ApiField[]
-  response: ApiField[]
-  stream?: ApiField[]
+  requestFields: ApiField[]
+  responseFields: ApiField[]
+  streamFields?: ApiField[]
 }
 export interface ApiDocument extends ApiExample, ApiContract {}
 export const locations: Record<FieldLocation, string> = {

@@ -91,6 +91,8 @@ export async function apiGet<T>(path: string): Promise<T> {
   )
   const payload = await parseResponseBody(response)
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith('/api/auth/'))
+      window.dispatchEvent(new Event('mediagen:auth-expired'))
     throw new HttpApiError(errorMessage(payload, response.status), response.status)
   }
   return unwrapData<T>(payload)
@@ -113,6 +115,8 @@ export async function apiPost<T>(
   )
   const payload = await parseResponseBody(response)
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith('/api/auth/'))
+      window.dispatchEvent(new Event('mediagen:auth-expired'))
     throw new HttpApiError(errorMessage(payload, response.status), response.status)
   }
   return unwrapData<T>(payload)
@@ -132,6 +136,8 @@ export async function apiDelete<T>(path: string): Promise<T> {
   )
   const payload = await parseResponseBody(response)
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith('/api/auth/'))
+      window.dispatchEvent(new Event('mediagen:auth-expired'))
     throw new HttpApiError(errorMessage(payload, response.status), response.status)
   }
   return unwrapData<T>(payload)

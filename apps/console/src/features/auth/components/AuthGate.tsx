@@ -7,7 +7,7 @@ interface AuthGateProps {
   children: ReactNode
 }
 
-type AuthViewState = 'loading' | 'login' | 'ready'
+type AuthViewState = 'loading' | 'login' | 'ready' | 'setup'
 
 export default function AuthGate({ children }: AuthGateProps) {
   const [viewState, setViewState] = useState<AuthViewState>('loading')
@@ -18,17 +18,36 @@ export default function AuthGate({ children }: AuthGateProps) {
       .then((status) => {
         if (cancelled) return
         setViewState(
-          !status.supported || status.authenticated || !status.configured ? 'ready' : 'login'
+          !status.supported || status.authenticated
+            ? 'ready'
+            : status.configured
+              ? 'login'
+              : 'setup'
         )
       })
       .catch(() => {
         if (!cancelled) setViewState('login')
       })
+    const expired = () => setViewState('login')
+    window.addEventListener('mediagen:auth-expired', expired)
     return () => {
+      window.removeEventListener('mediagen:auth-expired', expired)
       cancelled = true
     }
   }, [])
 
+  if (viewState === 'setup')
+    return (
+      <div className="auth-screen">
+        <div className="auth-panel">
+          <h1>初始化管理员</h1>
+          <p>
+            请在服务器配置 MEDIAGEN_ADMIN_USERNAME 和 MEDIAGEN_ADMIN_PASSWORD
+            后重启。首次账号创建后，可在“后台用户”中新增用户和重置密码。
+          </p>
+        </div>
+      </div>
+    )
   if (viewState === 'loading') return <AuthLoading />
   if (viewState === 'login') return <LoginScreen onLogin={() => setViewState('ready')} />
   return <>{children}</>
@@ -111,6 +130,7 @@ function LoginFields({ username, password, onUsernameChange, onPasswordChange }:
         <span>账号</span>
         <KtInput
           autoFocus
+          autoComplete="username"
           value={username}
           onChange={(event) => onUsernameChange(event.target.value)}
           placeholder="请输入管理员账号"
@@ -120,6 +140,7 @@ function LoginFields({ username, password, onUsernameChange, onPasswordChange }:
         <span>密码</span>
         <KtInput
           type="password"
+          autoComplete="current-password"
           value={password}
           onChange={(event) => onPasswordChange(event.target.value)}
           placeholder="请输入管理员密码"

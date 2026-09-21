@@ -12,8 +12,17 @@ function grokError(result) {
   const code = String(result.body?.error?.code || result.body?.error || '')
   if (result.status === 401 || ['invalid_grant', 'access_denied'].includes(code))
     throw new Error('LOGIN_EXPIRED: Grok 账号需要重新授权')
-  if (result.status === 429) throw new Error('rate_limit_exceeded: HTTP 429 Grok 请求受限')
-  if (result.status === 400) throw new Error('invalid_input: Grok 拒绝了请求参数')
+  if (result.status === 429) {
+    const detail = String(result.body?.error?.message || result.body?.error || '')
+    if (/\(actual\/limit\):\s*\d+\/0(?:\D|$)/i.test(detail))
+      throw new Error('insufficient_quota: 当前模型的上游账号额度为 0，请检查 API 额度或订阅')
+    throw new Error('rate_limit_exceeded: HTTP 429 Grok 请求受限')
+  }
+  if (result.status === 400) {
+    if (/file content.*unsupported.*ZDR/i.test(String(result.body?.error || '')))
+      throw new Error('account_permission_denied: 当前账号的数据保留策略不允许文件输入')
+    throw new Error('invalid_input: Grok 拒绝了请求参数')
+  }
   if (result.status === 403)
     throw new Error('account_permission_denied: HTTP 403 Grok 账号无此接口权限')
   throw new Error('HTTP ' + result.status + ': Grok 上游请求失败')
@@ -23,7 +32,9 @@ function grokAuth(ctx) {
   try {
     const auth = grokRead(ctx)
     if (!auth.access_token) throw new Error('LOGIN_EXPIRED: 请先登录 Grok')
-    if (Number(auth.expires_at || 0) > Date.now() + 60000) return auth
+    const valid = Number(auth.expires_at || 0) > Date.now() + 60000
+    // 手动刷新同时更新授权，避免升级会员后继续沿用旧令牌中的权益。
+    if (valid && (!ctx.refresh_quota || !auth.refresh_token)) return auth
     if (!auth.refresh_token) throw new Error('LOGIN_EXPIRED: Grok 授权已过期')
     const result = host.call('http.request', {
       method: 'POST',

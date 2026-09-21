@@ -78,4 +78,18 @@ describe('AuthGate', () => {
     await expect(screen.findByText('本机控制台')).resolves.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '登录 MediaGen' })).not.toBeInTheDocument()
   })
+  it('Linux 未初始化管理员时不能直接进入控制台', async () => {
+    vi.mocked(getAuthStatus).mockResolvedValue({
+      supported: true,
+      configured: false,
+      authenticated: false,
+    })
+    render(
+      <AuthGate>
+        <div>管理台敏感内容</div>
+      </AuthGate>
+    )
+    expect(await screen.findByRole('heading', { name: '初始化管理员' })).toBeInTheDocument()
+    expect(screen.queryByText('管理台敏感内容')).not.toBeInTheDocument()
+  })
 })

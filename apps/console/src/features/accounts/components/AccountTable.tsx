@@ -29,6 +29,8 @@ function AccountStateCell({ account }: { account: Account }) {
 
 interface AccountTableProps {
   accounts: Account[]
+  onRefreshQuota?: (account: Account) => void
+  quotaBusy?: string | null
   onConfigure: (account: Account) => void
   onRelogin: (account: Account) => void
   onToggle: (account: Account) => void
@@ -41,6 +43,8 @@ export default function AccountTable({
   onRelogin,
   onToggle,
   onDelete,
+  onRefreshQuota,
+  quotaBusy,
 }: AccountTableProps) {
   const columns: Column<Account>[] = [
     {
@@ -108,7 +112,22 @@ export default function AccountTable({
       title: '平台剩余额度',
       width: 230,
       minWidth: 180,
-      render: (r) => <AccountQuotaSummary account={r} />,
+      render: (r) => (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <AccountQuotaSummary account={r} />
+          {onRefreshQuota && (
+            <KtButton
+              size="sm"
+              loading={quotaBusy === r.id}
+              disabled={!!quotaBusy}
+              aria-label={`刷新额度 ${r.name}`}
+              onClick={() => onRefreshQuota(r)}
+            >
+              刷新额度
+            </KtButton>
+          )}
+        </div>
+      ),
     },
     {
       key: 'media_used_today',

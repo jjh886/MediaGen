@@ -9,18 +9,22 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 pub(crate) fn error(status: u16, code: &str, message: &str) -> HttpResponse {
-    let kind = match status {
-        401 => "authentication_error",
-        403 => "permission_error",
-        429 => "rate_limit_error",
-        500..=599 => "server_error",
-        _ => "invalid_request_error",
-    };
+    let kind = error_kind(status);
     HttpResponse::build(
         actix_web::http::StatusCode::from_u16(status)
             .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR),
     )
     .json(json!({"error":{"message":message,"type":kind,"param":null,"code":code}}))
+}
+
+fn error_kind(status: u16) -> &'static str {
+    match status {
+        401 => "authentication_error",
+        403 => "permission_error",
+        429 => "rate_limit_error",
+        500..=599 => "server_error",
+        _ => "invalid_request_error",
+    }
 }
 
 pub(crate) async fn responses(
@@ -289,7 +293,7 @@ pub(crate) async fn dispatch(
         }
         if let Err(message) = &result {
             let (status, code, public) = public_failure(message);
-            let _=sender.send(json!({"type":"error","status":status,"error":{"type":if status==400 {"invalid_request_error"} else {"server_error"},"code":code,"message":public,"param":null}})).await;
+            let _=sender.send(json!({"type":"error","status":status,"error":{"type":error_kind(status),"code":code,"message":public,"param":null}})).await;
         }
         result
     }));
@@ -399,6 +403,18 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
             400,
             "unsupported_parameter",
             "当前模型不支持请求中的参数，请查询模型能力".into(),
+        )
+    } else if message.contains("account_permission_denied") {
+        (
+            403,
+            "account_permission_denied",
+            "当前上游账号未获此能力授权，请检查订阅或账号权限".into(),
+        )
+    } else if message.contains("insufficient_quota") {
+        (
+            429,
+            "insufficient_quota",
+            "当前模型的上游账号额度为 0，请检查 API 额度或订阅".into(),
         )
     } else if message.contains("429") || message.contains("quota_exhausted") {
         (

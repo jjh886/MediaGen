@@ -258,6 +258,20 @@ pub(crate) fn fail_task(
     let message = decision.formatted_message();
     state.store.fail_task(&context.task_id, message.clone());
     let (status, code) = decision.response_error();
+    if code == "insufficient_quota" {
+        return Err((
+            status,
+            code,
+            "当前模型的上游账号额度为 0，请检查 API 额度或订阅".into(),
+        ));
+    }
+    if status == 403 {
+        return Err((
+            status,
+            code,
+            "当前上游账号未获此能力授权，请检查订阅或账号权限".into(),
+        ));
+    }
     Err((status, code, message))
 }
 

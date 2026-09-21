@@ -87,6 +87,42 @@ pub(crate) async fn refresh_accounts(state: &ServerState) -> AccountRefreshSumma
     summary
 }
 
+pub(crate) async fn refresh_quota(
+    state: web::Data<ServerState>,
+    path: web::Path<String>,
+) -> actix_web::HttpResponse {
+    let _guard = state.account_refresh.refresh_lock.lock().await;
+    let id = path.into_inner();
+    let Some(account) = state.store.account_by_id(&id) else {
+        return actix_web::HttpResponse::NotFound().json(serde_json::json!({"error":"账号不存在"}));
+    };
+    if account.login_state == "disabled" || busy_account_ids(&state).contains(&id) {
+        return actix_web::HttpResponse::Conflict()
+            .json(serde_json::json!({"error":"账号已停用或正在执行任务，请稍后刷新额度"}));
+    }
+    let account = match state.store.account_with_required_runtime_proxy(account) {
+        Ok(account) => account,
+        Err(_) => {
+            return actix_web::HttpResponse::Conflict()
+                .json(serde_json::json!({"error":"账号绑定的代理不可用"}))
+        }
+    };
+    let outcome =
+        crate::account_login_check::check_saved_account_login_with_options(&state, &account, true)
+            .await;
+    if let AccountLoginCheckOutcome::Inconclusive(_) = &outcome {
+        return actix_web::HttpResponse::BadGateway()
+            .json(serde_json::json!({"error":"额度暂时无法确认，已保留原数据，请稍后重试"}));
+    }
+    apply_refresh_outcome(&state, &id, outcome, &mut AccountRefreshSummary::default());
+    state.account_refresh.notify_schedule_changed();
+    match state.store.account_by_id(&id) {
+        Some(account) => actix_web::HttpResponse::Ok()
+            .json(serde_json::json!({"data": crate::routes::public_account(account)})),
+        None => actix_web::HttpResponse::NotFound().finish(),
+    }
+}
+
 fn refresh_interval(minutes: u32) -> Option<Duration> {
     (minutes > 0).then(|| Duration::from_secs(u64::from(minutes) * 60))
 }
@@ -306,5 +342,66 @@ mod tests {
         assert!(state.store.list_audit_logs()[0]
             .summary
             .contains("代理不可用"));
+    }
+}
+
+#[cfg(test)]
+mod quota_tests {
+    use actix_web::{test as at, web, App};
+    use serde_json::json;
+    #[actix_web::test]
+    async fn manual_quota_refresh_passes_flag_and_persists_plugin_windows() {
+        let root = std::env::temp_dir().join(format!("manual-quota-{}", uuid::Uuid::new_v4()));
+        let plugins = root.join("plugins");
+        std::fs::create_dir_all(plugins.join("test/scripts")).unwrap();
+        std::fs::write(
+            plugins.join("plugins.index.json"),
+            r#"{"plugins":["test"]}"#,
+        )
+        .unwrap();
+        std::fs::write(plugins.join("test/manifest.json"),json!({"platform_id":"test","display_name":"Test","adapter_mode":"api","flows":{"check_account":{"steps":[{"action":"plugin.run_js","script_file":"quota.js"}]}}}).to_string()).unwrap();
+        std::fs::write(plugins.join("test/scripts/quota.js"), "function main(ctx){if(!ctx.refresh_quota)throw new Error('manual flag missing');return {status:'available',logged_in:true,quota_task_kind:'text',quota_windows:[{name:'week',remaining_percent:40,task_kind:'text'}]}}").unwrap();
+        let state = crate::test_fixtures::server_state(
+            root.clone(),
+            mediagen_plugin_runtime::PluginLoader::load_from(&plugins).unwrap(),
+        );
+        state
+            .store
+            .insert_account(crate::test_fixtures::account_record(
+                "quota", "test", "Quota", "",
+            ));
+        let app = at::init_service(
+            App::new()
+                .app_data(web::Data::new(state.clone()))
+                .route("/refresh/{id}", web::post().to(super::refresh_quota)),
+        )
+        .await;
+        let response = at::call_service(
+            &app,
+            at::TestRequest::post().uri("/refresh/quota").to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = at::read_body_json(response).await;
+        assert_eq!(body["data"]["quota_windows"][0]["remaining_percent"], 40);
+        state.store.toggle_account("quota", true);
+        assert_eq!(
+            at::call_service(
+                &app,
+                at::TestRequest::post().uri("/refresh/quota").to_request()
+            )
+            .await
+            .status(),
+            409
+        );
+        assert_eq!(
+            at::call_service(
+                &app,
+                at::TestRequest::post().uri("/refresh/missing").to_request()
+            )
+            .await
+            .status(),
+            404
+        );
     }
 }

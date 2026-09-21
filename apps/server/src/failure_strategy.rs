@@ -30,6 +30,8 @@ impl FailureDecision {
     // HTTP 只暴露 Realove 能稳定消费的安全类别，原始消息仍留在受控任务事件中。
     pub(crate) fn response_error(&self) -> (u16, &'static str) {
         match self.category.as_str() {
+            "insufficient_quota" => (429, "insufficient_quota"),
+            "permission_denied" => (403, "account_permission_denied"),
             "adult_sensual_policy_blocked" => (422, "adult_sensual_policy_blocked"),
             "unsafe_other" => (422, "unsafe_other"),
             "invalid_request" => (422, "invalid_request"),
@@ -278,6 +280,8 @@ mod tests {
     #[test]
     fn maps_failure_categories_to_stable_http_errors() {
         let cases = [
+            ("permission_denied", (403, "account_permission_denied")),
+            ("insufficient_quota", (429, "insufficient_quota")),
             (
                 "adult_sensual_policy_blocked",
                 (422, "adult_sensual_policy_blocked"),

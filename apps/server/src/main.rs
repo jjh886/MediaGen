@@ -6,7 +6,12 @@ mod account_login_credentials;
 mod account_status_refresh;
 mod admin_access;
 mod admin_auth;
+mod admin_password;
 mod admin_routes;
+mod admin_users;
+mod admin_users_store;
+#[cfg(test)]
+mod admin_users_tests;
 mod audio_api;
 mod audio_transcode;
 mod browser_session_events;
@@ -16,6 +21,7 @@ mod browser_session_setup;
 mod browser_session_stream;
 mod browser_sessions;
 mod callback_host;
+mod console_routes;
 mod conversation_affinity;
 mod external_cdp;
 mod failure_strategy;
@@ -132,6 +138,7 @@ use routes::{
 
 #[derive(Clone)]
 pub struct ServerState {
+    pub(crate) admin: Arc<admin_users_store::AdminStore>,
     pub plugin_loader: Arc<PluginLoader>,
     pub browser_gateway: Arc<BrowserGateway>,
     pub store: Arc<AppStore>,
@@ -164,6 +171,9 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
+            .app_data(web::Data::new(console_routes::ConsoleRoot(
+                console_dir.clone(),
+            )))
             .wrap(actix_web::middleware::from_fn(request_identity::middleware))
             .wrap_fn(|request, service| {
                 if admin_access::request_allowed(&request) {
@@ -181,7 +191,11 @@ async fn main() -> std::io::Result<()> {
             .configure(admin_auth::configure)
             .configure(admin_routes::configure)
             .configure(configure_routes)
-            .service(Files::new("/", &console_dir).index_file("index.html"))
+            .service(
+                Files::new("/", &console_dir)
+                    .index_file("index.html")
+                    .default_handler(web::to(console_routes::fallback)),
+            )
     })
     .bind(bind)?
     .run()
@@ -205,6 +219,7 @@ fn build_state(config: &ServerConfig) -> Result<ServerState, String> {
     let credential_cipher = CredentialCipher::new(&config.data_dir)?;
     let generation_queue_enabled = true;
     Ok(ServerState {
+        admin: Arc::new(admin_auth::initialize(&config.data_dir)?),
         plugin_loader: Arc::new(plugin_loader),
         browser_gateway: Arc::new(BrowserGateway::new(BrowserGatewayConfig {
             profile_root: config.profiles_dir.clone(),
@@ -245,6 +260,10 @@ fn configure_management_routes(cfg: &mut web::ServiceConfig) {
             web::post().to(check_accounts_login),
         )
         .route("/api/accounts/{id}", web::get().to(account))
+        .route(
+            "/api/accounts/{id}/refresh-quota",
+            web::post().to(account_status_refresh::refresh_quota),
+        )
         .route("/api/accounts/{id}", web::post().to(update_account))
         .route("/api/accounts/{id}", web::delete().to(delete_account))
         .route(

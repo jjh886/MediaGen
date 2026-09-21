@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import ApiDocsPage from './ApiDocsPage'
 import { documents } from './catalog'
 import { fullDocumentation } from './format'
+import { guideSections } from './guide'
 
 describe('对外接口文档', () => {
   it('一键复制全文，搜索、分类及剪贴板失败反馈可用', async () => {
@@ -45,7 +46,94 @@ describe('对外接口文档', () => {
     for (const doc of documents) {
       expect(doc.path).not.toMatch(/^\/api\/(accounts|proxies|settings)/)
       expect(doc.response).toBeTruthy()
-      expect(doc.parameters.length).toBeGreaterThan(0)
+      expect(doc.requestFields.length).toBeGreaterThan(0)
+    }
+  })
+  it('逐接口提供结构化字段表，复制全文保留 Markdown 表格', () => {
+    const markdown = fullDocumentation()
+    expect(markdown).toContain('| 参数名 | 类型 | 是否必填 | 默认值 | 说明 |')
+    expect(markdown).toContain('| 字段名 | 类型 | 是否必返 / 条件 | 固定值 / 空值 | 说明 |')
+    expect(markdown).toContain('string \\| array<object>')
+    for (const doc of documents) {
+      expect(doc.requestFields.some((f) => f.name === 'Authorization' && f.required === '是')).toBe(
+        true
+      )
+      expect(doc.responseFields.length, doc.path).toBeGreaterThan(0)
+      for (const list of [doc.requestFields, doc.responseFields, doc.streamFields || []]) {
+        expect(new Set(list.map((f) => `${f.location}:${f.name}`)).size).toBe(list.length)
+        for (const field of list) {
+          expect(field.type.trim()).not.toBe('')
+          expect(field.required.trim()).not.toBe('')
+          expect(field.defaultValue.trim()).not.toBe('')
+          expect(field.description.trim()).not.toBe('')
+        }
+      }
+      if (doc.body)
+        for (const name of Object.keys(doc.body)) {
+          expect(
+            doc.requestFields.some((f) => f.name === name || f.name.startsWith(name + '.')),
+            `${doc.path}: ${name}`
+          ).toBe(true)
+        }
+      if (typeof doc.response === 'object' && doc.response)
+        for (const name of Object.keys(doc.response)) {
+          expect(
+            doc.responseFields.some((f) => f.name === name || f.name.startsWith(name + '.')),
+            `${doc.path}: ${name}`
+          ).toBe(true)
+        }
+    }
+  })
+
+  it('展示请求表、默认值、响应表和流式字段，支持按字段名搜索', () => {
+    render(<ApiDocsPage />)
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索接口' }), {
+      target: { value: '/v1/chat/completions' },
+    })
+    const request = screen.getByRole('table', { name: '请求体参数' })
+    expect(within(request).getByRole('columnheader', { name: '是否必填' })).toBeInTheDocument()
+    expect(within(request).getByRole('row', { name: /store boolean 否 false/ })).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: '响应字段 · HTTP 200' })).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: '流式响应字段 · stream=true' })).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'partial_images' } })
+    expect(screen.queryByText('没有匹配的接口，请换一个关键词。')).not.toBeInTheDocument()
+    expect(screen.getAllByText('partial_images').length).toBeGreaterThan(0)
+  })
+
+  it('区分图片默认模型、Responses 保存策略、文件分页和 Live 响应格式', () => {
+    const find = (path: string, method = 'POST') =>
+      documents.find((d) => d.path === path && d.method === method)!
+    const value = (path: string, field: string, method = 'POST') =>
+      find(path, method).requestFields.find((f) => f.name === field)?.defaultValue
+    expect(value('/v1/images/generations', 'model')).toBe('gpt-image-1')
+    expect(value('/v1/responses', 'store')).toBe('true')
+    expect(value('/v1/responses', 'store', 'WS')).toBe('false')
+    expect(value('/v1/files', 'limit', 'GET')).toBe('10000')
+    expect(find('/v1/live/sessions').status).toBe(201)
+    expect(find('/v1/live').requestFields.some((f) => f.name === 'sdp')).toBe(true)
+    expect(find('/v1/live').response).toContain('application/sdp')
+  })
+  it('调用指南以章节、步骤和代码块展示，全文复制包含全部章节', () => {
+    render(<ApiDocsPage />)
+    fireEvent.click(screen.getByText('调用约定、排队流程、流式输出和实时语音'))
+    const navigation = screen.getByRole('navigation', { name: '调用指南章节' })
+    expect(screen.getByRole('table', { name: '请求与响应约定' })).toBeVisible()
+    fireEvent.click(within(navigation).getByRole('button', { name: '图片排队' }))
+    expect(screen.getByRole('heading', { name: '保存任务 ID' })).toBeVisible()
+    expect(screen.getByText('入队成功 · HTTP 202')).toBeVisible()
+    fireEvent.click(within(navigation).getByRole('button', { name: '流式输出' }))
+    expect(screen.getByRole('table', { name: '不同接口的流式读取方式' })).toBeVisible()
+    fireEvent.click(within(navigation).getByRole('button', { name: '实时语音' }))
+    expect(screen.getByRole('heading', { name: '持续发送音频' })).toBeVisible()
+    expect(screen.getByText('手动结束输入 · 先发送')).toBeVisible()
+    const markdown = fullDocumentation()
+    for (const section of guideSections) {
+      expect(markdown).toContain('## ' + section.title)
+      for (const block of section.blocks)
+        if (block.kind === 'code') {
+          expect(markdown).toContain('```' + block.language + '\n' + block.value)
+          if (block.language === 'json') expect(() => JSON.parse(block.value)).not.toThrow()
+        }
     }
   })
 })

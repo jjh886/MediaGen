@@ -25,10 +25,16 @@ export default function AccountQuotaSummary({ account }: { account: Account }) {
               {typeof window.remaining_percent === 'number'
                 ? `${Math.round(window.remaining_percent * 10) / 10}% 剩余`
                 : typeof window.remaining_count === 'number'
-                  ? `剩余 ${window.remaining_count} 次`
+                  ? `剩余 ${window.remaining_count} ${window.unit || '次'}`
                   : '未知'}
             </strong>
           </div>
+          {typeof window.remaining_count === 'number' &&
+            typeof window.remaining_percent === 'number' && (
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                剩余 {window.remaining_count.toLocaleString()} {window.unit || '次'}
+              </div>
+            )}
           {typeof window.remaining_percent === 'number' && (
             <progress
               aria-label={`${window.name}剩余额度`}

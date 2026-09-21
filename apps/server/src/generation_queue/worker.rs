@@ -95,6 +95,9 @@ async fn finish_execution(
         return;
     }
     match result {
+        Err((403, code, message)) | Err((_, code @ "insufficient_quota", message)) => {
+            finish_terminal_failure(state, task_id, body, code, &message)
+        }
         Err((_, "RESULT_STORAGE_ERROR", message)) => {
             finish_terminal_failure(state, task_id, body, "RESULT_STORAGE_ERROR", &message)
         }
@@ -153,7 +156,11 @@ fn finish_terminal_failure(
     code: &'static str,
     message: &str,
 ) {
-    let summary = content_policy_summary(message);
+    let summary = if terminal_failure(message) {
+        content_policy_summary(message)
+    } else {
+        sanitize_error(message)
+    };
     state.store.fail_task(task_id, summary.clone());
     state
         .store
@@ -255,6 +262,48 @@ fn content_policy_summary(error: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[actix_web::test]
+    async fn permission_and_zero_quota_stop_queue_without_becoming_safety_errors() {
+        let root = std::env::temp_dir().join(format!("queue-permission-{}", uuid::Uuid::new_v4()));
+        let state = web::Data::new(crate::test_fixtures::server_state(
+            root,
+            mediagen_plugin_runtime::PluginLoader::empty(),
+        ));
+        let body: OpenAiImageRequest =
+            serde_json::from_value(serde_json::json!({"model":"test-image","prompt":"circle"}))
+                .unwrap();
+        for (status, code) in [
+            (403, "account_permission_denied"),
+            (429, "insufficient_quota"),
+        ] {
+            let id = uuid::Uuid::new_v4().to_string();
+            let (task, job) = super::super::queued_image_records(
+                id.clone(),
+                "test".into(),
+                &body,
+                "key",
+                "encrypted".into(),
+                Utc::now().to_rfc3339(),
+            )
+            .unwrap();
+            state.store.create_generation_job(task, job).unwrap();
+            finish_execution(
+                &state,
+                &id,
+                &body,
+                Err((status, code, "账号未获授权或额度为零".into())),
+            )
+            .await;
+            let job = state.store.generation_job(&id, None).unwrap();
+            assert_eq!(job.state, GenerationJobState::Failed);
+            assert_eq!(job.retry_count, 0);
+            assert_eq!(
+                job.last_error_summary.as_deref(),
+                Some("账号未获授权或额度为零")
+            );
+        }
+    }
 
     #[test]
     fn retry_timing_matches_failure_category() {

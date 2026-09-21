@@ -10,6 +10,7 @@ actix-multipart = { workspace = true }
 actix-web = { workspace = true }
 actix-ws = { workspace = true }
 aes-gcm = "0.10"
+argon2 = "0.5.3"
 aes = { workspace = true }
 async-trait = { workspace = true }
 base64 = "0.22"

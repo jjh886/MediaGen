@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { InfiniteScrollTrigger, KtTabs, KtButton, KtConfirmDialog, KtAsyncState } from '@/shared/ui'
 import { fetchPlugins, type PluginInfo } from '@/shared/services/plugin-service'
 import { useAccountStore } from '../hooks/useAccountStore'
-import type { AccountConfigUpdate } from '../services/account-service'
+import { refreshAccountQuota, type AccountConfigUpdate } from '../services/account-service'
 import type { Account } from '../types/account'
 import AccountTable from './AccountTable'
 import AccountAddDialog from './AccountAddDialog'
@@ -35,6 +35,8 @@ export default function AccountPage() {
   const [batchOpen, setBatchOpen] = useState(false)
   const [deleteAccount, setDeleteAccount] = useState<Account | null>(null)
   const [pluginError, setPluginError] = useState('')
+  const [quotaBusy, setQuotaBusy] = useState<string | null>(null)
+  const [quotaMessage, setQuotaMessage] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -98,6 +100,30 @@ export default function AccountPage() {
     void checkLogin().catch(() => undefined)
   }
 
+  const handleRefreshQuota = async (account?: Account) => {
+    if (quotaBusy) return
+    setQuotaBusy(account?.id || 'all')
+    setQuotaMessage('')
+    let failed = 0
+    const targets = account ? [account] : accounts.filter((item) => item.login_state !== 'disabled')
+    try {
+      for (const target of targets) {
+        try {
+          await refreshAccountQuota(target.id)
+        } catch (error) {
+          failed++
+          setQuotaMessage(error instanceof Error ? error.message : '额度刷新失败')
+        }
+      }
+      await syncLatest()
+      if (!failed) setQuotaMessage(`已刷新 ${targets.length} 个账号的额度与登录状态`)
+    } catch (error) {
+      setQuotaMessage(error instanceof Error ? error.message : '账号列表刷新失败')
+    } finally {
+      setQuotaBusy(null)
+    }
+  }
+
   const handleRelogin = (account: Account) => {
     setReloginId(account.id)
     setLoginOpen(true)
@@ -122,6 +148,14 @@ export default function AccountPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <KtTabs items={platformTabs} activeKey={activePlatform} onChange={handlePlatformChange} />
         <div style={{ display: 'flex', gap: 8 }}>
+          <KtButton
+            size="sm"
+            loading={quotaBusy === 'all'}
+            disabled={!!quotaBusy || !accounts.length}
+            onClick={() => void handleRefreshQuota()}
+          >
+            刷新额度
+          </KtButton>
           <KtButton variant="default" size="sm" onClick={handleCheckLogin} disabled={checking}>
             {checking ? '检查中...' : '检查登录态'}
           </KtButton>
@@ -141,6 +175,7 @@ export default function AccountPage() {
         </div>
       </div>
 
+      {quotaMessage && <div role="status">{quotaMessage}</div>}
       <div ref={scrollRef} style={{ flex: 1, overflow: 'auto' }}>
         <KtAsyncState
           loading={loading}
@@ -153,6 +188,8 @@ export default function AccountPage() {
           <>
             <AccountTable
               accounts={accounts}
+              onRefreshQuota={(account) => void handleRefreshQuota(account)}
+              quotaBusy={quotaBusy}
               onConfigure={handleConfigure}
               onRelogin={handleRelogin}
               onToggle={handleToggle}
@@ -179,6 +216,8 @@ export default function AccountPage() {
         open={configAccount !== null}
         onClose={() => setConfigAccount(null)}
         account={configAccount}
+        onRefreshQuota={configAccount ? () => void handleRefreshQuota(configAccount) : undefined}
+        quotaRefreshing={!!quotaBusy}
         onSave={handleSaveConfig}
       />
 

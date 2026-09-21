@@ -500,7 +500,7 @@
       "steps": [
         {
           "action": "plugin.run_js",
-          "script_files": ["auth.js", "check_account.js"],
+          "script_files": ["auth.js", "quota.js", "check_account.js"],
           "timeout_ms": 60000
         }
       ]
@@ -510,6 +510,18 @@
     "enabled": false
   },
   "failure_strategy": [
+    {
+      "contains_any": ["insufficient_quota"],
+      "category": "insufficient_quota",
+      "retry_action": "fail",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["account_permission_denied"],
+      "category": "permission_denied",
+      "retry_action": "fail",
+      "usage_consumed": false
+    },
     {
       "contains_any": ["LOGIN_EXPIRED"],
       "category": "login_expired",
@@ -526,7 +538,7 @@
       "usage_consumed": false
     },
     {
-      "contains_any": ["invalid_input", "account_permission_denied"],
+      "contains_any": ["invalid_input"],
       "category": "invalid_request",
       "retry_action": "fail",
       "usage_consumed": false

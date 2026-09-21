@@ -80,6 +80,13 @@ pub(crate) async fn connect(
             Ok(socket) => socket,
             Err(message) => {
                 state.store.fail_task(&id, message.clone());
+                if message.contains("account_permission_denied") {
+                    return error(
+                        403,
+                        "account_permission_denied",
+                        "当前上游账号未获实时语音授权",
+                    );
+                }
                 return error(502, "realtime_upstream_rejected", &message);
             }
         };

@@ -66,6 +66,14 @@ pub(crate) fn openai_video(task: &TaskRecord) -> Value {
     let metadata = task_metadata(task);
     let status = openai_status(&task.status);
     let error = (status == "failed").then(|| {
+        if let Some(message) = task.error_message.as_deref() {
+            if message.contains("account_permission_denied")
+                || message.contains("insufficient_quota")
+            {
+                let (_, code, public) = crate::protocol_api::public_failure(message);
+                return json!({"code":code,"message":public});
+            }
+        }
         json!({
             "code": error_code(task),
             "message": task.error_message.clone().unwrap_or_else(|| "视频生成失败".to_string()),

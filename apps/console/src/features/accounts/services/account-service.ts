@@ -39,6 +39,10 @@ export async function updateAccount(id: string, updates: AccountConfigUpdate): P
   return await apiPost<Account>(`/api/accounts/${encodeURIComponent(id)}`, updates)
 }
 
+export async function refreshAccountQuota(id: string): Promise<Account> {
+  return await apiPost<Account>(`/api/accounts/${encodeURIComponent(id)}/refresh-quota`)
+}
+
 export async function deleteAccount(id: string): Promise<void> {
   await apiDelete(`/api/accounts/${encodeURIComponent(id)}`)
 }

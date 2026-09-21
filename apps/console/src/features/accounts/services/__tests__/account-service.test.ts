@@ -7,6 +7,7 @@ import {
   deleteAccount,
   fetchAccounts,
   fetchAccountModels,
+  refreshAccountQuota,
   startAccountLoginSession,
   toggleAccount,
   updateAccount,
@@ -295,5 +296,18 @@ describe('account-service', () => {
     expect(fetchMock.mock.calls.at(-1)?.[0]).toContain(
       '/api/accounts/account%2Fa/models?refresh=true'
     )
+  })
+  it('手动额度刷新编码账号 ID，返回更新账号并保留上游失败信息', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        data: { ...account, quota_windows: [{ name: 'week', remaining_percent: 40 }] },
+      })
+    )
+    const refreshed = await refreshAccountQuota('a/b')
+    expect(refreshed.quota_windows?.[0].remaining_percent).toBe(40)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/accounts/a%2Fb/refresh-quota')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' })
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: '额度暂时无法确认' }, 502))
+    await expect(refreshAccountQuota('a/b')).rejects.toThrow('额度暂时无法确认')
   })
 })

@@ -125,6 +125,7 @@ test('Grok 文本保留工具、结构化输出、增量和 incomplete 终态', 
   host.stream = (action, params, callback) => {
     assert.equal(action, 'http.sse_request')
     assert.equal(params.body.store, false)
+    assert.equal(params.body.metadata, undefined)
     assert.equal(params.body.tools[0].name, 'weather')
     assert.equal(params.body.text.format.type, 'json_object')
     assert.equal(params.headers['x-client-request-id'], 'request-test')
@@ -152,6 +153,7 @@ test('Grok 文本保留工具、结构化输出、增量和 incomplete 终态', 
     request: {
       model: 'grok-4.6',
       input: 'hello',
+      metadata: { test: 'local-only' },
       tools: [{ type: 'function', name: 'weather' }],
       text: { format: { type: 'json_object' } },
     },
@@ -271,4 +273,132 @@ test('实时语音使用 OAuth 主 WebSocket，平台差异留在插件', () => 
       .main({ request: { model: 'gpt-realtime-2.1' } })
       .connection.url.startsWith('wss://api.openai.com/v1/realtime')
   )
+})
+
+test('Grok 额度分别解析周/月百分比和免费响应头，缺失数据不能编造', () => {
+  const ctx = load(['quota'], {})
+  const windows = ctx.grokBillingWindows(
+    {
+      config: {
+        creditUsagePercent: 25,
+        currentPeriod: { end: '2026-09-28T00:00:00Z' },
+        productUsage: [{ product: 'build', usagePercent: 30 }],
+      },
+    },
+    {
+      config: {
+        monthlyLimit: { val: 15000 },
+        used: { val: 3000 },
+        billingPeriodEnd: '2026-10-01T00:00:00Z',
+      },
+    }
+  )
+  assert.deepEqual(
+    Array.from(windows, (w) => w.remaining_percent),
+    [75, 70, 80]
+  )
+  assert.equal(windows[0].reset_at, '2026-09-28T00:00:00.000Z')
+  assert.equal(
+    ctx.grokBillingWindows({ config: {} }, { config: { monthlyLimit: 0, used: 0 } }).length,
+    0
+  )
+  const header = ctx.grokHeaderWindows({
+    'X-RateLimit-Limit-Requests': '21',
+    'X-RateLimit-Remaining-Requests': '0',
+    'X-RateLimit-Reset-Requests': '60',
+    'x-ratelimit-limit-tokens': '1000000',
+    'x-ratelimit-remaining-tokens': '250000',
+  })
+  assert.equal(header[0].remaining_count, 0)
+  assert.equal(header[0].remaining_percent, 0)
+  assert.ok(Date.parse(header[0].reset_at) > Date.now())
+  assert.equal(header[1].remaining_percent, 25)
+  assert.equal(header[1].unit, 'Token')
+  assert.equal(ctx.grokHeaderWindows({}).length, 0)
+})
+
+test('Grok 主动额度刷新在免费 billing 无窗口时读取响应头，自动保活不消耗生成额度', () => {
+  const host = fixture((_action, params) =>
+    params.url.includes('/responses')
+      ? { status: 200, ok: true, headers: { 'x-ratelimit-remaining-tokens': '800' }, body: {} }
+      : { status: 200, ok: true, body: { config: {} } }
+  )
+  const ctx = load(['auth', 'quota', 'check_account'], host)
+  const silent = ctx.main({ profile_dir: '/profile' })
+  assert.equal(silent.status, 'available')
+  assert.equal(
+    host.requests.some((request) => request.url.includes('/responses')),
+    false
+  )
+  const manual = ctx.main({ profile_dir: '/profile', refresh_quota: true })
+  assert.equal(manual.quota_windows[0].remaining_count, 800)
+})
+
+test('Grok 模型额度为零与临时限流分开，不能停用整账号或无限重试', () => {
+  const ctx = load(
+    ['auth'],
+    fixture(() => ({}))
+  )
+  assert.throws(
+    () =>
+      ctx.grokError({
+        status: 429,
+        body: {
+          error:
+            'Requests per Minute (actual/limit): 0/0. Your rate limit tier is determined based on historical API spend.',
+        },
+      }),
+    /insufficient_quota/
+  )
+  assert.throws(
+    () =>
+      ctx.grokError({ status: 429, body: { error: 'Requests per Minute (actual/limit): 11/10.' } }),
+    /rate_limit_exceeded/
+  )
+  assert.throws(() => ctx.grokError({ status: 403, body: {} }), /account_permission_denied/)
+  assert.throws(
+    () =>
+      ctx.grokError({
+        status: 400,
+        body: { error: 'File content is currently unsupported for ZDR customers.' },
+      }),
+    /account_permission_denied/
+  )
+  const manifest = JSON.parse(readFileSync('plugins/grok/manifest.json', 'utf8'))
+  const rule = manifest.failure_strategy.find((rule) => rule.category === 'insufficient_quota')
+  assert.equal(rule.retry_action, 'fail')
+  assert.equal(rule.account_state, undefined)
+})
+
+test('手动额度刷新会更新尚未到期的 Grok 授权，普通保活继续复用有效令牌', () => {
+  const host = fixture(() => ({
+    ok: true,
+    status: 200,
+    body: { access_token: 'fresh-membership', refresh_token: 'rotated-refresh', expires_in: 3600 },
+  }))
+  host.files.get('/profile/auth.json').refresh_token = 'old-refresh'
+  const ctx = load(['auth'], host)
+  assert.equal(ctx.grokAuth({ profile_dir: '/profile' }).access_token, 'test-only-token')
+  assert.equal(host.requests.length, 0)
+  assert.equal(
+    ctx.grokAuth({ profile_dir: '/profile', refresh_quota: true }).access_token,
+    'fresh-membership'
+  )
+  assert.equal(host.requests[0].url, 'https://auth.x.ai/oauth2/token')
+  assert.equal(host.files.get('/profile/auth.json').refresh_token, 'rotated-refresh')
+})
+
+test('Grok 订阅显示读取新授权的真实等级，不能根据更高速率误判 Heavy', () => {
+  const ctx = load(
+    ['auth', 'quota'],
+    fixture(() => ({}))
+  )
+  const token = (claims) =>
+    'header.' + Buffer.from(JSON.stringify(claims)).toString('base64url') + '.signature'
+  assert.equal(ctx.grokSubscriptionTier({ access_token: token({ tier: 1 }) }), 'supergrok')
+  assert.equal(ctx.grokSubscriptionTier({ access_token: token({ tier: 5 }) }), 'supergrok_heavy')
+  assert.equal(ctx.grokSubscriptionTier({ access_token: token({ tier: 0 }) }), 'free')
+  assert.equal(ctx.grokSubscriptionTier({ access_token: token({ tier: null }) }), '')
+  assert.equal(ctx.grokSubscriptionTier({ access_token: token({ tier: 99 }) }), '')
+  assert.equal(ctx.grokSubscriptionTier({ access_token: 'invalid' }), '')
 })

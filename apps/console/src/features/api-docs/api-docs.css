@@ -72,11 +72,7 @@
   margin: 0;
   color: var(--text-secondary);
 }
-.api-docs__guide pre {
-  background: var(--bg-secondary);
-  border-radius: 10px;
-  margin-top: 12px;
-}
+
 .api-docs__toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -223,4 +219,114 @@
     min-width: 0;
     flex: 1;
   }
+}
+.api-docs__section-heading {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 28px 0 16px;
+}
+.api-docs__section-heading > span {
+  font:
+    11px ui-monospace,
+    monospace;
+  color: var(--text-disabled);
+  border: 1px solid var(--border-muted);
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.api-docs__section-heading h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.api-docs__field-section {
+  margin: 16px 0 24px;
+}
+.api-docs__field-section h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+.api-docs__field-section h3 > span {
+  color: var(--text-disabled);
+  font-size: 11px;
+  font-weight: 400;
+}
+.api-docs__table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border-muted);
+  border-radius: 8px;
+}
+.api-docs .api-docs__field-table {
+  width: 100%;
+  min-width: 760px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  text-align: left;
+}
+.api-docs__field-table th {
+  background: var(--bg-secondary);
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.api-docs__field-table th:nth-child(1) {
+  width: 25%;
+}
+.api-docs__field-table th:nth-child(2) {
+  width: 14%;
+}
+.api-docs__field-table th:nth-child(3) {
+  width: 12%;
+}
+.api-docs__field-table th:nth-child(4) {
+  width: 15%;
+}
+.api-docs .api-docs__field-table td,
+.api-docs .api-docs__field-table th {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-muted);
+  vertical-align: top;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.api-docs__field-table td {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.api-docs__field-table td:first-child {
+  color: var(--text-primary);
+}
+.api-docs__field-table tr:last-child td {
+  border-bottom: 0;
+}
+.api-docs__field-table tbody tr:hover {
+  background: var(--bg-secondary);
+}
+.api-docs__field-type {
+  color: #8dbacd;
+}
+.api-docs__required {
+  color: #eca58e;
+  font-weight: 600;
+}
+.api-docs__conditional {
+  color: var(--text-secondary);
+}
+.api-docs .api-docs__field-note {
+  font-size: 12px;
+  margin: 8px 0 16px;
+}
+.api-docs__notes {
+  margin-top: 18px;
+}
+.api-docs__notes > summary {
+  display: block;
+  background: transparent;
+  padding: 10px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
 }

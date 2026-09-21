@@ -38,7 +38,12 @@ pub(crate) fn response(
                             Ok(body) => pending.extend(image_completed_events(body, endpoint)),
                             Err((status, code, _)) => pending.push_back(json!({
                                 "type": "error", "code": code, "param": null,
-                                "message": if status == 429 {"请求已达到限额，请稍后重试"} else {"图片生成未成功完成，请通过请求标识检查任务"}
+                                "message": match code {
+                                    "insufficient_quota" => "当前模型的上游账号额度为 0，请检查 API 额度或订阅",
+                                    "account_permission_denied" => "当前上游账号未获此能力授权，请检查订阅或账号权限",
+                                    _ if status == 429 => "请求已达到限额，请稍后重试",
+                                    _ => "图片生成未成功完成，请通过请求标识检查任务",
+                                }
                             })),
                         }
                     }

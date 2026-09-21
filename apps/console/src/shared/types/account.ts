@@ -27,6 +27,7 @@ export interface Account {
     task_kind: string
     remaining_percent?: number | null
     remaining_count?: number | null
+    unit?: string
     reset_at?: string | null
   }[]
   login_state_reason?: string

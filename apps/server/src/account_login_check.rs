@@ -34,13 +34,23 @@ pub(crate) async fn check_saved_account_login(
     state: &ServerState,
     account: &AccountRecord,
 ) -> AccountLoginCheckOutcome {
+    check_saved_account_login_with_options(state, account, false).await
+}
+
+pub(crate) async fn check_saved_account_login_with_options(
+    state: &ServerState,
+    account: &AccountRecord,
+    refresh_quota: bool,
+) -> AccountLoginCheckOutcome {
     let Some(manifest) = state.plugin_loader.get_plugin(&account.platform) else {
         return AccountLoginCheckOutcome::Inconclusive(format!(
             "平台插件 '{}' 未找到",
             account.platform
         ));
     };
-    if let Some(outcome) = check_saved_account_with_flow(state, manifest, account).await {
+    if let Some(outcome) =
+        check_saved_account_with_flow(state, manifest, account, refresh_quota).await
+    {
         return outcome;
     }
     check_saved_account_with_browser(state, manifest, account).await
@@ -50,6 +60,7 @@ async fn check_saved_account_with_flow(
     state: &ServerState,
     manifest: &PluginManifest,
     account: &AccountRecord,
+    refresh_quota: bool,
 ) -> Option<AccountLoginCheckOutcome> {
     let flow = manifest.flows.get("check_account")?;
     let host = ServerPluginHost::new_for_account(account)
@@ -64,6 +75,7 @@ async fn check_saved_account_with_flow(
         "account": account,
         "account_id": account.id,
         "profile_dir": account.profile_dir,
+        "refresh_quota": refresh_quota,
     });
     let mut results = Vec::with_capacity(flow.steps.len());
     for step in &flow.steps {

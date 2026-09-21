@@ -1,5 +1,6 @@
 import type { PageId } from '../../App'
 import Sidebar from './Sidebar'
+import AdminUsersPage from '../../features/admin/components/AdminUsersPage'
 import StatusBar from './StatusBar'
 import TaskList from '../../features/tasks/components/TaskList'
 import GenerationQueueList from '../../features/tasks/components/GenerationQueueList'
@@ -45,6 +46,7 @@ function PageContent(props: AppShellProps) {
   if (currentPage === 'generation-queue') return <GenerationQueueList />
   if (currentPage === 'weixin') return <WeixinPage />
   if (currentPage === 'accounts') return <AccountPage />
+  if (currentPage === 'admin-users') return <AdminUsersPage />
   if (currentPage === 'api-docs') return <ApiDocsPage />
   if (currentPage === 'api-keys') return <ApiKeysPage />
   if (currentPage === 'proxies') return <ProxiesPage />

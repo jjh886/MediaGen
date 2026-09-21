@@ -52,6 +52,9 @@ pub fn account_record(id: &str, platform: &str, name: &str, api_key: &str) -> Ac
 
 pub fn server_state(root: std::path::PathBuf, plugin_loader: PluginLoader) -> ServerState {
     ServerState {
+        admin: Arc::new(
+            crate::admin_users_store::AdminStore::open(&root.join("admin.sqlite"), false).unwrap(),
+        ),
         plugin_loader: Arc::new(plugin_loader),
         browser_gateway: Arc::new(BrowserGateway::new(BrowserGatewayConfig {
             profile_root: root.join("profiles"),

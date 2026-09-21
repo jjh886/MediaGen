@@ -16,6 +16,8 @@ import { accountResetText, accountStateLabel } from '../utils/account-status'
 import { apiKeyLines, buildProxyUrl, emptyProxyForm, parseProxyUrl } from '../utils/proxy-config'
 
 interface AccountConfigModalProps {
+  onRefreshQuota?: () => void
+  quotaRefreshing?: boolean
   open: boolean
   onClose: () => void
   account: Account | null
@@ -54,6 +56,8 @@ export default function AccountConfigModal({
   onClose,
   account,
   onSave,
+  onRefreshQuota,
+  quotaRefreshing,
 }: AccountConfigModalProps) {
   const [priority, setPriority] = useState('0')
   const initialized = useRef('')
@@ -216,6 +220,11 @@ export default function AccountConfigModal({
         {tab === 'limits' && (
           <div role="tabpanel" style={{ display: 'grid', gap: 18 }}>
             {account && <AccountQuotaSummary account={account} />}
+            {onRefreshQuota && (
+              <KtButton size="sm" onClick={onRefreshQuota} loading={quotaRefreshing}>
+                刷新额度
+              </KtButton>
+            )}
 
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderSpacing: '0 10px', textAlign: 'left' }}>
@@ -338,7 +347,15 @@ export default function AccountConfigModal({
           <div role="tabpanel" style={{ display: 'grid', gap: 18 }}>
             <div style={fieldStyle}>
               <label style={labelStyle}>账号等级</label>
-              <KtSelect value={tier} onChange={setTier} options={tierOptions} />
+              <KtSelect
+                value={tier}
+                onChange={setTier}
+                options={
+                  tierOptions.some((item) => item.value === tier)
+                    ? tierOptions
+                    : [{ label: tier, value: tier }, ...tierOptions]
+                }
+              />
             </div>
             <label style={fieldStyle}>
               授权 API Key

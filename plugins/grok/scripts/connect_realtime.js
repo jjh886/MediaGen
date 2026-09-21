@@ -3,6 +3,7 @@ function main(ctx) {
   const session = {
     move: {
       '/session/voice': '/session/audio/output/voice',
+      '/session/modalities': '/session/output_modalities',
       '/session/turn_detection': '/session/audio/input/turn_detection',
     },
     set: { '/session/type': 'realtime', '/session/model': ctx.request.model },
@@ -18,6 +19,7 @@ function main(ctx) {
         'session.update': {
           move: {
             '/session/audio/output/voice': '/session/voice',
+            '/session/output_modalities': '/session/modalities',
             '/session/audio/input/turn_detection': '/session/turn_detection',
           },
           remove: ['/session/type', '/session/model'],

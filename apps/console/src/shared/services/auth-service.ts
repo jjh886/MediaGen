@@ -5,6 +5,7 @@ export interface AuthStatus {
   configured: boolean
   authenticated: boolean
   username?: string
+  user_id?: string
 }
 
 export interface LoginPayload {
