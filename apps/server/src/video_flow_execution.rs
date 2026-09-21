@@ -45,7 +45,7 @@ pub(crate) async fn execute_video_flow(
                 .await
         }
         AdapterMode::Api => {
-            JsFlowRunner::new(state.plugin_loader.clone())
+            JsFlowRunner::new(state.plugin_loader.clone(), state.credential_cipher.clone())
                 .run_video_flow(manifest, account, request, platform_config)
                 .await
         }

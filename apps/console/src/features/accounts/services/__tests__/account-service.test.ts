@@ -6,6 +6,7 @@ import {
   checkAccountsLogin,
   deleteAccount,
   fetchAccounts,
+  fetchAccountModels,
   startAccountLoginSession,
   toggleAccount,
   updateAccount,
@@ -280,5 +281,19 @@ describe('account-service', () => {
       password: 'pwd',
       birthday: '1990-01-01',
     })
+  })
+
+  it('按账号获取模型目录和能力，支持强制刷新', async () => {
+    const data = {
+      models: [{ id: 'text', capabilities: { input_modalities: ['text'] } }],
+      refreshed_at: 1,
+      refresh_error: null,
+      discovery_supported: true,
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data }))
+    expect(await fetchAccountModels('account/a', true)).toEqual(data)
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toContain(
+      '/api/accounts/account%2Fa/models?refresh=true'
+    )
   })
 })

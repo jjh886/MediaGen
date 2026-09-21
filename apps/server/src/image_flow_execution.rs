@@ -55,7 +55,7 @@ pub(crate) async fn execute_image_flow(
                 .await
         }
         AdapterMode::Api => {
-            JsFlowRunner::new(state.plugin_loader.clone())
+            JsFlowRunner::new(state.plugin_loader.clone(), state.credential_cipher.clone())
                 .run_image_flow(manifest, account, flow_request, platform_config)
                 .await
         }

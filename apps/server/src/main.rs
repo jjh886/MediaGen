@@ -7,6 +7,8 @@ mod account_status_refresh;
 mod admin_access;
 mod admin_auth;
 mod admin_routes;
+mod audio_api;
+mod audio_transcode;
 mod browser_session_events;
 mod browser_session_list;
 mod browser_session_public;
@@ -35,14 +37,28 @@ mod image_task_queue;
 mod js_flow_runner;
 mod media_execution;
 mod media_multipart;
+mod model_api;
 mod net_client;
 mod oauth_login;
 mod pagination;
+mod plugin_locks;
+mod plugin_process;
 mod plugin_scripts;
 mod port_process;
+mod protocol_api;
+mod protocol_files;
+mod protocol_request;
+mod protocol_storage;
+mod protocol_stream;
+mod protocol_task;
+mod protocol_websocket;
+mod realtime_api;
+mod realtime_transport;
+mod request_identity;
 mod routes;
 mod server_plugin_host;
 mod settings;
+mod sse_decoder;
 mod store;
 mod store_accounts;
 mod store_entities;
@@ -103,7 +119,7 @@ use tokio::sync::Notify;
 
 use routes::{
     account, account_summary, accounts, cancel_task, check_accounts_login, delete_account, health,
-    models, plugins, settings, setup, tasks, toggle_account, update_account, update_settings,
+    plugins, settings, setup, tasks, toggle_account, update_account, update_settings,
 };
 
 #[derive(Clone)]
@@ -113,6 +129,8 @@ pub struct ServerState {
     pub store: Arc<AppStore>,
     pub oauth_logins: OAuthLoginStore,
     pub file_root: PathBuf,
+    pub(crate) model_catalog: model_api::Catalog,
+    pub(crate) realtime: realtime_api::Sessions,
     pub image_task_queue: Arc<ImageTaskQueue>,
     pub video_task_queue: Arc<ImageTaskQueue>,
     pub(crate) credential_cipher: Arc<CredentialCipher>,
@@ -126,7 +144,8 @@ pub struct ServerState {
 async fn main() -> std::io::Result<()> {
     let config = ServerConfig::from_env();
     ensure_server_dirs(&config)?;
-    let state = web::Data::new(build_state(&config));
+    let state = web::Data::new(build_state(&config).map_err(std::io::Error::other)?);
+    realtime_api::recover_sessions(state.clone());
     generation_queue::start_worker(state.clone());
     account_status_refresh::start_worker(state.clone());
     weixin::start_workers(state.clone());
@@ -137,6 +156,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
+            .wrap(actix_web::middleware::from_fn(request_identity::middleware))
             .wrap_fn(|request, service| {
                 if admin_access::request_allowed(&request) {
                     Either::Left(
@@ -169,20 +189,14 @@ fn ensure_server_dirs(config: &ServerConfig) -> std::io::Result<()> {
     Ok(())
 }
 
-fn build_state(config: &ServerConfig) -> ServerState {
+fn build_state(config: &ServerConfig) -> Result<ServerState, String> {
     let plugin_loader = PluginLoader::load_from(&config.plugins_dir).unwrap_or_else(|err| {
         eprintln!("[mediagen-server] 插件加载失败: {err}");
         PluginLoader::empty()
     });
-    let (credential_cipher, generation_queue_enabled) =
-        match CredentialCipher::new(&config.data_dir) {
-            Ok(cipher) => (cipher, true),
-            Err(error) => {
-                eprintln!("[mediagen-server] 异步生成队列已禁用: {error}");
-                (CredentialCipher::ephemeral(), false)
-            }
-        };
-    ServerState {
+    let credential_cipher = CredentialCipher::new(&config.data_dir)?;
+    let generation_queue_enabled = true;
+    Ok(ServerState {
         plugin_loader: Arc::new(plugin_loader),
         browser_gateway: Arc::new(BrowserGateway::new(BrowserGatewayConfig {
             profile_root: config.profiles_dir.clone(),
@@ -191,6 +205,8 @@ fn build_state(config: &ServerConfig) -> ServerState {
         store: Arc::new(AppStore::load(config.data_dir.join("mediagen.sqlite"))),
         // 固定回调端口只在插件声明的 OAuth 登录流程期间按需监听。
         oauth_logins: OAuthLoginStore::new(config.oauth_callback_bind.clone()),
+        model_catalog: model_api::Catalog::load(&config.data_dir.join("model-catalog.json")),
+        realtime: realtime_api::Sessions::default(),
         file_root: config.data_dir.join("openai-files"),
         image_task_queue: Arc::new(ImageTaskQueue::default()),
         video_task_queue: Arc::new(ImageTaskQueue::default()),
@@ -202,7 +218,7 @@ fn build_state(config: &ServerConfig) -> ServerState {
             eprintln!("[mediagen-server] 微信功能以离线模式启动: {error}");
             weixin::WeixinRuntime::offline()
         })),
-    }
+    })
 }
 
 fn configure_routes(cfg: &mut web::ServiceConfig) {
@@ -223,6 +239,10 @@ fn configure_management_routes(cfg: &mut web::ServiceConfig) {
         .route("/api/accounts/{id}", web::get().to(account))
         .route("/api/accounts/{id}", web::post().to(update_account))
         .route("/api/accounts/{id}", web::delete().to(delete_account))
+        .route(
+            "/api/accounts/{id}/models",
+            web::get().to(model_api::account_models),
+        )
         .route("/api/accounts/{id}/toggle", web::post().to(toggle_account))
         .route("/api/tasks", web::get().to(tasks))
         .route("/api/tasks/{id}/cancel", web::post().to(cancel_task))
@@ -250,13 +270,49 @@ fn configure_management_routes(cfg: &mut web::ServiceConfig) {
 }
 
 fn configure_openai_routes(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/v1/responses/compact",
+        web::post().to(protocol_api::compact),
+    );
+    cfg.route("/v1/responses", web::post().to(protocol_api::responses))
+        .route(
+            "/v1/responses",
+            web::get().to(protocol_websocket::responses),
+        )
+        .route("/v1/chat/completions", web::post().to(protocol_api::chat))
+        .route("/v1/audio/speech", web::post().to(protocol_api::speech))
+        .route(
+            "/v1/audio/transcriptions",
+            web::post().to(audio_api::transcribe),
+        );
+    cfg.route(
+        "/v1/audio/translations",
+        web::post().to(audio_api::transcribe),
+    );
+    cfg.route(
+        "/v1/responses/{response_id}",
+        web::get().to(protocol_storage::retrieve),
+    )
+    .route(
+        "/v1/responses/{response_id}",
+        web::delete().to(protocol_storage::delete),
+    )
+    .route(
+        "/v1/responses/{response_id}/input_items",
+        web::get().to(protocol_storage::inputs),
+    );
+    cfg.configure(realtime_api::configure);
     configure_openai_resource_routes(cfg);
     configure_openai_media_routes(cfg);
     configure_generation_task_routes(cfg);
+    cfg.service(web::scope("/v1").default_service(web::route().to(|| async {
+        protocol_api::error(404, "unsupported_endpoint", "当前插件未提供此接口")
+    })));
 }
 
 fn configure_openai_resource_routes(cfg: &mut web::ServiceConfig) {
-    cfg.route("/v1/models", web::get().to(models))
+    cfg.route("/v1/models", web::get().to(model_api::list))
+        .route("/v1/models/{model}", web::get().to(model_api::retrieve))
         .route("/v1/files", web::post().to(file_api::upload_file))
         .route("/v1/files", web::get().to(file_api::list_files))
         .route(
@@ -359,3 +415,6 @@ fn env_path(name: &str, fallback: PathBuf) -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or(fallback)
 }
+
+#[cfg(test)]
+mod protocol_api_tests;

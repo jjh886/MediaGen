@@ -6,7 +6,13 @@ export type TaskStatus =
   | 'completed'
   | 'failed'
   | 'cancelled'
-export type TaskKind = 'image' | 'video'
+export type TaskKind =
+  | 'image'
+  | 'video'
+  | 'text'
+  | 'audio_speech'
+  | 'audio_transcription'
+  | 'realtime'
 
 export interface TaskResultData {
   url?: string

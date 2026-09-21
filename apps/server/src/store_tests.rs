@@ -74,6 +74,10 @@ fn update_account_config(store: &AppStore) -> AccountRecord {
         .update_account(
             "acc-1",
             AccountUpdate {
+                priority: None,
+                text_concurrency_limit: None,
+                text_daily_limit: None,
+                text_total_limit: None,
                 tier: Some("pro".to_string()),
                 concurrency_limit: Some(3),
                 daily_limit: Some(20),
@@ -206,7 +210,9 @@ fn saved_proxy_id_builds_runtime_proxy_without_copying_password_to_account() {
     account.proxy_id = "proxy-1".to_string();
     account.proxy_url = "socks5://127.0.0.1:1080".to_string();
 
-    let runtime = store.account_with_runtime_proxy(account.clone());
+    let runtime = store
+        .account_with_required_runtime_proxy(account.clone())
+        .unwrap();
 
     assert_eq!(runtime.proxy_id, "proxy-1");
     assert_eq!(runtime.proxy_url, "socks5://user:pass@127.0.0.1:1080");
@@ -215,10 +221,6 @@ fn saved_proxy_id_builds_runtime_proxy_without_copying_password_to_account() {
         .is_ok());
 
     store.delete_proxy("proxy-1");
-    assert!(store
-        .account_with_runtime_proxy(account.clone())
-        .proxy_url
-        .is_empty());
     assert!(store.account_with_required_runtime_proxy(account).is_err());
 }
 
@@ -464,6 +466,9 @@ fn manifest_with_default_tier() -> PluginManifest {
     manifest.tiers.insert(
         "pro".to_string(),
         TierDef {
+            text_concurrency_limit: 0,
+            text_daily_limit: 0,
+            text_total_limit: 0,
             display_name: "Pro".to_string(),
             is_default: true,
             concurrency_limit: 1,

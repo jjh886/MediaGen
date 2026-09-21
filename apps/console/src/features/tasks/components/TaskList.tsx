@@ -18,6 +18,10 @@ import { useTaskStore } from '../hooks/useTaskStore'
 import TaskDetail from './TaskDetail'
 
 const kindLabel: Record<TaskKind, string> = {
+  text: '文本',
+  audio_speech: '语音合成',
+  audio_transcription: '音频转写',
+  realtime: '实时对话',
   image: '图片',
   video: '视频',
 }

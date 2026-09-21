@@ -18,6 +18,10 @@ interface PluginLoginInfo {
 export type AccountConfigUpdate = Partial<
   Pick<
     Account,
+    | 'priority'
+    | 'text_concurrency_limit'
+    | 'text_daily_limit'
+    | 'text_total_limit'
     | 'tier'
     | 'concurrency_limit'
     | 'daily_limit'
@@ -150,4 +154,30 @@ async function resolvePluginLoginInfo(platform: string): Promise<PluginLoginInfo
   } catch {
     return { platform_id: platform }
   }
+}
+
+export interface AccountModelCatalog {
+  models: Array<{
+    id: string
+    display_name: string
+    task_kind: string
+    capabilities: {
+      input_modalities?: string[]
+      output_modalities?: string[]
+      endpoints?: string[]
+      streaming?: boolean
+      tool_calling?: boolean
+      input_schema?: Record<string, unknown>
+      unsupported_parameters?: string[]
+    }
+  }>
+  refreshed_at: number | null
+  refresh_error: string | null
+  discovery_supported: boolean
+}
+
+export function fetchAccountModels(id: string, refresh = false): Promise<AccountModelCatalog> {
+  return apiGet<AccountModelCatalog>(
+    `/api/accounts/${encodeURIComponent(id)}/models?refresh=${refresh}`
+  )
 }

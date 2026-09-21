@@ -16,6 +16,9 @@ function AccountStateCell({ account }: { account: Account }) {
       <KtBadge variant={accountStateVariant[account.login_state]}>
         {accountStateLabel[account.login_state]}
       </KtBadge>
+      {account.quota_task_kind && (
+        <span>{account.quota_task_kind === 'text' ? '仅文本额度受限' : '仅图片/媒体额度受限'}</span>
+      )}
       {resetText && (
         <span style={{ color: 'var(--text-disabled)', fontSize: 12 }}>{resetText}</span>
       )}
@@ -101,17 +104,29 @@ export default function AccountTable({
     },
     {
       key: 'used_today',
-      title: '今日用量',
+      title: '图片/媒体今日用量',
       width: 120,
       minWidth: 100,
-      render: (r) => `${r.used_today}/${r.daily_limit}`,
+      render: (r) => `${r.used_today}/${r.daily_limit || '不限'}`,
     },
     {
       key: 'used_total',
-      title: '总用量',
+      title: '图片/媒体总用量',
       width: 120,
       minWidth: 100,
-      render: (r) => `${r.used_total}/${r.total_limit}`,
+      render: (r) => `${r.used_total}/${r.total_limit || '不限'}`,
+    },
+    {
+      key: 'text_used_today',
+      title: '文本今日用量',
+      width: 150,
+      render: (r) => `${r.text_used_today ?? 0}/${r.text_daily_limit || '不限'}`,
+    },
+    {
+      key: 'text_used_total',
+      title: '文本总用量',
+      width: 150,
+      render: (r) => `${r.text_used_total ?? 0}/${r.text_total_limit || '不限'}`,
     },
     {
       key: 'task_interval_seconds',

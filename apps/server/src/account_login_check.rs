@@ -23,6 +23,7 @@ pub(crate) enum AccountLoginCheckOutcome {
         login_state: String,
         profile: AccountLoginProfile,
         cooldown_seconds: Option<i64>,
+        quota_task_kind: Option<String>,
     },
     Expired(String),
     Inconclusive(String),
@@ -51,7 +52,13 @@ async fn check_saved_account_with_flow(
     account: &AccountRecord,
 ) -> Option<AccountLoginCheckOutcome> {
     let flow = manifest.flows.get("check_account")?;
-    let host = ServerPluginHost::new_for_account(account);
+    let host = ServerPluginHost::new_for_account(account)
+        .with_storage(
+            state.credential_cipher.clone(),
+            &account.profile_dir,
+            manifest,
+        )
+        .with_http_profile(manifest);
     let mut context = json!({
         "platform": account.platform,
         "account": account,
@@ -193,6 +200,7 @@ fn classify_flow_value(value: &Value) -> Option<AccountLoginCheckOutcome> {
                 login_state: status.to_string(),
                 profile: profile_from_value(value),
                 cooldown_seconds: flow_cooldown_seconds(value),
+                quota_task_kind: value["quota_task_kind"].as_str().map(ToOwned::to_owned),
             });
         }
         "login_expired" => return Some(AccountLoginCheckOutcome::Expired(flow_reason(value))),
@@ -405,7 +413,8 @@ mod tests {
             Some(AccountLoginCheckOutcome::Unavailable {
                 login_state,
                 profile,
-                cooldown_seconds
+                cooldown_seconds,
+                ..
             }) if login_state == "daily_quota_exhausted"
                 && profile.email == "pro@example.test"
                 && cooldown_seconds == Some(16_500)

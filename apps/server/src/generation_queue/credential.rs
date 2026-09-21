@@ -22,7 +22,24 @@ impl CredentialCipher {
         } else {
             let mut key = vec![0u8; 32];
             rand::thread_rng().fill_bytes(&mut key);
-            std::fs::write(&key_path, &key).map_err(|error| error.to_string())?;
+            use std::io::Write;
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            match options.open(&key_path) {
+                Ok(mut file) => {
+                    file.write_all(&key).map_err(|_| "安全存储密钥写入失败")?;
+                    file.sync_all().map_err(|_| "安全存储密钥落盘失败")?;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    key = std::fs::read(&key_path).map_err(|_| "安全存储密钥读取失败")?;
+                }
+                Err(_) => return Err("安全存储密钥创建失败".into()),
+            }
             set_private_permissions(&key_path)?;
             key
         };
@@ -32,6 +49,7 @@ impl CredentialCipher {
         Ok(Self { cipher })
     }
 
+    #[cfg(test)]
     pub(crate) fn ephemeral() -> Self {
         let mut key = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut key);

@@ -17,7 +17,7 @@
     "deploy": "bash scripts/deploy-server-release.sh",
     "type-check": "npm --workspace @mediagen/console run type-check",
     "lint": "node scripts/check-code-line-limit.mjs --scope app --max 500 && node scripts/check-import-boundaries.mjs && node scripts/check-rust-platform-boundaries.mjs && node scripts/check-media-plugin-contracts.mjs && npm --workspace @mediagen/console run lint",
-    "test": "npm --workspace @mediagen/console run test",
+    "test": "node --test scripts/openai-plugin-contracts.test.mjs && npm --workspace @mediagen/console run test",
     "test:watch": "npm --workspace @mediagen/console run test -- --watch",
     "coverage:gate": "node scripts/gates/check-coverage-gate.mjs --app",
     "check": "npm run format:check && npm run type-check && npm run lint && npm run test && npm run coverage:gate && npm run build && npm run cargo-fmt && npm run cargo-clippy && npm run cargo-test && npm run cargo-check && npm run check:compat-expiry",

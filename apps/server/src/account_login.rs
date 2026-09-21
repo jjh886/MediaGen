@@ -12,6 +12,8 @@ use crate::ServerState;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AccountLoginProfile {
+    #[serde(default)]
+    pub quota_task_kind: Option<String>,
     #[serde(default, alias = "loggedIn")]
     pub logged_in: bool,
     #[serde(default, alias = "userId")]
@@ -87,6 +89,14 @@ async fn run_login_plugin_script(
     let host = ServerPluginHost::new_with_metadata(
         proxy_url_from_metadata(&session.metadata),
         &session.metadata,
+    )
+    .with_storage(
+        state.credential_cipher.clone(),
+        &session.profile_dir,
+        state
+            .plugin_loader
+            .get_plugin(&session.platform)
+            .ok_or("插件不存在")?,
     );
     let result = run_js_step(script, context, host).await?;
     Ok(profile_from_value(&result))
@@ -141,6 +151,7 @@ pub fn default_tier(manifest: &PluginManifest) -> String {
 }
 
 pub fn profile_from_value(value: &Value) -> AccountLoginProfile {
+    let quota_scope = value["quota_task_kind"].as_str().map(ToOwned::to_owned);
     let value = if let Some(account) = value.get("account") {
         account.clone()
     } else {
@@ -148,6 +159,7 @@ pub fn profile_from_value(value: &Value) -> AccountLoginProfile {
     };
     let mut profile = serde_json::from_value::<AccountLoginProfile>(value)
         .unwrap_or_else(|_| AccountLoginProfile::default());
+    profile.quota_task_kind = quota_scope.or(profile.quota_task_kind);
     if !profile.username.trim().is_empty()
         || !profile.email.trim().is_empty()
         || !profile.user_id.trim().is_empty()

@@ -11,6 +11,7 @@ function main(ctx) {
   const images = []
 
   for (let index = 0; index < count; index++) {
+    chatgptApiCheckpoint({ phase: 'ready' })
     const currentPrompt =
       count > 1 ? prompt + '\n\nCreate variation ' + (index + 1) + ' of ' + count + '.' : prompt
     const turn = chatgptApiGenerateConversation(

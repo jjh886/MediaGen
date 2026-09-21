@@ -1,12 +1,11 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::account_login::AccountLoginProfile;
 use crate::settings::apply_settings_update;
 use crate::store_entities::migrate_legacy_api_keys;
 use crate::store_helpers::{
-    account_ready_for_dispatch, apply_account_profile, apply_account_update, first_result_url,
-    recover_interrupted_direct_tasks, reset_daily_usage, state_releases_after_until,
+    apply_account_update, first_result_url, recover_interrupted_direct_tasks, reset_daily_usage,
+    state_releases_after_until,
 };
 pub use crate::store_models::{
     AccountRecord, AccountUpdate, ApiKeyRecord, AuditLogRecord, GenerationJobRecord,
@@ -22,7 +21,8 @@ pub use crate::settings::{AppSettings, SettingsUpdate};
 
 pub struct AppStore {
     pub(crate) path: PathBuf,
-    account_dispatch: Mutex<()>,
+    pub(crate) account_dispatch: Mutex<()>,
+    pub(crate) protocol_leases: Mutex<std::collections::HashSet<String>>,
     pub(crate) accounts: Mutex<Vec<AccountRecord>>,
     pub(crate) tasks: Mutex<Vec<TaskRecord>>,
     pub(crate) settings: Mutex<AppSettings>,
@@ -43,6 +43,17 @@ impl AppStore {
     pub fn load(path: PathBuf) -> Self {
         let mut snapshot = read_store_snapshot(&path);
         migrate_legacy_api_keys(&mut snapshot);
+        for account in &mut snapshot.accounts {
+            // 旧版只有媒体额度；迁移后不能把旧图片限额套用到新增文本通道。
+            if account.policy.quota_task_kind.is_none()
+                && matches!(
+                    account.login_state.as_str(),
+                    "daily_quota_exhausted" | "total_quota_exhausted"
+                )
+            {
+                account.policy.quota_task_kind = Some("media".into());
+            }
+        }
         crate::image_api_response::sanitize_persisted_image_tasks(&mut snapshot.tasks);
         let recovered = recover_interrupted_direct_tasks(
             &mut snapshot.tasks,
@@ -55,6 +66,7 @@ impl AppStore {
         let store = Self {
             path,
             account_dispatch: Mutex::new(()),
+            protocol_leases: Default::default(),
             accounts: Mutex::new(snapshot.accounts),
             tasks: Mutex::new(snapshot.tasks),
             settings: Mutex::new(snapshot.settings),
@@ -112,28 +124,7 @@ impl AppStore {
         api_key: Option<&str>,
         excluded_ids: &[String],
     ) -> Option<AccountRecord> {
-        self.rollover_daily_usage();
-        self.release_expired_cooldowns();
-        let accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
-        let tasks = self.tasks.lock().unwrap_or_else(|err| err.into_inner());
-        let mut candidates = accounts.iter().filter(|account| {
-            account.platform == platform
-                && !excluded_ids.iter().any(|id| id == &account.id)
-                && account_ready_for_dispatch(account, &tasks)
-        });
-        if let Some(key) = api_key.map(str::trim).filter(|key| !key.is_empty()) {
-            if self.global_api_key_allowed(key) {
-                candidates.next().cloned()
-            } else {
-                candidates
-                    .find(|account| {
-                        crate::access_control::account_key_allowed(&account.api_key, key)
-                    })
-                    .cloned()
-            }
-        } else {
-            candidates.next().cloned()
-        }
+        self.select_account(platform, api_key, excluded_ids, "image")
     }
 
     /// 把“选择账号”和“记录账号占用”包在同一个临界区，避免并发请求超发同一账号。
@@ -186,6 +177,11 @@ impl AppStore {
     }
 
     pub fn insert_task(&self, task: TaskRecord) {
+        if task.status == "processing" {
+            if let Some(id) = &task.account_id {
+                self.mark_account_dispatched(id);
+            }
+        }
         self.tasks
             .lock()
             .unwrap_or_else(|err| err.into_inner())
@@ -207,25 +203,32 @@ impl AppStore {
         self.save();
     }
 
-    pub fn mark_account_usage(&self, account_id: &str) {
-        let today = current_usage_date();
-        let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
-        if let Some(account) = accounts.iter_mut().find(|account| account.id == account_id) {
-            reset_daily_usage(account, &today);
-            account.used_today = account.used_today.saturating_add(1);
-            account.used_total = account.used_total.saturating_add(1);
-        }
-        drop(accounts);
-        self.save();
-    }
-
     pub fn complete_task(&self, id: &str, result: serde_json::Value) -> Option<TaskRecord> {
         self.update_task(id, |task| {
+            if task.status == "cancelled" {
+                return;
+            }
             task.status = "completed".to_string();
             task.result_data = Some(result.to_string());
             task.completed_at = Some(Utc::now().to_rfc3339());
             if let Some(url) = first_result_url(&result) {
                 task.result_url = Some(url);
+            }
+        })
+    }
+
+    pub(crate) fn clear_task_progress(&self, id: &str) {
+        self.update_task(id, |task| task.result_data = None);
+    }
+
+    pub(crate) fn save_task_progress(
+        &self,
+        id: &str,
+        progress: serde_json::Value,
+    ) -> Option<TaskRecord> {
+        self.update_task(id, |task| {
+            if task.status == "processing" {
+                task.result_data = Some(progress.to_string());
             }
         })
     }
@@ -244,6 +247,9 @@ impl AppStore {
 
     pub fn fail_task(&self, id: &str, message: String) -> Option<TaskRecord> {
         self.update_task(id, |task| {
+            if task.status == "cancelled" {
+                return;
+            }
             task.status = "failed".to_string();
             task.error_message = Some(message);
             task.completed_at = Some(Utc::now().to_rfc3339());
@@ -315,30 +321,14 @@ impl AppStore {
         Some(account)
     }
 
-    pub fn mark_login_check_result(
-        &self,
-        id: &str,
-        login_state: &str,
-        profile: Option<AccountLoginProfile>,
-    ) -> Option<AccountRecord> {
-        let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
-        let account = accounts.iter_mut().find(|account| account.id == id)?;
-        account.login_state = login_state.to_string();
-        if !state_releases_after_until(login_state) {
-            account.cooldown_until = None;
-        }
-        if let Some(profile) = profile {
-            apply_account_profile(account, profile);
-        }
-        let account = account.clone();
-        drop(accounts);
-        self.save();
-        Some(account)
-    }
-
     pub fn mark_account_state(&self, id: &str, login_state: &str) -> Option<AccountRecord> {
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         let account = accounts.iter_mut().find(|account| account.id == id)?;
+        account.policy.login_state_reason = login_state.to_string();
+        account.policy.last_check_at = Some(Utc::now().to_rfc3339());
+        if login_state == "available" {
+            account.policy.quota_task_kind = None;
+        }
         account.login_state = login_state.to_string();
         if login_state != "cooldown" {
             account.cooldown_until = None;
@@ -357,6 +347,11 @@ impl AppStore {
     ) -> Option<AccountRecord> {
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         let account = accounts.iter_mut().find(|account| account.id == id)?;
+        account.policy.login_state_reason = login_state.to_string();
+        account.policy.last_check_at = Some(Utc::now().to_rfc3339());
+        if login_state == "available" {
+            account.policy.quota_task_kind = None;
+        }
         account.login_state = login_state.to_string();
         account.cooldown_until = (state_releases_after_until(login_state) && seconds > 0)
             .then(|| (Utc::now() + chrono::Duration::seconds(seconds)).to_rfc3339());
@@ -438,7 +433,7 @@ impl AppStore {
         let _ = write_store_snapshot(&self.path, &snapshot);
     }
 
-    fn release_expired_cooldowns(&self) {
+    pub(crate) fn release_expired_cooldowns(&self) {
         let now = Utc::now();
         let mut changed = false;
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
@@ -446,6 +441,8 @@ impl AppStore {
             if account_hold_has_expired(account, now) {
                 account.login_state = "available".to_string();
                 account.cooldown_until = None;
+                account.policy.quota_task_kind = None;
+                account.policy.login_state_reason.clear();
                 changed = true;
             }
         }
@@ -455,7 +452,7 @@ impl AppStore {
         }
     }
 
-    fn rollover_daily_usage(&self) {
+    pub(crate) fn rollover_daily_usage(&self) {
         let today = current_usage_date();
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
         let mut changed = false;

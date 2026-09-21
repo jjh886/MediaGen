@@ -1,29 +1,36 @@
 const ENDPOINT = 'https://chatgpt.com/backend-api/codex/responses'
-const MODEL = 'gpt-5.5'
+const MODEL = 'gpt-5.6-luna'
 const INSTRUCTIONS =
-  "Use the image_generation tool to create the requested image. Do not rewrite, expand, polish, or add creative details to the user's prompt. Preserve the user intent, exact text, subject, style, composition, and constraints. Return the image generation result."
+  "When invoking the image_generation tool, use the user's image prompt verbatim. Do not rewrite, expand, summarize, embellish, translate, normalize punctuation, or add or remove visual details or constraints. Preserve the original language, wording, capitalization, quotes, and punctuation exactly."
 
 function main(ctx) {
+  if (ctx.reasoning_effort) throw new Error('invalid_input: 图片模型不支持思考深度参数')
   let auth = codexEnsureFreshAuth(ctx)
   const request = buildRequest(ctx)
-  const images = []
+  const saved = codexImageCheckpoint()
+  const images = Array.isArray(saved.images) ? [...saved.images] : []
   const partialImages = []
 
-  for (let index = 0; index < request.count; index++) {
+  for (let index = images.length; index < request.count; index++) {
     const prompt = promptForIndex(request.prompt, index, request.count)
     const payload = buildPayload(ctx, prompt, request)
     const response = requestImageWithAuthRetry(ctx, auth, payload)
     auth = response.auth
     const result = response.result
-    const dimensions = dimensionsFromPng(result.image)
+    const size = /^(\d+)x(\d+)$/.exec(String(result.size || ''))
+    const dimensions = size
+      ? { width: Number(size[1]), height: Number(size[2]) }
+      : dimensionsFromPng(result.image)
+    const outputFormat = result.output_format || request.output_format
     appendPartialImages(partialImages, result.partial_images, index, request.output_format)
     images.push({
-      url: 'data:' + mimeForOutputFormat(request.output_format) + ';base64,' + result.image,
+      url: 'data:' + mimeForOutputFormat(outputFormat) + ';base64,' + result.image,
       width: dimensions.width,
       height: dimensions.height,
       revised_prompt: result.revised_prompt || null,
       usage: result.usage || null,
     })
+    codexImageCheckpoint({ phase: 'ready', images })
   }
 
   return {
@@ -41,6 +48,7 @@ function buildRequest(ctx) {
   if (!prompt) throw new Error('Missing prompt.')
   return {
     prompt,
+    model: codexImageModel(ctx),
     count: clampNumber(ctx.max_images || 1, 1, 4),
     size: resolveSize(ctx),
     quality: normalizeString(ctx.quality, 'auto'),
@@ -68,9 +76,11 @@ function buildPayload(ctx, prompt, request) {
     model: MODEL,
     instructions: INSTRUCTIONS,
     input: [{ role: 'user', content }],
-    reasoning: { effort: 'low' },
+    reasoning: { effort: 'medium', summary: 'auto' },
     tools: [buildImageTool(request)],
     tool_choice: { type: 'image_generation' },
+    parallel_tool_calls: true,
+    include: ['reasoning.encrypted_content'],
     store: false,
     stream: true,
   }
@@ -109,6 +119,7 @@ function localReferenceDataUrls(ctx) {
 function buildImageTool(request) {
   const tool = {
     type: 'image_generation',
+    model: request.model,
     size: request.size,
     quality: request.quality,
     background: request.background,
@@ -133,6 +144,8 @@ function requestImageWithAuthRetry(ctx, auth, payload) {
     }
   } catch (error) {
     if (!codexErrorNeedsTokenRefresh(error)) throw error
+    const saved = codexImageCheckpoint()
+    codexImageCheckpoint({ ...saved, phase: 'ready' })
     const refreshed = codexRefreshAuth(ctx, auth, '生成接口鉴权失败')
     return {
       auth: refreshed,
@@ -145,40 +158,72 @@ function requestImageWithAuthRetry(ctx, auth, payload) {
   }
 }
 
+function codexImageCheckpoint(value) {
+  return host.checkpoint(value) || {}
+}
+
 function requestImageWithRetry(accessToken, accountId, payload) {
-  for (let attempt = 1; attempt <= DEFAULT_MAX_ATTEMPTS; attempt++) {
-    try {
-      const result = requestImage(accessToken, accountId, payload)
-      if (result.image) return result
-      if (!canRetry(attempt, shouldRetryMessage(result.error))) throw new Error(resultError(result))
-      sleepBeforeRetry(attempt)
-    } catch (error) {
-      const message = formatOpenAiError(error)
-      if (!canRetry(attempt, shouldRetryMessage(message))) throw new Error(message)
-      sleepBeforeRetry(attempt)
-    }
-  }
-  throw new Error('No image_generation_call.result found.')
+  const saved = codexImageCheckpoint()
+  if (saved.pending_image?.image && !saved.pending_image.error) return saved.pending_image
+  if (saved.phase === 'submitting')
+    throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原生成提交状态待核对')
+  codexImageCheckpoint({ ...saved, phase: 'submitting' })
+  const result = requestImage(accessToken, accountId, payload)
+  if (result.error || !result.image) throw new Error(resultError(result))
+  return result
 }
 
 function requestImage(accessToken, accountId, payload) {
-  const headers = {
-    authorization: 'Bearer ' + accessToken,
-    'content-type': 'application/json',
-    accept: 'text/event-stream',
+  const headers = codexUpstreamHeaders(accessToken, accountId, 'text/event-stream')
+  const direct = codexDirectImageRequest(payload)
+  if (direct) {
+    const native = requestImageStream(headers, direct.url, direct.body)
+    if (!codexCanFallbackImageEndpoint(native.sse, native.result)) return native.result
   }
-  if (accountId) headers['chatgpt-account-id'] = accountId
-  const sse = host.call('http.sse_request', {
-    method: 'POST',
-    url: ENDPOINT,
-    proxy: 'system',
-    headers,
-    body: payload,
-    timeout_ms: 1800000,
-  })
-  const result = extractImage(sse.events || [])
-  if (!result.image && !result.error && sse.ok === false) applyHttpError(result, sse)
-  return result
+  return requestImageStream(headers, ENDPOINT, payload).result
+}
+
+function requestImageStream(headers, url, payload) {
+  const result = newImageResult()
+  const types = []
+  const sse = host.stream(
+    'http.sse_request',
+    {
+      method: 'POST',
+      url,
+      proxy: 'system',
+      fingerprint: 'none',
+      headers,
+      body: payload,
+      timeout_ms: 3 * 60 * 60 * 1000,
+      retry: { max_attempts: 1 },
+    },
+    (event) => {
+      collectEventType(types, event)
+      applyEvent(result, event)
+      if (result.error) {
+        codexImageCheckpoint({
+          ...codexImageCheckpoint(),
+          phase: 'submitting',
+          pending_image: null,
+        })
+      } else if (result.image) {
+        const saved = codexImageCheckpoint()
+        if (!saved.pending_image?.image)
+          codexImageCheckpoint({ ...saved, phase: 'image_ready', pending_image: result })
+      }
+      // 图片 Base64 已进入 result，不能让 host.stream 再复制并转发一次。
+      return null
+    }
+  )
+  if (sse.ok === false) applyHttpError(result, sse)
+  finalizeImageResult(result, types)
+  if (result.error) {
+    codexImageCheckpoint({ ...codexImageCheckpoint(), phase: 'submitting', pending_image: null })
+  } else if (result.image) {
+    codexImageCheckpoint({ ...codexImageCheckpoint(), phase: 'image_ready', pending_image: result })
+  }
+  return { result, sse }
 }
 
 function resolveSize(ctx) {
@@ -258,7 +303,9 @@ function appendPartialImages(target, partials, imageIndex, fallbackFormat) {
 }
 
 function dimensionsFromPng(imageBase64) {
-  const bytes = base64ToBytes(imageBase64)
+  // PNG 尺寸只需读取前 24 字节。解码整张图片会把数 MB Base64
+  // 膨胀成巨大的 JS Number 数组，并触发 QuickJS 内存上限。
+  const bytes = base64HeaderBytes(imageBase64, 24)
   const isPng = bytes.length >= 24 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e
   if (!isPng) return { width: 0, height: 0 }
   return {
@@ -267,8 +314,11 @@ function dimensionsFromPng(imageBase64) {
   }
 }
 
-function base64ToBytes(text) {
-  const clean = String(text || '').replace(/[^A-Za-z0-9+/=]/g, '')
+function base64HeaderBytes(text, byteCount) {
+  const encodedLength = Math.ceil(byteCount / 3) * 4
+  const clean = String(text || '')
+    .slice(0, encodedLength)
+    .replace(/[^A-Za-z0-9+/=]/g, '')
   const out = []
   for (let i = 0; i < clean.length; i += 4) {
     pushBase64Chunk(out, clean.slice(i, i + 4))

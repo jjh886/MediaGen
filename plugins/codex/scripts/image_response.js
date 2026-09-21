@@ -8,7 +8,17 @@ function applyHttpError(out, response) {
 }
 
 function extractImage(events) {
-  const out = {
+  const out = newImageResult()
+  const types = []
+  for (const event of events) {
+    collectEventType(types, event)
+    applyEvent(out, event)
+  }
+  return finalizeImageResult(out, types)
+}
+
+function newImageResult() {
+  return {
     image: '',
     revised_prompt: '',
     usage: null,
@@ -18,11 +28,9 @@ function extractImage(events) {
     types: [],
     partial_images: [],
   }
-  const types = []
-  for (const event of events) {
-    collectEventType(types, event)
-    applyEvent(out, event)
-  }
+}
+
+function finalizeImageResult(out, types) {
   if (!out.image && !out.error && types.length) {
     const detail = compactUpstreamText(out.output_text)
     out.error_code = stableProviderErrorCode('', detail)
@@ -49,8 +57,14 @@ function applyEvent(out, event) {
 
 // 分开处理三类 SSE 事件，避免平台新增事件时把同一个分派函数越堆越复杂。
 function applyFailureEvent(out, event) {
+  if (!event.type && event.error) applyError(out, event.error)
   if (event.type === 'error') applyError(out, event)
-  if (event.type === 'response.failed') applyError(out, get(event, ['response', 'error']) || {})
+  if (event.type === 'response.failed' || event.type === 'response.incomplete') {
+    applyError(
+      out,
+      event.response?.error || event.response?.incomplete_details || { message: event.type }
+    )
+  }
   if (event.type !== 'response.failed' && String(event.type || '').endsWith('.failed')) {
     applyError(out, event.error || get(event, ['item', 'error']) || event)
   }
@@ -65,6 +79,30 @@ function applyTextEvent(out, event) {
 }
 
 function applyImageEvent(out, event) {
+  // 原生 edits 即使请求 stream，也可能返回标准 Images JSON。
+  if (Array.isArray(event.data) && event.data[0]?.b64_json) {
+    out.image = event.data[0].b64_json
+    out.revised_prompt = event.data[0].revised_prompt || ''
+    out.usage = event.usage || null
+    out.output_format = event.output_format || ''
+    out.size = event.size || ''
+  }
+  if (event.type === 'image_generation.completed' || event.type === 'image_edit.completed') {
+    if (event.b64_json) out.image = event.b64_json
+    if (event.revised_prompt) out.revised_prompt = event.revised_prompt
+    if (event.usage) out.usage = event.usage
+    if (event.output_format) out.output_format = event.output_format
+    if (event.size) out.size = event.size
+  }
+  if (
+    event.type === 'image_generation.partial_image' ||
+    event.type === 'image_edit.partial_image'
+  ) {
+    applyPartialImage(out, {
+      ...event,
+      partial_image_b64: event.b64_json || event.partial_image_b64,
+    })
+  }
   if (event.type === 'response.image_generation_call.partial_image') applyPartialImage(out, event)
   if (event.type === 'response.output_item.done') applyOutputItem(out, event.item || {})
   if (event.type === 'response.completed') applyCompletedResponse(out, event.response || {})

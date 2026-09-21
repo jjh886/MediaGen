@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountRecord {
+    #[serde(flatten)]
+    pub policy: AccountPolicy,
     pub id: String,
     pub platform: String,
     pub name: String,
@@ -31,6 +33,42 @@ pub struct AccountRecord {
     pub api_key: String,
     pub profile_dir: String,
     pub created_at: String,
+}
+
+/// 账号调度和健康状态；旧数据通过默认值兼容。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AccountPolicy {
+    pub user_id: String,
+    pub priority: i32,
+    pub text_concurrency_limit: u32,
+    pub text_daily_limit: u32,
+    pub text_total_limit: u32,
+    pub text_used_today: u32,
+    pub text_used_total: u32,
+    pub quota_task_kind: Option<String>,
+    pub login_state_reason: String,
+    pub last_check_at: Option<String>,
+    pub last_used_at: Option<String>,
+    pub last_success_at: Option<String>,
+}
+impl Default for AccountPolicy {
+    fn default() -> Self {
+        Self {
+            user_id: String::new(),
+            priority: 0,
+            text_concurrency_limit: 0,
+            text_daily_limit: 0,
+            text_total_limit: 0,
+            text_used_today: 0,
+            text_used_total: 0,
+            quota_task_kind: None,
+            login_state_reason: String::new(),
+            last_check_at: None,
+            last_used_at: None,
+            last_success_at: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,6 +222,10 @@ pub struct WeixinAccountNotificationStateRecord {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AccountUpdate {
+    pub priority: Option<i32>,
+    pub text_concurrency_limit: Option<u32>,
+    pub text_daily_limit: Option<u32>,
+    pub text_total_limit: Option<u32>,
     pub tier: Option<String>,
     pub concurrency_limit: Option<u32>,
     pub daily_limit: Option<u32>,

@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD};
+use futures_util::StreamExt;
 use mediagen_browser_gateway::BrowserFingerprint;
 use mediagen_plugin_runtime::{PluginHost, PluginStepResult};
 use rand::RngCore;
@@ -17,10 +18,35 @@ use crate::net_client::normalize_proxy_url;
 use crate::port_process;
 use crate::store::AccountRecord;
 
+#[path = "plugin_http_stream.rs"]
+mod http_stream;
+use http_stream::read_response_bounded;
+#[path = "plugin_http_body.rs"]
+mod http_body;
+use http_body::apply_body;
+#[path = "plugin_file_io.rs"]
+mod file_io;
+#[path = "plugin_http_request.rs"]
+mod http_request;
+#[path = "plugin_http_transport.rs"]
+mod http_transport;
+
 const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct ServerPluginHost {
+    credential_cipher: Option<std::sync::Arc<crate::generation_queue::CredentialCipher>>,
+    protected_files: Vec<PathBuf>,
+    profile_dir: PathBuf,
+    checkpoint_memory: std::sync::Arc<std::sync::Mutex<Value>>,
+    pub(super) submitted: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) emitted: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    events: Option<tokio::sync::mpsc::Sender<Value>>,
+    terminal_event: std::sync::Arc<std::sync::Mutex<Option<Value>>>,
+    request_id: String,
+    http_profile: String,
+    profile_clients: std::sync::Arc<std::sync::Mutex<HashMap<String, wreq::Client>>>,
+    locks: crate::plugin_locks::PluginLocks,
     callbacks: CallbackRegistry,
     client: reqwest::Client,
     proxy_url: String,
@@ -28,6 +54,33 @@ pub struct ServerPluginHost {
 }
 
 impl ServerPluginHost {
+    pub fn with_events(
+        mut self,
+        events: Option<tokio::sync::mpsc::Sender<Value>>,
+        request_id: String,
+    ) -> Self {
+        self.events = events;
+        self.request_id = request_id;
+        self
+    }
+
+    pub(crate) fn take_terminal_event(&self) -> Option<Value> {
+        self.terminal_event
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+    }
+
+    pub(crate) fn with_http_profile(mut self, manifest: &mediagen_core::PluginManifest) -> Self {
+        self.http_profile = manifest
+            .extra
+            .get("http_profile")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        self
+    }
+
     pub fn new_for_account(account: &AccountRecord) -> Self {
         Self::with_fingerprint(
             account.proxy_url.clone(),
@@ -47,6 +100,18 @@ impl ServerPluginHost {
         browser_fingerprint: Option<BrowserFingerprint>,
     ) -> Self {
         Self {
+            credential_cipher: None,
+            protected_files: Vec::new(),
+            profile_dir: PathBuf::new(),
+            checkpoint_memory: Default::default(),
+            emitted: Default::default(),
+            submitted: Default::default(),
+            events: None,
+            terminal_event: Default::default(),
+            request_id: String::new(),
+            http_profile: String::new(),
+            profile_clients: Default::default(),
+            locks: Default::default(),
             callbacks: CallbackRegistry::default(),
             client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
@@ -60,6 +125,38 @@ impl ServerPluginHost {
 
     async fn execute(&self, action: &str, params: &Value) -> Result<Value, String> {
         match action {
+            "checkpoint" => self.checkpoint(params).await,
+            "stream.emit" => {
+                if self.events.is_some() {
+                    self.emitted
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                if matches!(
+                    params["event"]["type"].as_str(),
+                    Some("response.completed" | "response.incomplete" | "response.failed")
+                ) {
+                    *self
+                        .terminal_event
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner()) = Some(params["event"].clone());
+                    return Ok(Value::Null);
+                }
+                if let Some(sender) = &self.events {
+                    sender
+                        .send(params["event"].clone())
+                        .await
+                        .map_err(|_| "请求已取消".to_string())?;
+                }
+                Ok(Value::Null)
+            }
+            "lock.acquire" => {
+                self.locks.acquire(&required_str(params, "key")?).await?;
+                Ok(Value::Null)
+            }
+            "lock.release" => {
+                self.locks.release(&required_str(params, "key")?);
+                Ok(Value::Null)
+            }
             "file.read_json" => self.read_json(params).await,
             "file.write_json" => self.write_json(params).await,
             "file.read_base64" => self.read_base64(params).await,
@@ -74,6 +171,8 @@ impl ServerPluginHost {
             "crypto.base64_decode_latin1" => base64_decode_latin1(params),
             "time.sleep" => sleep_for(params).await,
             "process.kill_port" => port_process::kill_port(params),
+            "audio.transcode" => crate::audio_transcode::transcode(params).await,
+            "process.run" => crate::plugin_process::run(params).await,
             "process.spawn" => port_process::spawn_process(params),
             "external_cdp.list_targets" => crate::external_cdp::list_targets(params).await,
             "external_cdp.create_target" => crate::external_cdp::create_target(params).await,
@@ -89,75 +188,13 @@ impl ServerPluginHost {
         }
     }
 
-    async fn read_json(&self, params: &Value) -> Result<Value, String> {
-        let path = required_str(params, "path")?;
-        let content = tokio::fs::read_to_string(&path)
-            .await
-            .map_err(|err| format!("file.read_json 读取失败 {path}: {err}"))?;
-        serde_json::from_str(&content).map_err(|err| format!("file.read_json 解析失败: {err}"))
-    }
-
-    async fn write_json(&self, params: &Value) -> Result<Value, String> {
-        let path = PathBuf::from(required_str(params, "path")?);
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|err| err.to_string())?;
-        }
-        let value = params
-            .get("value")
-            .cloned()
-            .ok_or_else(|| "file.write_json 缺少 value".to_string())?;
-        let content = serde_json::to_vec_pretty(&value).map_err(|err| err.to_string())?;
-        tokio::fs::write(&path, [&content[..], b"\n"].concat())
-            .await
-            .map_err(|err| err.to_string())?;
-        Ok(json!({ "path": path.to_string_lossy(), "bytes": content.len() + 1 }))
-    }
-
-    async fn read_base64(&self, params: &Value) -> Result<Value, String> {
-        let path = required_str(params, "path")?;
-        let metadata = tokio::fs::metadata(&path)
-            .await
-            .map_err(|err| format!("file.read_base64 找不到文件 {path}: {err}"))?;
-        let max_bytes = params["max_bytes"].as_u64().unwrap_or(MAX_FILE_BYTES);
-        if metadata.len() > max_bytes {
-            return Err(format!(
-                "file.read_base64 文件超过限制 {max_bytes} bytes: {path}"
-            ));
-        }
-        let bytes = tokio::fs::read(&path)
-            .await
-            .map_err(|err| err.to_string())?;
-        Ok(json!({
-            "path": path,
-            "base64": BASE64_STANDARD.encode(&bytes),
-            "mime": mime_type(&path),
-            "size": bytes.len(),
-        }))
-    }
-
-    async fn inspect_image(&self, params: &Value) -> Result<Value, String> {
-        let path = required_str(params, "path")?;
-        let bytes = read_limited_file(&path, params["max_bytes"].as_u64()).await?;
-        // 这里只读取图片头部尺寸，不解码整张像素图，避免大图额外占用内存。
-        let reader = image::ImageReader::new(Cursor::new(bytes))
-            .with_guessed_format()
-            .map_err(|err| format!("file.inspect_image 无法识别图片 {path}: {err}"))?;
-        let (width, height) = reader
-            .into_dimensions()
-            .map_err(|err| format!("file.inspect_image 读取尺寸失败 {path}: {err}"))?;
-        Ok(json!({ "path": path, "width": width, "height": height }))
-    }
-
     async fn http_request(&self, params: &Value, sse: bool) -> Result<Value, String> {
-        let request = self.build_request(params).await?;
-        let response = request.send().await.map_err(|err| err.to_string())?;
-        let status = response.status().as_u16();
-        let success = response.status().is_success();
-        let headers = response_headers(response.headers());
+        let response = self.send_http(params).await?;
+        let status = response.status;
+        let success = (200..300).contains(&status);
+        let headers = response.headers.clone();
         if params["response_body_format"].as_str() == Some("base64") {
-            let bytes = response.bytes().await.map_err(|err| err.to_string())?;
+            let bytes = read_response_bounded(response).await?;
             if bytes.len() as u64 > MAX_FILE_BYTES {
                 return Err(format!("HTTP 二进制响应超过限制 {} bytes", MAX_FILE_BYTES));
             }
@@ -168,7 +205,8 @@ impl ServerPluginHost {
                 "ok": success,
             }));
         }
-        let body_text = response.text().await.map_err(|err| err.to_string())?;
+        let body_text =
+            String::from_utf8_lossy(&read_response_bounded(response).await?).into_owned();
         let body = serde_json::from_str::<Value>(&body_text)
             .unwrap_or_else(|_| Value::String(body_text.clone()));
         Ok(json!({
@@ -180,70 +218,35 @@ impl ServerPluginHost {
             "ok": success,
         }))
     }
-
-    async fn build_request(&self, params: &Value) -> Result<reqwest::RequestBuilder, String> {
-        let method = params["method"].as_str().unwrap_or("GET");
-        let url = required_str(params, "url")?;
-        let client = self.client_for(params)?;
-        let mut request = client
-            .request(
-                method
-                    .parse()
-                    .map_err(|_| format!("不支持的 HTTP 方法: {method}"))?,
-                url,
-            )
-            .headers(self.request_headers(params)?)
-            .timeout(Duration::from_millis(
-                params["timeout_ms"].as_u64().unwrap_or(30_000),
-            ));
-        if let Some(body) = params.get("body").filter(|value| !value.is_null()) {
-            request = apply_body(request, params, body)?;
-        }
-        Ok(request)
-    }
-
-    fn client_for(&self, params: &Value) -> Result<reqwest::Client, String> {
-        let Some(proxy_url) = proxy_url(params, &self.proxy_url) else {
-            return Ok(self.client.clone());
-        };
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .proxy(
-                reqwest::Proxy::all(&proxy_url)
-                    .map_err(|err| format!("代理地址无效 {proxy_url}: {err}"))?,
-            )
-            .build()
-            .map_err(|err| err.to_string())
-    }
-
-    fn request_headers(&self, params: &Value) -> Result<HeaderMap, String> {
-        let mut headers = request_headers(params)?;
-        let Some(fingerprint) = &self.browser_fingerprint else {
-            return Ok(headers);
-        };
-        insert_header_if_missing(&mut headers, USER_AGENT, fingerprint.user_agent())?;
-        insert_header_if_missing(
-            &mut headers,
-            HeaderName::from_static("sec-ch-ua"),
-            fingerprint.sec_ch_ua(),
-        )?;
-        insert_header_if_missing(
-            &mut headers,
-            HeaderName::from_static("sec-ch-ua-platform"),
-            format!("\"{}\"", fingerprint.sec_ch_ua_platform()),
-        )?;
-        insert_header_if_missing(
-            &mut headers,
-            HeaderName::from_static("sec-ch-ua-mobile"),
-            "?0".to_string(),
-        )?;
-        Ok(headers)
-    }
 }
 
 #[async_trait]
 impl PluginHost for ServerPluginHost {
+    async fn stream(
+        &self,
+        action: &str,
+        params: &Value,
+        events: tokio::sync::mpsc::Sender<Value>,
+    ) -> PluginStepResult {
+        let result = if action == "http.sse_request" {
+            self.stream_request(params, events).await
+        } else {
+            Err("host.stream 只支持 http.sse_request".to_string())
+        };
+        match result {
+            Ok(data) => PluginStepResult {
+                success: true,
+                data,
+                error: None,
+            },
+            Err(error) => PluginStepResult {
+                success: false,
+                data: Value::Null,
+                error: Some(error),
+            },
+        }
+    }
+
     async fn call(&self, action: &str, params: &Value) -> PluginStepResult {
         match self.execute(action, params).await {
             Ok(data) => PluginStepResult {
@@ -309,40 +312,22 @@ fn insert_header_if_missing(
 }
 
 fn response_headers(headers: &HeaderMap) -> HashMap<String, String> {
-    headers
-        .iter()
-        .map(|(key, value)| (key.to_string(), value.to_str().unwrap_or("").to_string()))
-        .collect()
-}
-
-fn apply_body(
-    request: reqwest::RequestBuilder,
-    params: &Value,
-    body: &Value,
-) -> Result<reqwest::RequestBuilder, String> {
-    match params["body_format"].as_str().unwrap_or("json") {
-        "form" | "x-www-form-urlencoded" => {
-            let object = body
-                .as_object()
-                .ok_or_else(|| "form body 必须是对象".to_string())?;
-            let pairs = object
-                .iter()
-                .map(|(key, value)| (key.clone(), value_to_string(value)))
-                .collect::<Vec<_>>();
-            Ok(request.form(&pairs))
-        }
-        "text" | "raw" => Ok(request.body(value_to_string(body))),
-        "base64" => {
-            let encoded = body
-                .as_str()
-                .ok_or_else(|| "base64 body 必须是字符串".to_string())?;
-            let bytes = BASE64_STANDARD
-                .decode(encoded)
-                .map_err(|err| format!("base64 body 解码失败: {err}"))?;
-            Ok(request.body(bytes))
-        }
-        _ => Ok(request.json(body)),
+    let mut result = HashMap::<String, String>::new();
+    for (name, value) in headers.iter() {
+        let text = value.to_str().unwrap_or("");
+        result
+            .entry(name.to_string())
+            .and_modify(|existing| {
+                existing.push_str(if name == reqwest::header::SET_COOKIE {
+                    "\n"
+                } else {
+                    ", "
+                });
+                existing.push_str(text);
+            })
+            .or_insert_with(|| text.to_string());
     }
+    result
 }
 
 async fn read_limited_file(path: &str, max_bytes: Option<u64>) -> Result<Vec<u8>, String> {

@@ -151,6 +151,17 @@ pub(crate) fn public_account(account: AccountRecord) -> Value {
         "name": account.name,
         "email": account.email,
         "avatar_url": account.avatar_url,
+        "user_id": account.policy.user_id,
+        "priority": account.policy.priority,
+        "text_concurrency_limit": account.policy.text_concurrency_limit,
+        "text_daily_limit": account.policy.text_daily_limit,
+        "text_total_limit": account.policy.text_total_limit,
+        "text_used_today": account.policy.text_used_today,
+        "text_used_total": account.policy.text_used_total,
+        "quota_task_kind": account.policy.quota_task_kind,
+        "login_state_reason": account.policy.login_state_reason,
+        "last_check_at": account.policy.last_check_at,
+        "last_success_at": account.policy.last_success_at,
         "tier": account.tier,
         "login_state": account.login_state,
         "cooldown_until": account.cooldown_until,
@@ -235,56 +246,6 @@ pub async fn update_settings(
         state.account_refresh.notify_schedule_changed();
     }
     HttpResponse::Ok().json(serde_json::json!({ "data": data }))
-}
-
-pub async fn models(state: web::Data<ServerState>, request: HttpRequest) -> impl Responder {
-    if !api_key_allowed(&state, &request) {
-        return HttpResponse::Unauthorized().json(serde_json::json!({
-            "error": {
-                "message": "invalid api key",
-                "type": "authentication_error"
-            }
-        }));
-    }
-
-    let mut data: Vec<_> = state
-        .plugin_loader
-        .all_models()
-        .into_iter()
-        .map(|(manifest, model)| {
-            serde_json::json!({
-                "id": model.model_id,
-                "object": "model",
-                "created": 0,
-                "owned_by": manifest.platform_id,
-                "display_name": model.display_name,
-                "task_kind": model.task_kind,
-            })
-        })
-        .collect();
-
-    data.extend(
-        state
-            .plugin_loader
-            .model_aliases()
-            .into_iter()
-            .map(|(alias, manifest, model)| {
-                serde_json::json!({
-                    "id": alias,
-                    "object": "model",
-                    "created": 0,
-                    "owned_by": manifest.platform_id,
-                    "display_name": alias,
-                    "task_kind": model.task_kind,
-                    "alias_of": model.model_id,
-                })
-            }),
-    );
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "object": "list",
-        "data": data
-    }))
 }
 
 pub(crate) fn api_key_allowed(state: &ServerState, request: &HttpRequest) -> bool {

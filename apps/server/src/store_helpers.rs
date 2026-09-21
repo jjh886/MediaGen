@@ -9,8 +9,41 @@ use crate::store_models::{
 };
 
 // AppStore 的纯计算辅助逻辑集中放这里，避免 store.rs 继续承担过多职责。
-pub(crate) fn account_ready_for_dispatch(account: &AccountRecord, tasks: &[TaskRecord]) -> bool {
-    account_ready_for_dispatch_at(account, tasks, Utc::now())
+pub(crate) fn account_ready_for_kind(
+    account: &AccountRecord,
+    tasks: &[TaskRecord],
+    kind: &str,
+) -> bool {
+    let mut scoped = account.clone();
+    if account
+        .policy
+        .quota_task_kind
+        .as_deref()
+        .is_some_and(|scope| (scope == "text") != (kind == "text"))
+        && matches!(
+            account.login_state.as_str(),
+            "daily_quota_exhausted" | "total_quota_exhausted"
+        )
+    {
+        scoped.login_state = "available".into();
+    }
+    if kind == "text" {
+        scoped.daily_limit = account.policy.text_daily_limit;
+        scoped.total_limit = account.policy.text_total_limit;
+        scoped.used_today = account.policy.text_used_today;
+        scoped.used_total = account.policy.text_used_total;
+        scoped.concurrency_limit = if account.policy.text_concurrency_limit == 0 {
+            u32::MAX
+        } else {
+            account.policy.text_concurrency_limit
+        };
+    }
+    let relevant = tasks
+        .iter()
+        .filter(|task| (task.task_kind == "text") == (kind == "text"))
+        .cloned()
+        .collect::<Vec<_>>();
+    account_ready_for_dispatch_at(&scoped, &relevant, Utc::now())
 }
 
 /// 把跨日账号恢复为新一天的初始状态，避免每日用量一直累加成总用量。
@@ -19,9 +52,12 @@ pub(crate) fn reset_daily_usage(account: &mut AccountRecord, today: &str) -> boo
         return false;
     }
     account.used_today = 0;
+    account.policy.text_used_today = 0;
     account.used_today_date = today.to_string();
     if account.login_state == "daily_quota_exhausted" {
         account.login_state = "available".to_string();
+        account.policy.quota_task_kind = None;
+        account.policy.login_state_reason.clear();
     }
     true
 }
@@ -90,12 +126,25 @@ pub(crate) fn first_result_url(result: &Value) -> Option<String> {
 }
 
 pub(crate) fn apply_account_update(account: &mut AccountRecord, update: AccountUpdate) {
+    if let Some(v) = update.priority {
+        account.policy.priority = v;
+    }
+    if let Some(v) = update.text_concurrency_limit {
+        account.policy.text_concurrency_limit = v;
+    }
+    if let Some(v) = update.text_daily_limit {
+        account.policy.text_daily_limit = v;
+    }
+    if let Some(v) = update.text_total_limit {
+        account.policy.text_total_limit = v;
+    }
     apply_account_limits(account, &update);
     apply_account_proxy(account, &update);
     apply_account_browser_and_keys(account, update);
 }
 
 pub(crate) fn apply_account_profile(account: &mut AccountRecord, profile: AccountLoginProfile) {
+    set_non_empty(&mut account.policy.user_id, profile.user_id.clone());
     set_non_empty(&mut account.name, profile.username);
     set_non_empty(&mut account.email, profile.email);
     set_non_empty(&mut account.avatar_url, profile.avatar_url);
@@ -197,7 +246,14 @@ pub(crate) fn recover_interrupted_direct_tasks(
     };
     let mut recovered = 0;
     for task in tasks.iter_mut().filter(|task| task_is_active(task)) {
-        if has_recoverable_job(&task.id) {
+        if has_recoverable_job(&task.id)
+            || (task.task_kind == "realtime"
+                && task
+                    .result_data
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+                    .is_some_and(|value| value["live_ciphertext"].is_string()))
+        {
             continue;
         }
         task.status = "failed".to_string();

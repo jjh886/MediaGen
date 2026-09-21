@@ -13,6 +13,17 @@ export interface Account {
   name: string
   email: string
   avatar_url: string
+  user_id?: string
+  priority?: number
+  text_concurrency_limit?: number
+  text_daily_limit?: number
+  text_total_limit?: number
+  text_used_today?: number
+  text_used_total?: number
+  quota_task_kind?: string | null
+  login_state_reason?: string
+  last_check_at?: string | null
+  last_success_at?: string | null
   tier: string
   login_state: LoginState
   cooldown_until?: string | null

@@ -16,11 +16,18 @@ use crate::video_request::VideoFlowRequest;
 
 pub struct JsFlowRunner {
     plugin_loader: Arc<PluginLoader>,
+    cipher: Arc<crate::generation_queue::CredentialCipher>,
 }
 
 impl JsFlowRunner {
-    pub fn new(plugin_loader: Arc<PluginLoader>) -> Self {
-        Self { plugin_loader }
+    pub fn new(
+        plugin_loader: Arc<PluginLoader>,
+        cipher: Arc<crate::generation_queue::CredentialCipher>,
+    ) -> Self {
+        Self {
+            plugin_loader,
+            cipher,
+        }
     }
 
     pub async fn run_image_flow(
@@ -38,7 +45,7 @@ impl JsFlowRunner {
             input,
             platform_config,
         )?;
-        self.run_flow(flow, context, account, find_image_result, "图片")
+        self.run_flow(manifest, flow, context, account, find_image_result, "图片")
             .await
     }
 
@@ -57,19 +64,23 @@ impl JsFlowRunner {
             input,
             platform_config,
         )?;
-        self.run_flow(flow, context, account, find_video_result, "视频")
+        self.run_flow(manifest, flow, context, account, find_video_result, "视频")
             .await
     }
 
     async fn run_flow(
         &self,
+        manifest: &PluginManifest,
         flow: &FlowDef,
         mut context: Value,
         account: &AccountRecord,
         find_result: fn(&[Value]) -> Option<Value>,
         result_label: &str,
     ) -> Result<Value, String> {
-        let host = ServerPluginHost::new_for_account(account);
+        let host = ServerPluginHost::new_for_account(account)
+            .with_storage(self.cipher.clone(), &account.profile_dir, manifest)
+            .with_http_profile(manifest)
+            .with_events(None, context["task_id"].as_str().unwrap_or("").to_string());
         let mut results = Vec::new();
 
         for step in &flow.steps {

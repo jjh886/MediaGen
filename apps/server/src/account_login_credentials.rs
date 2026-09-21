@@ -49,7 +49,8 @@ pub async fn capture_if_configured(
         "auth": auth,
         "cookies": cookies,
     });
-    write_private_json(&session.profile_dir, &config.file_name, &value).await
+    let protected = json!({"storage_format":"mediagen.encrypted.v1","ciphertext":state.credential_cipher.encrypt(&value.to_string())?});
+    write_private_json(&session.profile_dir, &config.file_name, &protected).await
 }
 
 fn capture_config(
@@ -133,35 +134,34 @@ async fn write_private_json(
     write_private_file(&path, &bytes).await
 }
 
-#[cfg(unix)]
-async fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
+/// 所有凭据及检查点共用同目录临时文件和原子替换。
+pub(crate) async fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     use tokio::io::AsyncWriteExt;
-
-    let mut file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(path)
+    let parent = path.parent().ok_or("存储路径缺少父目录")?;
+    tokio::fs::create_dir_all(parent)
         .await
-        .map_err(|err| format!("写入登录凭据失败: {err}"))?;
-    file.write_all(bytes)
+        .map_err(|_| "无法创建存储目录")?;
+    let temporary = parent.join(format!(".write-{}", uuid::Uuid::new_v4()));
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options
+        .open(&temporary)
         .await
-        .map_err(|err| format!("写入登录凭据失败: {err}"))?;
-    file.flush()
-        .await
-        .map_err(|err| format!("刷新登录凭据失败: {err}"))?;
-    tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-        .await
-        .map_err(|err| format!("设置登录凭据权限失败: {err}"))
-}
-
-#[cfg(not(unix))]
-async fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    tokio::fs::write(path, bytes)
-        .await
-        .map_err(|err| format!("写入登录凭据失败: {err}"))
+        .map_err(|_| "无法创建安全存储文件")?;
+    let result = async {
+        file.write_all(bytes).await?;
+        file.sync_all().await?;
+        drop(file);
+        tokio::fs::rename(&temporary, path).await
+    }
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(&temporary).await;
+        return Err("安全存储写入失败".into());
+    }
+    Ok(())
 }
 
 fn safe_file_name(value: &str) -> bool {

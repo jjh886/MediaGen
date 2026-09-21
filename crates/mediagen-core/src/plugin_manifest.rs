@@ -40,6 +40,12 @@ pub struct ModelDef {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TierDef {
+    #[serde(default)]
+    pub text_concurrency_limit: u32,
+    #[serde(default)]
+    pub text_daily_limit: u32,
+    #[serde(default)]
+    pub text_total_limit: u32,
     pub display_name: String,
     #[serde(default)]
     pub is_default: bool,
@@ -78,6 +84,10 @@ pub enum TaskKind {
     #[default]
     Image,
     Video,
+    Text,
+    AudioSpeech,
+    AudioTranscription,
+    Realtime,
 }
 
 fn default_sort_order() -> i32 {

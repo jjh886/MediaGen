@@ -48,6 +48,8 @@ const RUST_INCLUDE_REGEX = [
   'apps/server/src/admin_routes\\.rs$',
   'apps/server/src/image_request\\.rs$',
   'apps/server/src/net_client\\.rs$',
+  'apps/server/src/(protocol_.*|model_api|audio_api|realtime_api|realtime_transport|request_identity|sse_decoder|plugin_file_io|plugin_http_.*|plugin_locks|plugin_process|audio_transcode|store_accounts|account_status_refresh|account_login_credentials)\\.rs$',
+  'crates/mediagen-plugin-runtime/src/js_runtime\\.rs$',
   'apps/server/src/store\\.rs$',
   'apps/server/src/store_entities\\.rs$',
   'apps/server/src/store_persistence\\.rs$',
@@ -242,6 +244,7 @@ function runRustCoverage() {
   }
 
   console.log(`[coverage-gate] Rust 覆盖率检查，阈值 ${RUST_THRESHOLD}%`)
+  rmSync(RUST_COVERAGE_JSON_PATH, { force: true })
 
   const result = spawnSync(
     'cargo',
@@ -290,7 +293,7 @@ function runRustCoverage() {
       if (result.stdout) {
         const output =
           result.stdout.length > 4000
-            ? `${result.stdout.slice(0, 4000)}\n...已截断...`
+            ? `...省略前面的测试输出...\n${result.stdout.slice(-4000)}`
             : result.stdout
         process.stdout.write(output)
       }
@@ -299,13 +302,8 @@ function runRustCoverage() {
   }
 
   if (result.error || result.status !== 0) {
-    if (/test result:\s+FAILED|failures:/i.test(result.stderr || '')) {
-      console.error('[coverage-gate] cargo llvm-cov 测试失败')
-      return false
-    }
-    console.error(
-      '[coverage-gate] cargo llvm-cov 返回非零退出码，但已生成覆盖率 JSON，继续按覆盖率结果判定。'
-    )
+    console.error('[coverage-gate] cargo llvm-cov 编译、测试或报告生成失败。')
+    return false
   }
 
   const files = report?.data?.[0]?.files ?? []

@@ -33,5 +33,8 @@ tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 uuid = { workspace = true }
 
+wreq = { version = "=6.0.0-rc.31", features = ["json", "form", "multipart", "stream", "socks", "system-proxy", "gzip", "brotli", "deflate", "zstd"] }
+wreq-util = { version = "=3.0.0-rc.14", features = ["emulation-serde"] }
+
 [dev-dependencies]
 actix-http = "3"

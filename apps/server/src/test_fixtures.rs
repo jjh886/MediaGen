@@ -24,6 +24,7 @@ macro_rules! init_admin_test_app {
 
 pub fn account_record(id: &str, platform: &str, name: &str, api_key: &str) -> AccountRecord {
     AccountRecord {
+        policy: Default::default(),
         id: id.to_string(),
         platform: platform.to_string(),
         name: name.to_string(),
@@ -60,6 +61,8 @@ pub fn server_state(root: std::path::PathBuf, plugin_loader: PluginLoader) -> Se
         store: Arc::new(AppStore::load(root.join("server-state.json"))),
         // 测试若显式开启 OAuth 回调，应使用系统分配端口，避免影响其他本机客户端。
         oauth_logins: crate::oauth_login::OAuthLoginStore::new("127.0.0.1:0".to_string()),
+        model_catalog: crate::model_api::Catalog::default(),
+        realtime: crate::realtime_api::Sessions::default(),
         file_root: root.join("openai-files"),
         image_task_queue: Arc::new(ImageTaskQueue::default()),
         video_task_queue: Arc::new(ImageTaskQueue::default()),

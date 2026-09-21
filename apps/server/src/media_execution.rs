@@ -99,6 +99,17 @@ pub(crate) fn classify_and_apply_failure(
         classify_failure(context.manifest, message)
     };
     apply_account_state_for_failure(state, context, &decision);
+    if decision.account_state.is_some() {
+        state.store.record_account_failure(
+            &context.account.id,
+            &decision.category,
+            if context.model.task_kind == mediagen_core::TaskKind::Text {
+                "text"
+            } else {
+                "media"
+            },
+        );
+    }
     decision
 }
 

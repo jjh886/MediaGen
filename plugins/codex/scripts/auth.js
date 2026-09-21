@@ -33,6 +33,23 @@ function codexEnsureFreshAuth(ctx) {
 }
 
 function codexRefreshAuth(ctx, auth, reason) {
+  const key = 'credential:' + codexAuthPath(ctx)
+  host.call('lock.acquire', { key })
+  try {
+    const latest = codexReadAuth(ctx)
+    if (
+      codexAccessToken(latest) &&
+      codexAccessToken(latest) !== codexAccessToken(auth) &&
+      !codexAccessTokenExpiresSoon(latest)
+    )
+      return latest
+    return codexRefreshAuthLocked(ctx, latest, reason)
+  } finally {
+    host.call('lock.release', { key })
+  }
+}
+
+function codexRefreshAuthLocked(ctx, auth, reason) {
   const refreshToken = codexRefreshToken(auth, ctx)
   if (!refreshToken) {
     throw new Error('LOGIN_EXPIRED: 缺少 refresh_token，请重新登录 codex。')
@@ -49,7 +66,7 @@ function codexRefreshAuth(ctx, auth, reason) {
     },
     timeout_ms: 30000,
   })
-  if (!result.success) {
+  if (!codexHttpSucceeded(result)) {
     const kind = codexRefreshErrorKind(result)
     const prefix = codexRefreshFailureRequiresLogin(kind) ? 'LOGIN_EXPIRED' : 'AUTH_INCONCLUSIVE'
     throw new Error(
@@ -156,7 +173,7 @@ function codexErrorNeedsTokenRefresh(error) {
 
 function codexHealthFromHttpResult(result, auth) {
   const status = codexHttpStatus(result)
-  if (result.success) {
+  if (codexHttpSucceeded(result)) {
     return {
       logged_in: true,
       status: 'available',
@@ -168,6 +185,10 @@ function codexHealthFromHttpResult(result, auth) {
     return { logged_in: false, status: 'login_expired', reason: codexHttpSummary(result) }
   }
   return { logged_in: null, status: 'inconclusive', reason: codexHttpSummary(result) }
+}
+
+function codexHttpSucceeded(result) {
+  return result.success === true && result.data?.ok === true
 }
 
 function codexRefreshErrorKind(result) {
@@ -291,4 +312,22 @@ function codexFirstNonEmpty(values) {
     if (text) return text
   }
   return ''
+}
+const CODEX_UPSTREAM_VERSION = '0.154.0'
+const CODEX_UPSTREAM_USER_AGENT =
+  'codex-tui/' + CODEX_UPSTREAM_VERSION + ' (Ubuntu 22.4.0; x86_64) xterm-256color'
+
+function codexUpstreamHeaders(accessToken, accountId, accept) {
+  const headers = {
+    authorization: 'Bearer ' + accessToken,
+    accept: accept || 'text/event-stream',
+    'content-type': 'application/json',
+    'openai-beta': 'responses=experimental',
+    originator: 'codex-tui',
+    version: CODEX_UPSTREAM_VERSION,
+    'user-agent': CODEX_UPSTREAM_USER_AGENT,
+    'session-id': globalThis.__context?.request_id || globalThis.__context?.task_id || '',
+  }
+  if (accountId) headers['chatgpt-account-id'] = accountId
+  return headers
 }

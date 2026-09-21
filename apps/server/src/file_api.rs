@@ -216,7 +216,7 @@ async fn read_record(root: &Path, id: &str) -> Result<FileRecord, String> {
     read_record_path(&metadata_path(root, id)).await
 }
 
-async fn read_record_for_owner(
+pub(crate) async fn read_record_for_owner(
     root: &Path,
     id: &str,
     owner_hash: &str,
@@ -327,7 +327,16 @@ fn mime_from_filename(filename: &str) -> &'static str {
         "jpg" | "jpeg" => "image/jpeg",
         "webp" => "image/webp",
         "gif" => "image/gif",
-        _ => "image/png",
+        "png" => "image/png",
+        "pdf" => "application/pdf",
+        "txt" | "md" => "text/plain",
+        "json" => "application/json",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "flac" => "audio/flac",
+        "ogg" | "opus" => "audio/ogg",
+        "mp4" | "m4a" => "audio/mp4",
+        _ => "application/octet-stream",
     }
 }
 
@@ -353,7 +362,9 @@ mod tests {
     fn infers_image_mime_from_filename() {
         assert_eq!(mime_from_filename("a.jpg"), "image/jpeg");
         assert_eq!(mime_from_filename("a.webp"), "image/webp");
-        assert_eq!(mime_from_filename("a.unknown"), "image/png");
+        assert_eq!(mime_from_filename("a.png"), "image/png");
+        assert_eq!(mime_from_filename("a.pdf"), "application/pdf");
+        assert_eq!(mime_from_filename("a.unknown"), "application/octet-stream");
     }
 
     #[test]

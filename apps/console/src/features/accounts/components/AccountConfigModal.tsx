@@ -2,7 +2,11 @@ import { useState, useEffect } from 'react'
 import { KtModal, KtButton, KtInput, KtSelect } from '@/shared/ui'
 import { fetchAllProxies, type ProxyItem } from '@/shared/services/proxy-service'
 import type { Account } from '../types/account'
-import type { AccountConfigUpdate } from '../services/account-service'
+import {
+  fetchAccountModels,
+  type AccountModelCatalog,
+  type AccountConfigUpdate,
+} from '../services/account-service'
 import AccountBrowserProfileFields from './AccountBrowserProfileFields'
 import AccountProxyFields from './AccountProxyFields'
 import {
@@ -54,6 +58,13 @@ export default function AccountConfigModal({
   account,
   onSave,
 }: AccountConfigModalProps) {
+  const [priority, setPriority] = useState('0')
+  const [textConcurrency, setTextConcurrency] = useState('0')
+  const [textDaily, setTextDaily] = useState('0')
+  const [textTotal, setTextTotal] = useState('0')
+  const [catalog, setCatalog] = useState<AccountModelCatalog | null>(null)
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsError, setModelsError] = useState('')
   const [tier, setTier] = useState('')
   const [concurrency, setConcurrency] = useState('')
   const [dailyLimit, setDailyLimit] = useState('')
@@ -70,6 +81,12 @@ export default function AccountConfigModal({
 
   useEffect(() => {
     if (account) {
+      setPriority(String(account.priority ?? 0))
+      setTextConcurrency(String(account.text_concurrency_limit ?? 0))
+      setTextDaily(String(account.text_daily_limit ?? 0))
+      setTextTotal(String(account.text_total_limit ?? 0))
+      setCatalog(null)
+      setModelsError('')
       setTier(account.tier)
       setConcurrency(String(account.concurrency_limit))
       setDailyLimit(String(account.daily_limit))
@@ -114,6 +131,10 @@ export default function AccountConfigModal({
 
   const buildUpdates = (browserProfile: BrowserProfilePayload, proxyUrl: string) => {
     const updates: AccountConfigUpdate = {
+      priority: parseIntField(priority, '调度优先级', 0),
+      text_concurrency_limit: parseIntField(textConcurrency, '文本并发数', 0),
+      text_daily_limit: parseIntField(textDaily, '文本每日限额', 0),
+      text_total_limit: parseIntField(textTotal, '文本总限额', 0),
       tier,
       concurrency_limit: parseIntField(concurrency, '并发数', 1, 10),
       daily_limit: parseIntField(dailyLimit, '每日限额', 0),
@@ -136,6 +157,21 @@ export default function AccountConfigModal({
       updates.api_key = apiKeyLines(apiKey).join('\n')
     }
     return updates
+  }
+  const loadModels = async () => {
+    if (!account) return
+    setModelsLoading(true)
+    setModelsError('')
+    try {
+      const result = await fetchAccountModels(account.id, true)
+      setCatalog(result)
+      if (result.refresh_error)
+        setModelsError(`刷新失败（${result.refresh_error}），保留上次目录。`)
+    } catch (error) {
+      setModelsError(error instanceof Error ? error.message : '模型目录获取失败')
+    } finally {
+      setModelsLoading(false)
+    }
   }
   const platformStatusText = account ? accountStatusText(account) : ''
 
@@ -162,6 +198,55 @@ export default function AccountConfigModal({
             <label style={labelStyle}>平台状态</label>
             <span style={{ color: 'var(--text-primary)', fontSize: 13 }}>{platformStatusText}</span>
           </div>
+        )}
+        <div style={fieldStyle}>
+          <KtButton loading={modelsLoading} onClick={() => void loadModels()}>
+            获取账号支持的模型
+          </KtButton>
+          {modelsError && <span role="alert">{modelsError}</span>}
+          {catalog && !catalog.discovery_supported && <span>此插件提供随版本发布的模型目录。</span>}
+          {catalog?.models.map((model) => (
+            <details key={model.id}>
+              <summary>
+                {model.display_name}（{model.id}）
+              </summary>
+              <p>
+                输入：{model.capabilities.input_modalities?.join('、') || '见插件参数'}；输出：
+                {model.capabilities.output_modalities?.join('、') || model.task_kind}
+              </p>
+              <p>接口：{model.capabilities.endpoints?.join('、') || '见插件说明'}</p>
+              {model.capabilities.unsupported_parameters?.length ? (
+                <p>不支持的参数：{model.capabilities.unsupported_parameters.join('、')}</p>
+              ) : null}
+              <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                {JSON.stringify(model.capabilities.input_schema, null, 2)}
+              </pre>
+            </details>
+          ))}
+        </div>
+        {[
+          { label: '调度优先级（数字越小越优先）', value: priority, setter: setPriority },
+          { label: '文本并发数（0 为不限）', value: textConcurrency, setter: setTextConcurrency },
+          { label: '文本每日限额（0 为不限）', value: textDaily, setter: setTextDaily },
+          { label: '文本总限额（0 为不限）', value: textTotal, setter: setTextTotal },
+        ].map((field) => (
+          <div key={field.label} style={fieldStyle}>
+            <label style={labelStyle}>{field.label}</label>
+            <KtInput
+              aria-label={field.label}
+              type="number"
+              min={0}
+              value={field.value}
+              onChange={(event) => field.setter(event.target.value)}
+            />
+          </div>
+        ))}
+        {account && (
+          <span>
+            文本用量：今日 {account.text_used_today ?? 0}，累计 {account.text_used_total ?? 0}
+            ；最近检查：
+            {account.last_check_at ? new Date(account.last_check_at).toLocaleString() : '尚未检查'}
+          </span>
         )}
         <div style={fieldStyle}>
           <label style={labelStyle}>账号代理</label>
@@ -222,7 +307,7 @@ export default function AccountConfigModal({
           <KtSelect value={tier} onChange={setTier} options={tierOptions} />
         </div>
         <div style={fieldStyle}>
-          <label style={labelStyle}>并发数</label>
+          <label style={labelStyle}>图片/媒体并发数</label>
           <KtInput
             type="number"
             min={0}
@@ -232,7 +317,7 @@ export default function AccountConfigModal({
           />
         </div>
         <div style={fieldStyle}>
-          <label style={labelStyle}>每日限额</label>
+          <label style={labelStyle}>图片/媒体每日限额</label>
           <KtInput
             type="number"
             min={0}
@@ -241,7 +326,7 @@ export default function AccountConfigModal({
           />
         </div>
         <div style={fieldStyle}>
-          <label style={labelStyle}>总限额</label>
+          <label style={labelStyle}>图片/媒体总限额</label>
           <KtInput
             type="number"
             min={0}

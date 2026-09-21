@@ -20,6 +20,7 @@ function chatgptApiQuotaFields(quota) {
     status: chatgptApiFirstText([quota?.status, 'available']),
     reason: chatgptApiFirstText([quota?.reason, 'ChatGPT API 登录有效']),
     cooldown_seconds: quota?.cooldown_seconds || null,
+    quota_task_kind: 'image',
   }
 }
 

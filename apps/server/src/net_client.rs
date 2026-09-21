@@ -2,7 +2,8 @@ pub fn http_client(proxy_url: &str) -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder();
     if let Some(proxy) = normalize_proxy_url(proxy_url) {
         builder = builder.proxy(
-            reqwest::Proxy::all(&proxy).map_err(|err| format!("代理地址无效 {proxy}: {err}"))?,
+            reqwest::Proxy::all(&proxy)
+                .map_err(|err| format!("代理地址无效: {}", err.without_url()))?,
         );
     }
     builder.build().map_err(|err| err.to_string())

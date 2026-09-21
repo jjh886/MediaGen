@@ -1,4 +1,5 @@
 {
+  "protected_json_files": ["auth.json"],
   "platform_id": "chatgpt-api",
   "display_name": "ChatGPT API",
   "sort_order": 15,
@@ -12,6 +13,309 @@
       "task_kind": "image",
       "aliases": ["chatgpt-api", "gpt-image-1-chatgpt-api"],
       "alias_priority": 20
+    },
+    {
+      "model_id": "gpt-5-6",
+      "display_name": "GPT-5.6 Sol",
+      "task_kind": "text",
+      "aliases": [],
+      "alias_priority": 20,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["none", "min", "standard", "extended", "max"],
+          "default_effort": "standard"
+        },
+        "tool_calling": false,
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "max_output_tokens",
+          "stop",
+          "logprobs",
+          "top_logprobs",
+          "logit_bias",
+          "seed",
+          "prediction",
+          "audio",
+          "modalities",
+          "text"
+        ],
+        "image_sources": ["data_url", "file_id"]
+      }
+    },
+    {
+      "model_id": "gpt-5-6-pro",
+      "display_name": "GPT-5.6 Pro",
+      "task_kind": "text",
+      "aliases": [],
+      "alias_priority": 20,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["standard"],
+          "default_effort": "standard"
+        },
+        "tool_calling": false,
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "max_output_tokens",
+          "stop",
+          "logprobs",
+          "top_logprobs",
+          "logit_bias",
+          "seed",
+          "prediction",
+          "audio",
+          "modalities",
+          "text"
+        ],
+        "image_sources": ["data_url", "file_id"]
+      }
+    },
+    {
+      "model_id": "gpt-6-pro",
+      "display_name": "GPT-6 Pro",
+      "task_kind": "text",
+      "aliases": [],
+      "alias_priority": 20,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["standard"],
+          "default_effort": "standard"
+        },
+        "tool_calling": false,
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "max_output_tokens",
+          "stop",
+          "logprobs",
+          "top_logprobs",
+          "logit_bias",
+          "seed",
+          "prediction",
+          "audio",
+          "modalities",
+          "text"
+        ],
+        "image_sources": ["data_url", "file_id"]
+      }
+    },
+    {
+      "model_id": "gpt-5-6-mini",
+      "display_name": "GPT-5.6 Luna",
+      "task_kind": "text",
+      "aliases": [],
+      "alias_priority": 20,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["none", "standard"],
+          "default_effort": "standard"
+        },
+        "tool_calling": false,
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "max_output_tokens",
+          "stop",
+          "logprobs",
+          "top_logprobs",
+          "logit_bias",
+          "seed",
+          "prediction",
+          "audio",
+          "modalities",
+          "text"
+        ],
+        "image_sources": ["data_url", "file_id"]
+      }
+    },
+    {
+      "model_id": "chatgpt-api-speech",
+      "display_name": "ChatGPT 语音朗读",
+      "task_kind": "audio_speech",
+      "aliases": ["ChatGPT API Speech", "gpt-4o-mini-tts-chatgpt-api"],
+      "capabilities": {
+        "input_modalities": ["text"],
+        "output_modalities": ["audio"],
+        "endpoints": ["/v1/audio/speech"],
+        "voices": ["alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"],
+        "response_formats": ["mp3", "opus", "aac", "wav", "pcm", "flac"],
+        "speed": {
+          "minimum": 1,
+          "maximum": 1
+        },
+        "streaming": false,
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input", "voice"],
+          "properties": {
+            "input": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "voice": {
+              "type": "string"
+            },
+            "response_format": {
+              "enum": ["mp3", "opus", "aac", "wav", "pcm", "flac"]
+            }
+          }
+        },
+        "format_requirements": {
+          "wav": ["ffmpeg"],
+          "pcm": ["ffmpeg"],
+          "flac": ["ffmpeg"]
+        }
+      }
+    },
+    {
+      "model_id": "chatgpt-api-transcribe",
+      "display_name": "ChatGPT 音频转写",
+      "task_kind": "audio_transcription",
+      "capabilities": {
+        "input_modalities": ["audio"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/audio/transcriptions", "/v1/audio/translations"],
+        "response_formats": ["json", "text"],
+        "streaming": false
+      }
     }
   ],
   "tiers": {
@@ -22,7 +326,10 @@
       "daily_limit": 40,
       "total_limit": 0,
       "cooldown_seconds": 30,
-      "task_interval_seconds": 0
+      "task_interval_seconds": 0,
+      "text_concurrency_limit": 0,
+      "text_daily_limit": 0,
+      "text_total_limit": 0
     }
   },
   "image_capabilities": {
@@ -52,9 +359,18 @@
         "hint": "深度越高，通常等待越久",
         "default": "extended",
         "options": [
-          { "value": "", "label": "跟随 ChatGPT 默认策略" },
-          { "value": "standard", "label": "标准思考（Medium）" },
-          { "value": "extended", "label": "深度思考（High）" }
+          {
+            "value": "",
+            "label": "跟随 ChatGPT 默认策略"
+          },
+          {
+            "value": "standard",
+            "label": "标准思考（Medium）"
+          },
+          {
+            "value": "extended",
+            "label": "深度思考（High）"
+          }
         ]
       }
     ]
@@ -133,12 +449,14 @@
           "action": "plugin.run_js",
           "script_files": [
             "auth.js",
+            "network_profile.js",
             "startup.js",
             "sentinel_vm.js",
             "sentinel.js",
             "reference_upload.js",
             "poll_retry.js",
             "conversation.js",
+            "conversation_results.js",
             "generate_image.js"
           ],
           "timeout_ms": 660000,
@@ -150,14 +468,104 @@
       "steps": [
         {
           "action": "plugin.run_js",
-          "script_files": ["auth.js", "startup.js", "quota_status.js", "check_account.js"],
+          "script_files": [
+            "auth.js",
+            "network_profile.js",
+            "startup.js",
+            "quota_status.js",
+            "check_account.js"
+          ],
           "timeout_ms": 60000,
           "save_as": "health"
+        }
+      ]
+    },
+    "generate_text": {
+      "steps": [
+        {
+          "_comment": "把通用本地文本 request 转换为 ChatGPT 平台协议；不包含剧本提示词或业务格式逻辑",
+          "action": "plugin.run_js",
+          "script_files": [
+            "auth.js",
+            "network_profile.js",
+            "startup.js",
+            "sentinel_vm.js",
+            "sentinel.js",
+            "conversation.js",
+            "conversation_results.js",
+            "reference_upload.js",
+            "text_responses.js",
+            "text_conversation.js",
+            "generate_text.js"
+          ],
+          "timeout_ms": 14400000,
+          "save_as": "result"
+        }
+      ]
+    },
+    "list_models": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "network_profile.js", "list_models.js"],
+          "timeout_ms": 60000
+        }
+      ]
+    },
+    "generate_audio": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "auth.js",
+            "network_profile.js",
+            "startup.js",
+            "sentinel_vm.js",
+            "sentinel.js",
+            "conversation.js",
+            "conversation_results.js",
+            "audio_speech.js",
+            "generate_audio.js"
+          ],
+          "timeout_ms": 1800000
+        }
+      ]
+    },
+    "transcribe_audio": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "network_profile.js", "transcribe_audio.js"],
+          "timeout_ms": 300000
+        }
+      ]
+    },
+    "translate_audio": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "auth.js",
+            "network_profile.js",
+            "startup.js",
+            "sentinel_vm.js",
+            "sentinel.js",
+            "conversation.js",
+            "conversation_results.js",
+            "reference_upload.js",
+            "text_responses.js",
+            "text_conversation.js",
+            "generate_text.js",
+            "transcribe_audio.js",
+            "translate_audio.js"
+          ],
+          "timeout_ms": 600000
         }
       ]
     }
   },
   "registration": {
     "enabled": false
-  }
+  },
+  "http_profile": "chrome_149"
 }

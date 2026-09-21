@@ -78,11 +78,17 @@ async fn wait_for_schedule(runtime: &AccountRefreshRuntime, interval: Option<Dur
 }
 
 fn busy_account_ids(state: &ServerState) -> HashSet<String> {
+    let leases = state
+        .store
+        .protocol_leases
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     state
         .store
         .list_tasks(None)
         .into_iter()
-        .filter(task_is_active)
+        .filter(|task| task_is_active(task) || leases.contains(&task.id))
         .filter_map(|task| task.account_id)
         .collect()
 }
@@ -100,7 +106,23 @@ async fn refresh_one_account(
         summary.skipped_busy += 1;
         return;
     }
-    let runtime_account = state.store.account_with_runtime_proxy(account.clone());
+    let runtime_account = match state
+        .store
+        .account_with_required_runtime_proxy(account.clone())
+    {
+        Ok(account) => account,
+        Err(_) => {
+            summary.inconclusive += 1;
+            state.store.add_audit_log(
+                "account",
+                "warn",
+                "账号检查已跳过：绑定代理不可用".into(),
+                format!("account_id={}", account.id),
+                None,
+            );
+            return;
+        }
+    };
     let outcome =
         crate::account_login_check::check_saved_account_login(state, &runtime_account).await;
     apply_refresh_outcome(state, &account.id, outcome, summary);
@@ -129,8 +151,14 @@ fn apply_refresh_outcome(
             login_state,
             profile,
             cooldown_seconds,
+            quota_task_kind,
         } => {
             apply_unavailable_state(state, account_id, &login_state, profile, cooldown_seconds);
+            if let Some(kind) = quota_task_kind {
+                state
+                    .store
+                    .record_account_failure(account_id, &login_state, &kind);
+            }
             if account_limit_state(&login_state) {
                 summary.limited += 1;
             }
@@ -227,5 +255,23 @@ mod tests {
 
         assert!(run_scheduled_refresh(&state, Some(Duration::from_millis(1))).await);
         assert_eq!(state.store.list_audit_logs()[0].summary, "账号状态自动刷新");
+    }
+    #[tokio::test]
+    async fn unavailable_bound_proxy_skips_login_without_network_fallback() {
+        let root = std::env::temp_dir().join(format!("proxy-refresh-{}", uuid::Uuid::new_v4()));
+        let state = server_state(root, PluginLoader::empty());
+        let mut account = account_record("bound", "test", "Bound", "");
+        account.proxy_id = "deleted".into();
+        state.store.insert_account(account);
+        let summary = super::refresh_accounts(&state).await;
+        assert_eq!(summary.inconclusive, 1);
+        assert_eq!(summary.checked, 0);
+        assert_eq!(
+            state.store.account_by_id("bound").unwrap().login_state,
+            "available"
+        );
+        assert!(state.store.list_audit_logs()[0]
+            .summary
+            .contains("代理不可用"));
     }
 }

@@ -1,4 +1,5 @@
 {
+  "protected_json_files": ["auth.json"],
   "platform_id": "codex",
   "display_name": "codex",
   "sort_order": 20,
@@ -12,6 +13,376 @@
       "task_kind": "image",
       "aliases": ["gpt-image-2"],
       "alias_priority": 40
+    },
+    {
+      "model_id": "gpt-6-astra",
+      "display_name": "GPT-6-Astra",
+      "task_kind": "text",
+      "aliases": [],
+      "alias_priority": 40,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "default_effort": "medium"
+        },
+        "tool_calling": true,
+        "input_modalities": ["text", "image", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions", "/v1/responses/compact"],
+        "streaming": true,
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "max_output_tokens",
+          "stop",
+          "logprobs",
+          "top_logprobs",
+          "logit_bias",
+          "seed",
+          "prediction",
+          "audio",
+          "modalities"
+        ],
+        "transports": ["http", "websocket"]
+      }
+    },
+    {
+      "model_id": "gpt-5.6-sol",
+      "display_name": "GPT-5.6-Sol",
+      "task_kind": "text",
+      "aliases": [],
+      "alias_priority": 40,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "default_effort": "low"
+        },
+        "tool_calling": true,
+        "input_modalities": ["text", "image", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions", "/v1/responses/compact"],
+        "streaming": true,
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "max_output_tokens",
+          "stop",
+          "logprobs",
+          "top_logprobs",
+          "logit_bias",
+          "seed",
+          "prediction",
+          "audio",
+          "modalities"
+        ],
+        "transports": ["http", "websocket"]
+      }
+    },
+    {
+      "model_id": "gpt-5.6-terra",
+      "display_name": "GPT-5.6-Terra",
+      "task_kind": "text",
+      "aliases": [],
+      "alias_priority": 40,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "default_effort": "medium"
+        },
+        "tool_calling": true,
+        "input_modalities": ["text", "image", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions", "/v1/responses/compact"],
+        "streaming": true,
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "max_output_tokens",
+          "stop",
+          "logprobs",
+          "top_logprobs",
+          "logit_bias",
+          "seed",
+          "prediction",
+          "audio",
+          "modalities"
+        ],
+        "transports": ["http", "websocket"]
+      }
+    },
+    {
+      "model_id": "gpt-5.6-luna",
+      "display_name": "GPT-5.6-Luna",
+      "task_kind": "text",
+      "aliases": [],
+      "alias_priority": 40,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "default_effort": "medium"
+        },
+        "tool_calling": true,
+        "input_modalities": ["text", "image", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions", "/v1/responses/compact"],
+        "streaming": true,
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "max_output_tokens",
+          "stop",
+          "logprobs",
+          "top_logprobs",
+          "logit_bias",
+          "seed",
+          "prediction",
+          "audio",
+          "modalities"
+        ],
+        "transports": ["http", "websocket"]
+      }
+    },
+    {
+      "model_id": "gpt-live-1",
+      "display_name": "Codex Live 实时语音",
+      "task_kind": "realtime",
+      "capabilities": {
+        "input_modalities": ["text", "audio"],
+        "output_modalities": ["text", "audio"],
+        "endpoints": ["/v1/live/sessions", "/v1/live"],
+        "transports": ["webrtc", "websocket_sideband"],
+        "requirements": ["macos-arm64", "official-chatgpt-app-devicecheck"],
+        "input_schema": {
+          "type": "object",
+          "required": ["session", "transport"],
+          "properties": {
+            "session": {
+              "type": "object",
+              "required": ["model"]
+            },
+            "transport": {
+              "type": "object",
+              "required": ["type", "sdp"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "model_id": "gpt-image-2",
+      "display_name": "GPT Image 2",
+      "task_kind": "image",
+      "aliases": [],
+      "alias_priority": 40,
+      "capabilities": {
+        "reasoning": {
+          "efforts": []
+        },
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "endpoints": ["/v1/images/generations", "/v1/images/edits"],
+        "response_formats": ["png", "jpeg", "webp"]
+      }
+    },
+    {
+      "model_id": "gpt-image-1.5",
+      "display_name": "GPT Image 1.5",
+      "task_kind": "image",
+      "aliases": [],
+      "alias_priority": 40,
+      "capabilities": {
+        "reasoning": {
+          "efforts": []
+        },
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "endpoints": ["/v1/images/generations", "/v1/images/edits"],
+        "response_formats": ["png", "jpeg", "webp"]
+      }
+    },
+    {
+      "model_id": "gpt-image-2.5-flare",
+      "display_name": "GPT Image 2.5 Flare",
+      "task_kind": "image",
+      "aliases": [],
+      "alias_priority": 40,
+      "capabilities": {
+        "reasoning": {
+          "efforts": []
+        },
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "endpoints": ["/v1/images/generations", "/v1/images/edits"],
+        "response_formats": ["png", "jpeg", "webp"]
+      }
+    },
+    {
+      "model_id": "gpt-image-2.5-sunburst",
+      "display_name": "GPT Image 2.5 Sunburst",
+      "task_kind": "image",
+      "aliases": [],
+      "alias_priority": 40,
+      "capabilities": {
+        "reasoning": {
+          "efforts": []
+        },
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "endpoints": ["/v1/images/generations", "/v1/images/edits"],
+        "response_formats": ["png", "jpeg", "webp"]
+      }
+    },
+    {
+      "model_id": "gpt-image-2.5-flare-2026-09-08",
+      "display_name": "GPT Image 2.5 Flare-2026-09-08",
+      "task_kind": "image",
+      "aliases": [],
+      "alias_priority": 40,
+      "capabilities": {
+        "reasoning": {
+          "efforts": []
+        },
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "endpoints": ["/v1/images/generations", "/v1/images/edits"],
+        "response_formats": ["png", "jpeg", "webp"]
+      }
+    },
+    {
+      "model_id": "gpt-image-2.5-sunburst-2026-09-08",
+      "display_name": "GPT Image 2.5 Sunburst-2026-09-08",
+      "task_kind": "image",
+      "aliases": [],
+      "alias_priority": 40,
+      "capabilities": {
+        "reasoning": {
+          "efforts": []
+        },
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "endpoints": ["/v1/images/generations", "/v1/images/edits"],
+        "response_formats": ["png", "jpeg", "webp"]
+      }
     }
   ],
   "tiers": {
@@ -22,7 +393,10 @@
       "daily_limit": 40,
       "total_limit": 0,
       "cooldown_seconds": 30,
-      "task_interval_seconds": 0
+      "task_interval_seconds": 0,
+      "text_concurrency_limit": 0,
+      "text_daily_limit": 0,
+      "text_total_limit": 0
     }
   },
   "image_capabilities": {
@@ -175,7 +549,13 @@
       "steps": [
         {
           "action": "plugin.run_js",
-          "script_files": ["auth.js", "retry.js", "image_response.js", "generate_image.js"],
+          "script_files": [
+            "auth.js",
+            "retry.js",
+            "image_response.js",
+            "direct_images.js",
+            "generate_image.js"
+          ],
           "timeout_ms": 1800000,
           "save_as": "poll"
         }
@@ -188,6 +568,43 @@
           "script_files": ["auth.js", "check_account.js"],
           "timeout_ms": 60000,
           "save_as": "health"
+        }
+      ]
+    },
+    "generate_text": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "text_responses.js", "generate_text.js"],
+          "timeout_ms": 14400000,
+          "save_as": "result"
+        }
+      ]
+    },
+    "list_models": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "list_models.js"],
+          "timeout_ms": 60000
+        }
+      ]
+    },
+    "create_realtime": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "realtime.js"],
+          "timeout_ms": 90000
+        }
+      ]
+    },
+    "compact_text": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "text_responses.js", "compact_text.js"],
+          "timeout_ms": 600000
         }
       ]
     }

@@ -6,20 +6,13 @@ function chatgptApiReadAuth(ctx) {
     path: ctx.profile_dir + '/' + CHATGPT_API_AUTH_FILE,
   })
   if (!stored?.auth || !Array.isArray(stored?.cookies)) {
-    throw new Error('LOGIN_EXPIRED: auth.json 缺少登录凭据，请重新登录 ChatGPT API。')
+    throw new Error('LOGIN_EXPIRED: auth.json 缺少登录凭据，请重新登录 ChatGPT。')
   }
+  Object.defineProperty(stored, 'storage_path', {
+    value: ctx.profile_dir + '/' + CHATGPT_API_AUTH_FILE,
+  })
+  chatgptApiAlignFingerprint(stored)
   return stored
-}
-
-function chatgptApiCookieHeader(auth) {
-  const now = Date.now() / 1000
-  return auth.cookies
-    .filter((cookie) => {
-      const expires = Number(cookie?.expires || 0)
-      return cookie?.name && cookie?.value && (expires <= 0 || expires > now)
-    })
-    .map((cookie) => cookie.name + '=' + cookie.value)
-    .join('; ')
 }
 
 function chatgptApiSessionId() {
@@ -30,21 +23,38 @@ function chatgptApiSessionId() {
 }
 
 function chatgptApiRefreshSession(auth) {
-  const cookie = chatgptApiCookieHeader(auth)
-  if (!cookie) throw new Error('LOGIN_EXPIRED: 登录 Cookie 已过期，请重新登录 ChatGPT API。')
-  auth.runtime_started_at = Date.now()
-  chatgptApiNavigateHome(auth, cookie)
-  const result = chatgptApiFetchSession(auth, cookie)
-  chatgptApiValidateSession(result)
-  return chatgptApiApplySession(auth, result.body)
+  const key = 'chatgpt-auth:' + auth.storage_path
+  host.call('lock.acquire', { key })
+  try {
+    if (auth.storage_path) {
+      const latest = host.call('file.read_json', { path: auth.storage_path })
+      auth.auth = latest.auth
+      auth.cookies = latest.cookies
+    }
+    chatgptApiAlignFingerprint(auth)
+    auth.refreshing = true
+    if (!chatgptApiCookieHeader(auth))
+      throw new Error('LOGIN_EXPIRED: 登录 Cookie 已过期，请重新登录 ChatGPT。')
+    auth.runtime_started_at = Date.now()
+    chatgptApiNavigateHome(auth, chatgptApiCookieHeader(auth))
+    const result = chatgptApiFetchSession(auth, chatgptApiCookieHeader(auth, '/api/auth/session'))
+    chatgptApiValidateSession(result)
+    chatgptApiRememberCookies(auth, result, '/api/auth/session')
+    chatgptApiApplySession(auth, result.body)
+    chatgptApiSaveAuth(auth)
+    return auth
+  } finally {
+    auth.refreshing = false
+    host.call('lock.release', { key })
+  }
 }
 
-// 请求、校验和写回分开处理，让各阶段的失败原因保持清晰。
 function chatgptApiFetchSession(auth, cookie) {
   return host.call('http.request', {
     method: 'GET',
     url: CHATGPT_API_ORIGIN + '/api/auth/session',
     proxy: 'system',
+    tls_profile: chatgptApiTlsProfile(auth),
     headers: {
       accept: 'application/json',
       cookie,
@@ -59,6 +69,7 @@ function chatgptApiNavigateHome(auth, cookie) {
     method: 'GET',
     url: CHATGPT_API_ORIGIN + '/',
     proxy: 'system',
+    tls_profile: chatgptApiTlsProfile(auth),
     headers: {
       ...chatgptApiBrowserHeaders(auth, 'none'),
       accept:
@@ -75,6 +86,7 @@ function chatgptApiNavigateHome(auth, cookie) {
   if (!result.ok) {
     throw new Error('AUTH_INCONCLUSIVE: 打开 ChatGPT 首页失败：' + chatgptApiHttpSummary(result))
   }
+  chatgptApiRememberCookies(auth, result)
   // 页面发布版本会变化，生成前从真实首页刷新构建号，避免长期复用登录时的旧值。
   const html = String(result.body_text || '')
   const fingerprint = chatgptApiFingerprint(auth)
@@ -126,7 +138,8 @@ function chatgptApiBaseHeaders(auth, targetPath, targetRoute) {
     ...chatgptApiBrowserHeaders(auth, 'same-origin'),
     accept: '*/*',
     authorization: 'Bearer ' + auth.auth.access_token,
-    cookie: chatgptApiCookieHeader(auth),
+    'chatgpt-account-id': chatgptApiAccountId(auth),
+    cookie: chatgptApiCookieHeader(auth, targetPath),
     'oai-client-build-number': fingerprint.page_sequence || '',
     'oai-client-version': fingerprint.page_build || '',
     'oai-device-id': chatgptApiCookieValue(auth, 'oai-did'),
@@ -222,12 +235,87 @@ function chatgptApiRequest(auth, method, path, options) {
     method,
     url: CHATGPT_API_ORIGIN + path,
     proxy: 'system',
+    tls_profile: chatgptApiTlsProfile(auth),
     headers,
-    timeout_ms: config.timeout_ms || 30000,
+    timeout_ms: config.timeout_ms || (config.sse ? 3 * 60 * 60 * 1000 : 30000),
   }
   if (config.body !== undefined) request.body = config.body
   if (config.body_format) request.body_format = config.body_format
-  return host.call(config.sse ? 'http.sse_request' : 'http.request', request)
+  if (config.body_format === 'multipart') delete request.headers['content-type']
+  if (config.response_body_format) request.response_body_format = config.response_body_format
+  if (config.retry) request.retry = config.retry
+  if (config.sse && typeof config.on_event === 'function' && typeof host.stream === 'function') {
+    const events = []
+    const result = chatgptApiStreamWithResume(auth, request, (event) => {
+      config.on_event(event)
+      events.push(event)
+      return null
+    })
+    chatgptApiRememberCookies(auth, result, path)
+    return { ...result, events }
+  }
+  return chatgptApiRememberCookies(
+    auth,
+    host.call(config.sse ? 'http.sse_request' : 'http.request', request),
+    path
+  )
+}
+
+// 新网页会将生成转交给 Conduit。只接续原会话，不重新提交用户消息。
+function chatgptApiStreamWithResume(auth, request, onEvent) {
+  const deadline = Date.now() + (request.timeout_ms || 3 * 60 * 60 * 1000)
+  let next = request
+  let result
+  let token = ''
+  let conversationId = ''
+  do {
+    let handoff = false
+    let completed = false
+    result = host.stream('http.sse_request', next, (event) => {
+      if (event?.type === 'resume_conversation_token') {
+        token = typeof event.token === 'string' ? event.token : ''
+        conversationId = String(event.conversation_id || '')
+      }
+      if (event?.type === 'stream_handoff') handoff = true
+      if (event?.type === 'message_stream_complete') completed = true
+      onEvent(event)
+      if (event?.type === 'resume_conversation_token' && token && conversationId) {
+        chatgptApiCheckpoint({
+          ...chatgptApiCheckpoint(),
+          phase: 'accepted',
+          conversation_id: conversationId,
+          resume_token: token,
+        })
+      }
+      return null
+    })
+    if (!result.ok || !handoff || completed) return result
+    if (!conversationId || !token) {
+      throw new Error('PROVIDER_SUBMISSION_UNKNOWN: ChatGPT 转交结果缺少恢复凭据，请恢复原任务')
+    }
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw new Error('temporary_unavailable: ChatGPT 接续结果超时')
+    next = chatgptApiResumeRequest(auth, conversationId, token, remaining)
+  } while (true)
+}
+
+function chatgptApiResumeRequest(auth, conversationId, token, timeoutMs) {
+  const path = '/backend-api/f/conversation/resume'
+  return {
+    method: 'POST',
+    url: CHATGPT_API_ORIGIN + path,
+    proxy: 'system',
+    tls_profile: chatgptApiTlsProfile(auth),
+    headers: {
+      ...chatgptApiBaseHeaders(auth, path, path),
+      accept: 'text/event-stream',
+      'content-type': 'application/json',
+      'x-conduit-token': token,
+    },
+    body: { conversation_id: conversationId, offset: 0 },
+    retry: { max_attempts: 1 },
+    timeout_ms: timeoutMs,
+  }
 }
 
 function chatgptApiRequireOk(result, operation) {
@@ -241,7 +329,14 @@ function chatgptApiRequireOk(result, operation) {
       'AUTH_INCONCLUSIVE: ' + operation + ' 暂时被拒绝：' + chatgptApiHttpSummary(result)
     )
   }
-  throw new Error(operation + ' 失败：' + chatgptApiHttpSummary(result))
+  const summary = chatgptApiHttpSummary(result)
+  if (chatgptApiQuotaLikeResult(result, summary)) {
+    throw new Error('quota_exhausted: ' + operation + ' 失败：' + summary)
+  }
+  if (status === 429) {
+    throw new Error('rate_limit_exceeded: ' + operation + ' 失败：' + summary)
+  }
+  throw new Error(operation + ' 失败：' + summary)
 }
 
 function chatgptApiHttpSummary(result) {
@@ -249,7 +344,138 @@ function chatgptApiHttpSummary(result) {
   const body = result?.body
   const message =
     body?.detail || body?.error?.message || body?.error || body?.message || result?.body_text || ''
-  return (status ? 'HTTP ' + status + ' ' : '') + String(message || '请求失败').slice(0, 400)
+  const cooldownSeconds = chatgptApiCooldownSeconds(result)
+  return (
+    (status ? 'HTTP ' + status + ' ' : '') +
+    String(message || '请求失败').slice(0, 400) +
+    (cooldownSeconds ? '; retry after ' + cooldownSeconds + ' seconds' : '')
+  )
+}
+
+function chatgptApiQuotaLikeResult(result, summary) {
+  const body = result?.body
+  const text =
+    String(summary || '') +
+    ' ' +
+    (body && typeof body === 'object'
+      ? JSON.stringify(body)
+      : String(result?.body_text || body || ''))
+  return /quota|insufficient[_\s-]?quota|usage limit|free plan limit|limit resets in|image generations requests|session\s*budget|sessionbudgetexceeded|limit exceeded/i.test(
+    text
+  )
+}
+
+function chatgptApiCooldownSeconds(result) {
+  return (
+    chatgptApiCooldownSecondsFromValue(result?.body) ||
+    chatgptApiCooldownSecondsFromText(result?.body_text) ||
+    chatgptApiCooldownSecondsFromValue(result?.headers) ||
+    chatgptApiRetryAfterSeconds(result?.headers)
+  )
+}
+
+function chatgptApiCooldownSecondsFromValue(value) {
+  const seconds = []
+  const visit = (item, key, depth) => {
+    if (depth > 20 || item === null || item === undefined) return
+    const normalizedKey = String(key || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[-\s]+/g, '_')
+    if (
+      normalizedKey === 'cooldown_seconds' ||
+      normalizedKey === 'retry_after_seconds' ||
+      normalizedKey === 'reset_after_seconds' ||
+      normalizedKey === 'rate_limit_reset_after_seconds' ||
+      normalizedKey.endsWith('_reset_after_seconds')
+    ) {
+      const value = chatgptApiPositiveSeconds(item)
+      if (value) seconds.push(value)
+    }
+    if (
+      ['reset_at', 'resets_at', 'rate_limit_reset_at', 'cooldown_until'].includes(normalizedKey)
+    ) {
+      const value = chatgptApiSecondsUntil(item)
+      if (value) seconds.push(value)
+    }
+    if (typeof item === 'string') {
+      const value = chatgptApiCooldownSecondsFromText(item)
+      if (value) seconds.push(value)
+    }
+    if (Array.isArray(item)) {
+      for (const child of item) visit(child, '', depth + 1)
+    } else if (item && typeof item === 'object') {
+      for (const [childKey, childValue] of Object.entries(item))
+        visit(childValue, childKey, depth + 1)
+    }
+  }
+  visit(value, '', 0)
+  return seconds.length ? Math.max(...seconds) : 0
+}
+
+function chatgptApiCooldownSecondsFromText(text) {
+  const unitSeconds = {
+    second: 1,
+    seconds: 1,
+    sec: 1,
+    secs: 1,
+    秒: 1,
+    minute: 60,
+    minutes: 60,
+    min: 60,
+    mins: 60,
+    分钟: 60,
+    hour: 3600,
+    hours: 3600,
+    hr: 3600,
+    hrs: 3600,
+    小时: 3600,
+    day: 86400,
+    days: 86400,
+    天: 86400,
+  }
+  const pattern = /(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|秒|分钟|小时|天)/gi
+  let total = 0
+  for (const match of String(text || '')
+    .toLowerCase()
+    .matchAll(pattern)) {
+    total += Number(match[1] || 0) * Number(unitSeconds[match[2]] || 0)
+  }
+  return total > 0 ? Math.ceil(total) : 0
+}
+
+function chatgptApiRetryAfterSeconds(headers) {
+  const raw = chatgptApiHeaderValue(headers, 'retry-after')
+  if (!raw) return 0
+  const seconds = chatgptApiPositiveSeconds(raw)
+  if (seconds) return seconds
+  return chatgptApiSecondsUntil(raw)
+}
+
+function chatgptApiHeaderValue(headers, name) {
+  const expected = String(name || '').toLowerCase()
+  for (const [key, value] of Object.entries(headers || {})) {
+    if (String(key).toLowerCase() === expected) return String(value || '').trim()
+  }
+  return ''
+}
+
+function chatgptApiPositiveSeconds(value) {
+  const seconds = Number(value)
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 0
+}
+
+function chatgptApiSecondsUntil(value) {
+  const raw = String(value || '').trim()
+  const numeric = Number(raw)
+  let timestamp = 0
+  if (Number.isFinite(numeric) && numeric > 0) {
+    timestamp = numeric > 10000000000 ? numeric : numeric * 1000
+  } else {
+    timestamp = Date.parse(raw)
+  }
+  const seconds = (timestamp - Date.now()) / 1000
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 0
 }
 
 function chatgptApiCompactObject(value) {
