@@ -339,7 +339,18 @@ fn model_capabilities(manifest: &PluginManifest, model: &ModelDef) -> Value {
         model.task_kind != mediagen_core::TaskKind::Image
             && model.task_kind != mediagen_core::TaskKind::Video
     }) {
-        return value.clone();
+        // 插件内的参考价格等静态元数据作为补充，上游账号目录的实际能力优先。
+        let mut capabilities = manifest
+            .models
+            .iter()
+            .find(|declared| declared.model_id == model.model_id)
+            .and_then(|declared| declared.extra.get("capabilities")?.as_object())
+            .cloned()
+            .unwrap_or_default();
+        if let Some(discovered) = value.as_object() {
+            capabilities.extend(discovered.clone());
+        }
+        return Value::Object(capabilities);
     }
     let (kind, flow, endpoint) = match model.task_kind {
         mediagen_core::TaskKind::Image => ("image", "generate_image", "/v1/images/generations"),

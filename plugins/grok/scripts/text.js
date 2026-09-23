@@ -1,13 +1,42 @@
-function grokTextCapabilities(id) {
+function grokTextCapabilities(id, catalog = {}) {
   const efforts = {
     'grok-4.5': ['low', 'medium', 'high'],
     'grok-4.6': ['low', 'medium', 'high', 'xhigh'],
+    'grok-4.7': ['low', 'medium', 'high', 'xhigh'],
     'grok-4.3': ['none', 'low', 'medium', 'high'],
     'grok-build-0.1': ['none'],
     'grok-4.20-0309-reasoning': ['low', 'medium', 'high'],
     'grok-4.20-0309-non-reasoning': ['none'],
     'grok-4.20-multi-agent-0309': ['low', 'medium', 'high', 'xhigh'],
   }
+  const menu = Array.isArray(catalog.reasoning_efforts) ? catalog.reasoning_efforts : []
+  const allowed = ['none', 'low', 'medium', 'high', 'xhigh', 'max']
+  const discovered = [
+    ...new Set(
+      menu
+        .map((item) =>
+          String(item?.value || item?.id || '')
+            .trim()
+            .toLowerCase()
+        )
+        .filter((effort) => allowed.includes(effort))
+    ),
+  ]
+  const supported = discovered.length
+    ? discovered
+    : catalog.supports_reasoning_effort === false
+      ? ['none']
+      : efforts[id] || []
+  const preferred = menu.find((item) => item?.default === true)
+  const defaultEffort = String(
+    preferred?.value ||
+      preferred?.id ||
+      catalog.reasoning_effort ||
+      (id === 'grok-4.7' ? 'high' : '')
+  )
+    .trim()
+    .toLowerCase()
+  const positive = (value) => (Number.isSafeInteger(value) && value > 0 ? value : undefined)
   return {
     input_schema: {
       type: 'object',
@@ -32,7 +61,19 @@ function grokTextCapabilities(id) {
     streaming: true,
     tool_calling: true,
     transports: ['http'],
-    reasoning: { efforts: efforts[id] || [] },
+    reasoning: {
+      efforts: supported,
+      default_effort: supported.includes(defaultEffort) ? defaultEffort : undefined,
+    },
+    context_window: positive(catalog.context_window) || (id === 'grok-4.7' ? 500000 : undefined),
+    max_output_tokens:
+      positive(catalog.max_completion_tokens) || (id === 'grok-4.7' ? 1000000 : undefined),
+    supports_backend_search:
+      typeof catalog.supports_backend_search === 'boolean'
+        ? catalog.supports_backend_search
+        : id === 'grok-4.7'
+          ? true
+          : undefined,
     unsupported_parameters: [
       'audio',
       'modalities',

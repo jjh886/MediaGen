@@ -402,3 +402,70 @@ test('Grok 订阅显示读取新授权的真实等级，不能根据更高速率
   assert.equal(ctx.grokSubscriptionTier({ access_token: token({ tier: 99 }) }), '')
   assert.equal(ctx.grokSubscriptionTier({ access_token: 'invalid' }), '')
 })
+
+test('Grok 4.7 动态目录保留上游档位、默认值、上下文与搜索能力', () => {
+  const catalog = {
+    id: 'grok-4.7',
+    name: 'Grok 4.7',
+    context_window: 500000,
+    max_completion_tokens: 1000000,
+    supports_backend_search: true,
+    reasoning_effort: 'low',
+    reasoning_efforts: [
+      { value: 'xhigh' },
+      { value: 'high', default: true },
+      { value: 'medium' },
+      { value: 'low' },
+      { value: 'low' },
+      { value: 'invalid' },
+    ],
+  }
+  const host = fixture(() => ({
+    ok: true,
+    body: { data: [catalog, { id: 'grok-imagine-image' }, null] },
+  }))
+  const script = load(['auth', 'text', 'list_models'], host)
+  const models = script.main({ profile_dir: '/profile' }).models
+  assert.equal(models.length, 1)
+  const caps = models[0].capabilities
+  assert.equal(models[0].display_name, 'Grok 4.7')
+  assert.deepEqual(Array.from(caps.reasoning.efforts), ['xhigh', 'high', 'medium', 'low'])
+  assert.equal(caps.reasoning.default_effort, 'high')
+  assert.equal(caps.context_window, 500000)
+  assert.equal(caps.max_output_tokens, 1000000)
+  assert.equal(caps.supports_backend_search, true)
+  const changed = script.grokTextCapabilities('grok-4.7', {
+    reasoning_efforts: [{ value: 'low' }],
+    reasoning_effort: 'high',
+    context_window: 300000,
+    supports_backend_search: false,
+  })
+  assert.equal(changed.context_window, 300000)
+  assert.equal(changed.reasoning.default_effort, undefined)
+  assert.equal(changed.supports_backend_search, false)
+  const disabled = script.grokTextCapabilities('future-model', { supports_reasoning_effort: false })
+  assert.deepEqual(Array.from(disabled.reasoning.efforts), ['none'])
+})
+
+test('Grok 4.7 文本请求保留模型和 xhigh 思考参数', () => {
+  const host = fixture(() => {
+    throw new Error('unexpected HTTP')
+  })
+  host.stream = (_action, params, callback) => {
+    assert.equal(params.body.model, 'grok-4.7')
+    assert.equal(params.body.reasoning.effort, 'xhigh')
+    callback({
+      type: 'response.completed',
+      response: { model: params.body.model, status: 'completed', output: [] },
+    })
+    return { ok: true, status: 200 }
+  }
+  const script = load(['auth', 'text', 'generate_text'], host)
+  assert.equal(
+    script.main({
+      profile_dir: '/profile',
+      request: { model: 'grok-4.7', input: '你好', reasoning: { effort: 'xhigh' } },
+    }).response.model,
+    'grok-4.7'
+  )
+})

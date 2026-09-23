@@ -35,7 +35,7 @@ export const textDocs: ApiExample[] = [
     description: '包含当前模型的参数及能力约束。',
     notes: ['model：模型 ID 或声明的别名。'],
     response: {
-      id: 'gpt-5.6-luna',
+      id: 'gpt-6-luna',
       object: 'model',
       owned_by: 'codex',
       task_kind: 'text',
@@ -50,7 +50,7 @@ export const textDocs: ApiExample[] = [
     description: '支持同步 JSON 和 SSE，续接、工具调用、结构化输出依插件能力而定。',
     notes: textNotes,
     body: {
-      model: 'gpt-5.6-luna',
+      model: 'gpt-6-luna',
       input: '请用一句话介绍你自己。',
       stream: false,
       store: true,
@@ -69,7 +69,7 @@ export const textDocs: ApiExample[] = [
       'Authorization: Bearer API_KEY；JSON 文本帧，不传音频二进制。',
       '客户端事件：response.create。服务端使用 Responses 事件；错误事件带 error.code。',
     ],
-    body: { type: 'response.create', model: 'gpt-5.6-luna', input: '你好' },
+    body: { type: 'response.create', model: 'gpt-6-luna', input: '你好' },
     response: { type: 'response.completed', response },
   },
   {
@@ -80,7 +80,7 @@ export const textDocs: ApiExample[] = [
     description: 'OpenAI Chat 兼容格式；流以 data: [DONE] 结束。',
     notes: textNotes,
     body: {
-      model: 'gpt-5.6-luna',
+      model: 'gpt-6-luna',
       messages: [{ role: 'user', content: '你好' }],
       stream: false,
       prompt_cache_key: 'my-conversation-001',
@@ -88,7 +88,7 @@ export const textDocs: ApiExample[] = [
     response: {
       id: 'chatcmpl_example',
       object: 'chat.completion',
-      model: 'gpt-5.6-luna',
+      model: 'gpt-6-luna',
       choices: [
         { index: 0, message: { role: 'assistant', content: '你好' }, finish_reason: 'stop' },
       ],
@@ -102,7 +102,7 @@ export const textDocs: ApiExample[] = [
     title: '压缩上下文',
     description: '仅支持 compact_text 的模型开放，当前以模型目录为准。',
     notes: ['model、input 必填；可选 instructions、previous_response_id、reasoning。'],
-    body: { model: 'gpt-5.6-luna', input: [{ role: 'user', content: '请记住项目的关键决定。' }] },
+    body: { model: 'gpt-6-luna', input: [{ role: 'user', content: '请记住项目的关键决定。' }] },
     response: {
       id: 'resp_compact_example',
       object: 'response.compaction',

@@ -4,13 +4,16 @@ function main(ctx) {
   return {
     models: result.body.data
       .filter(
-        (item) => typeof item.id === 'string' && !/imagine|voice|transcri|tts|stt/i.test(item.id)
+        (item) =>
+          typeof item?.id === 'string' &&
+          item.id.trim() &&
+          !/imagine|voice|transcri|tts|stt/i.test(item.id)
       )
       .map((item) => ({
-        model_id: item.id,
-        display_name: item.id,
+        model_id: item.id.trim(),
+        display_name: item.name || item.id.trim(),
         task_kind: 'text',
-        capabilities: grokTextCapabilities(item.id),
+        capabilities: grokTextCapabilities(item.id.trim(), item),
       })),
   }
 }

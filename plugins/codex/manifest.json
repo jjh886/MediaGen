@@ -82,6 +82,166 @@
       }
     },
     {
+      "model_id": "gpt-6-sol",
+      "display_name": "GPT-6 Sol",
+      "task_kind": "text",
+      "aliases": [],
+      "alias_priority": 40,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "default_effort": "medium"
+        },
+        "tool_calling": true,
+        "input_modalities": ["text", "image", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions", "/v1/responses/compact"],
+        "streaming": true,
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "max_output_tokens",
+          "stop",
+          "logprobs",
+          "top_logprobs",
+          "logit_bias",
+          "seed",
+          "prediction",
+          "audio",
+          "modalities"
+        ],
+        "transports": ["http", "websocket"],
+        "context_window": 1050000,
+        "max_output_tokens": 128000,
+        "pricing": {
+          "currency": "USD",
+          "unit": "million_tokens",
+          "reference_only": true,
+          "source": "https://developers.openai.com/api/docs/pricing",
+          "input": 2.0,
+          "cached_input": 0.2,
+          "output": 10.0,
+          "long_context": {
+            "input_tokens_above": 272000,
+            "input_multiplier": 2,
+            "cached_input_multiplier": 2,
+            "output_multiplier": 1.5
+          },
+          "priority_multiplier": 2
+        }
+      }
+    },
+    {
+      "model_id": "gpt-6-luna",
+      "display_name": "GPT-6 Luna",
+      "task_kind": "text",
+      "aliases": [],
+      "alias_priority": 40,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "default_effort": "medium"
+        },
+        "tool_calling": true,
+        "input_modalities": ["text", "image", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions", "/v1/responses/compact"],
+        "streaming": true,
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "max_output_tokens",
+          "stop",
+          "logprobs",
+          "top_logprobs",
+          "logit_bias",
+          "seed",
+          "prediction",
+          "audio",
+          "modalities"
+        ],
+        "transports": ["http", "websocket"],
+        "context_window": 1050000,
+        "max_output_tokens": 128000,
+        "pricing": {
+          "currency": "USD",
+          "unit": "million_tokens",
+          "reference_only": true,
+          "source": "https://developers.openai.com/api/docs/pricing",
+          "input": 0.1,
+          "cached_input": 0.01,
+          "output": 0.5,
+          "long_context": {
+            "input_tokens_above": 272000,
+            "input_multiplier": 2,
+            "cached_input_multiplier": 2,
+            "output_multiplier": 1.5
+          },
+          "priority_multiplier": 2
+        }
+      }
+    },
+    {
       "model_id": "gpt-5.6-sol",
       "display_name": "GPT-5.6-Sol",
       "task_kind": "text",
@@ -675,5 +835,45 @@
   },
   "registration": {
     "enabled": false
+  },
+  "generation_settings": {
+    "title": "Codex 生成配置",
+    "description": "选择图片生成时调用 image_generation 工具的主控文本模型。图片模型仍由请求的 model 指定，已有任务不受影响。",
+    "fields": [
+      {
+        "key": "image_control_model",
+        "type": "select",
+        "label": "图片主控模型",
+        "default": "gpt-5.6-luna",
+        "hint": "优先选择账号支持的模型。参考 API 价格不代表订阅额度的实际扣减。",
+        "options": [
+          {
+            "value": "gpt-6-luna",
+            "label": "GPT-6 Luna · 输入 $0.10 / 输出 $0.50 每百万 Token"
+          },
+          {
+            "value": "gpt-6-sol",
+            "label": "GPT-6 Sol · 输入 $2 / 输出 $10 每百万 Token"
+          },
+          {
+            "value": "gpt-6-astra",
+            "label": "GPT-6 Astra"
+          },
+          {
+            "value": "gpt-5.6-luna",
+            "label": "GPT-5.6 Luna"
+          },
+          {
+            "value": "gpt-5.6-sol",
+            "label": "GPT-5.6 Sol"
+          },
+          {
+            "value": "gpt-5.6-terra",
+            "label": "GPT-5.6 Terra"
+          }
+        ]
+      }
+    ],
+    "notice": "新模型是否可用取决于当前 Codex 账号授权。默认保留 GPT-5.6 Luna，确认账号支持后可切换 GPT-6。"
   }
 }

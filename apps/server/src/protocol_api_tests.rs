@@ -433,3 +433,63 @@ async fn pre_submission_failure_switches_account_but_uncertain_submission_never_
         );
     }
 }
+
+#[actix_web::test]
+async fn discovered_models_keep_plugin_prices_and_authoritative_capabilities() {
+    let mut state = state().into_inner();
+    let inner = std::sync::Arc::get_mut(&mut state).unwrap();
+    let path = inner.store.path.with_file_name("model-catalog.json");
+    std::fs::write(&path, json!({"account":{"models":[{"model_id":"text-model","display_name":"Live","task_kind":"text","capabilities":{"input_modalities":["text","image"],"streaming":false,"context_window":300000,"reasoning":{"efforts":["low"],"default_effort":"low"}}}],"refreshed_at":chrono::Utc::now().timestamp()}}).to_string()).unwrap();
+    inner.model_catalog = crate::model_api::Catalog::load(&path);
+    let plugin_dir = inner
+        .plugin_loader
+        .get_plugin_dir("test")
+        .unwrap()
+        .to_path_buf();
+    let manifest_path = plugin_dir.join("manifest.json");
+    let mut manifest: Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["models"][0]["capabilities"]["pricing"] =
+        json!({"input":2,"output":10,"reference_only":true});
+    manifest["models"][0]["capabilities"]["context_window"] = json!(1050000);
+    manifest["models"][0]["capabilities"]["reasoning"] =
+        json!({"efforts":["low","high"],"default_effort":"high"});
+    std::fs::write(&manifest_path, manifest.to_string()).unwrap();
+    inner.plugin_loader = PluginLoader::load_from(plugin_dir.parent().unwrap())
+        .unwrap()
+        .into();
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::from(state))
+            .configure(crate::configure_routes),
+    )
+    .await;
+    for uri in ["/v1/models/text-model", "/api/accounts/account/models"] {
+        let body: Value = actix_test::call_and_read_body_json(
+            &app,
+            actix_test::TestRequest::get()
+                .uri(uri)
+                .insert_header(("authorization", "Bearer key-a"))
+                .to_request(),
+        )
+        .await;
+        let model = if uri.starts_with("/v1") {
+            &body
+        } else {
+            body["data"]["models"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|model| model["id"] == "text-model")
+                .unwrap()
+        };
+        assert_eq!(model["capabilities"]["pricing"]["output"], 10);
+        assert_eq!(model["capabilities"]["context_window"], 300000);
+        assert_eq!(model["capabilities"]["streaming"], false);
+        assert_eq!(
+            model["capabilities"]["reasoning"]["efforts"],
+            json!(["low"])
+        );
+        assert_eq!(model["capabilities"]["reasoning"]["default_effort"], "low");
+    }
+}

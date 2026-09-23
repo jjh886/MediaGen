@@ -104,7 +104,7 @@ function buildPayload(ctx, prompt, request) {
   content.push({ type: 'input_text', text: prompt || '' })
 
   return {
-    model: MODEL,
+    model: String(ctx.platform_config?.image_control_model || MODEL).trim() || MODEL,
     instructions: INSTRUCTIONS,
     input: [{ role: 'user', content }],
     reasoning: { effort: 'medium', summary: 'auto' },

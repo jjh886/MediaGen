@@ -15,6 +15,75 @@
   },
   "models": [
     {
+      "model_id": "grok-4.7",
+      "display_name": "Grok 4.7",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": true,
+        "transports": ["http"],
+        "unsupported_parameters": [
+          "audio",
+          "modalities",
+          "prediction",
+          "stop",
+          "logit_bias",
+          "seed",
+          "frequency_penalty",
+          "presence_penalty",
+          "logprobs"
+        ],
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "high"
+        },
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "tools": {
+              "type": "array"
+            },
+            "reasoning": {
+              "type": "object"
+            },
+            "text": {
+              "type": "object"
+            },
+            "max_output_tokens": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "context_window": 500000,
+        "max_output_tokens": 1000000,
+        "supports_backend_search": true
+      }
+    },
+    {
       "model_id": "grok-4.5",
       "display_name": "grok-4.5",
       "task_kind": "text",
