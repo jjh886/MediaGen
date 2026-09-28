@@ -88,7 +88,7 @@ function chatgptApiImageModelSlug(value) {
 }
 
 function chatgptApiPrepareConversation(auth, prompt, references, options) {
-  const turnTraceId = chatgptApiUuid()
+  const turnTraceId = apiTextUuid()
   let uploaded = Array.isArray(references) ? references : []
   const needsUpload = uploaded.some((reference) => reference?.base64)
   let conduit = chatgptApiPrepareConduit(
@@ -240,7 +240,7 @@ function chatgptApiConversationPreparePayload(
     conversation_mode: { kind: 'primary_assistant' },
     system_hints: ['picture_v2'],
     partial_query: {
-      id: chatgptApiUuid(),
+      id: apiTextUuid(),
       author: { role: 'user' },
       content: { content_type: 'text', parts: [String(prompt || '')] },
     },
@@ -281,7 +281,7 @@ function chatgptApiConversationPayload(
     action: 'next',
     messages: [
       {
-        id: chatgptApiUuid(),
+        id: apiTextUuid(),
         author: { role: 'user' },
         create_time: Date.now() / 1000,
         content: chatgptApiMessageContent(attachments, imagePrompt),

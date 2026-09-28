@@ -10,6 +10,12 @@ function chatgptApiSentinelHeaders(auth) {
     }),
     '准备 ChatGPT 完整性令牌'
   ).body
+  if (prepare?.force_login) {
+    throw new Error('LOGIN_EXPIRED: ChatGPT 要求重新登录后才能生成。')
+  }
+  if (!prepare?.prepare_token) {
+    throw new Error('ChatGPT 完整性令牌响应缺少 prepare_token')
+  }
 
   const proof = prepare?.proofofwork?.required
     ? chatgptApiSolveProofOfWork(prepare.proofofwork.seed, prepare.proofofwork.difficulty, auth)
@@ -17,6 +23,7 @@ function chatgptApiSentinelHeaders(auth) {
   const turnstile = prepare?.turnstile?.required
     ? chatgptApiSolveTurnstile(prepare.turnstile.dx, requirementsToken, auth)
     : ''
+  const sessionObserver = chatgptApiPrepareSessionObserver(prepare, requirementsToken, auth)
   const finalize = chatgptApiRequireOk(
     chatgptApiRequest(auth, 'POST', '/backend-api/sentinel/chat-requirements/finalize', {
       target_route: '/backend-api/sentinel/chat-requirements/finalize',
@@ -31,13 +38,52 @@ function chatgptApiSentinelHeaders(auth) {
     '完成 ChatGPT 完整性令牌'
   ).body
   if (!finalize?.token) throw new Error('ChatGPT 完整性令牌响应缺少 token')
+  const sessionObserverToken = chatgptApiFinalizeSessionObserver(sessionObserver, auth)
 
   return chatgptApiCompactObject({
     'openai-sentinel-chat-requirements-token': finalize.token,
+    'openai-sentinel-chat-requirements-prepare-token': prepare.prepare_token,
     'openai-sentinel-proof-token': proof,
+    'openai-sentinel-so-token': sessionObserverToken,
     'openai-sentinel-turnstile-token': turnstile,
     'oai-telemetry': '[1,null]',
   })
+}
+
+function chatgptApiPrepareSessionObserver(prepare, requirementsToken, auth) {
+  const segment = prepare?.so
+  if (!segment?.required) return null
+  if (!segment.collector_dx || !segment.snapshot_dx) {
+    throw new Error('ChatGPT Session Observer 响应缺少 collector_dx 或 snapshot_dx')
+  }
+  const vm = chatgptApiCreateVm(requirementsToken, auth)
+  vm.executeInstructions(vm.decodeProgram(segment.collector_dx, requirementsToken))
+  return {
+    vm,
+    snapshot_dx: segment.snapshot_dx,
+    chat_token: prepare?.token || prepare?.prepare_token || '',
+    requirements_token: requirementsToken,
+  }
+}
+
+function chatgptApiFinalizeSessionObserver(session, auth) {
+  if (!session) return ''
+  const result = session.vm.executeInstructions(
+    session.vm.decodeProgram(session.snapshot_dx, session.requirements_token)
+  )
+  if (!result) throw new Error('ChatGPT Session Observer 没有返回 token')
+  const deviceId = chatgptApiCookieValue(auth, 'oai-did')
+  if (!deviceId || !session.chat_token) {
+    throw new Error('ChatGPT Session Observer 缺少设备 ID 或 chat token')
+  }
+  return chatgptApiBase64Encode(
+    JSON.stringify({
+      so: result,
+      c: session.chat_token,
+      id: deviceId,
+      flow: deviceId,
+    })
+  )
 }
 
 function chatgptApiSentinelConfig(auth) {

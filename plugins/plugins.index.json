@@ -1,3 +1,3 @@
 {
-  "plugins": ["chatgpt", "codex", "grok"]
+  "plugins": ["chatgpt", "codex", "grok", "doubao-api", "deepseek-api"]
 }

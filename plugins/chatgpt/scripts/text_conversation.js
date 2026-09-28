@@ -6,7 +6,7 @@ function chatgptApiTextOptions(init, request) {
   if (requestedModel.endsWith('-wm')) {
     throw new Error('invalid_input: Work 模型需要独立的 Work 任务，不能用于普通文本生成')
   }
-  const aliases = ['chatgpt text', 'chatgpt-text', 'chatgpt-web']
+  const aliases = ['chatgpt api text', 'chatgpt-api-text', 'chatgpt-web']
   const model = aliases.includes(requestedModel.toLowerCase())
     ? String(init?.default_model_slug || 'auto')
     : requestedModel || String(init?.default_model_slug || 'auto')
@@ -17,8 +17,15 @@ function chatgptApiTextOptions(init, request) {
   }
 }
 
-function chatgptApiPrepareTextConversation(auth, prompt, thread, options, sentinelHeaders) {
-  const turnTraceId = chatgptApiUuid()
+function chatgptApiPrepareTextConversation(
+  auth,
+  prompt,
+  thread,
+  options,
+  sentinelHeaders,
+  attachments = []
+) {
+  const turnTraceId = apiTextUuid()
   let conduit = ''
   for (const state of ['none', 'sent', 'success']) {
     const response = chatgptApiRequireOk(
@@ -31,7 +38,7 @@ function chatgptApiPrepareTextConversation(auth, prompt, thread, options, sentin
           'x-conduit-token': conduit,
           'x-oai-turn-trace-id': turnTraceId,
         }),
-        body: chatgptApiTextPreparePayload(auth, prompt, thread, options, state),
+        body: chatgptApiTextPreparePayload(auth, prompt, thread, options, state, attachments),
         retry: { max_attempts: 1 },
         timeout_ms: 60000,
       }),
@@ -47,11 +54,11 @@ function chatgptApiPrepareTextConversation(auth, prompt, thread, options, sentin
     ...options,
     turn_trace_id: turnTraceId,
     conduit,
-    user_message_id: chatgptApiUuid(),
+    user_message_id: apiTextUuid(),
   }
 }
 
-function chatgptApiTextPreparePayload(auth, prompt, thread, options, state) {
+function chatgptApiTextPreparePayload(auth, prompt, thread, options, state, attachments = []) {
   const fingerprint = chatgptApiFingerprint(auth)
   const payload = chatgptApiCompactObject({
     action: 'next',
@@ -68,12 +75,14 @@ function chatgptApiTextPreparePayload(auth, prompt, thread, options, state) {
     supports_buffering: true,
     supported_encodings: ['v1'],
     client_contextual_info: chatgptApiTextClientContext(auth),
-    attachment_mime_types: (options.references || []).map((reference) => reference.mime_type),
     local_function_names: ['local.continue_in_work'],
   })
+  if (attachments.length) {
+    payload.attachment_mime_types = [...new Set(attachments.map((item) => item.mime_type))]
+  }
   if (state !== 'none') {
     payload.partial_query = {
-      id: chatgptApiUuid(),
+      id: apiTextUuid(),
       author: { role: 'user' },
       content: { content_type: 'text', parts: [Array.from(prompt).slice(0, 5).join('') || 'h'] },
     }
@@ -98,7 +107,14 @@ function chatgptApiTextClientContext(auth) {
   }
 }
 
-function chatgptApiStreamTextConversation(auth, prompt, prepared, sentinelHeaders, onEvent) {
+function chatgptApiStreamTextConversation(
+  auth,
+  prompt,
+  prepared,
+  sentinelHeaders,
+  attachments,
+  onEvent
+) {
   const path = '/backend-api/f/conversation'
   const headers = chatgptApiBaseHeaders(auth, path, path)
   Object.assign(
@@ -119,7 +135,7 @@ function chatgptApiStreamTextConversation(auth, prompt, prepared, sentinelHeader
       url: CHATGPT_API_ORIGIN + path,
       proxy: 'system',
       headers,
-      body: chatgptApiTextConversationPayload(auth, prompt, prepared),
+      body: chatgptApiTextConversationPayload(auth, prompt, prepared, attachments),
       retry: { max_attempts: 1 },
       timeout_ms: 3 * 60 * 60 * 1000,
     },
@@ -160,7 +176,7 @@ function chatgptApiConsumeTextStreamEvent(state, writer, event, onConversation) 
   if (!current.startsWith(emitted)) return
   state.streamed_text = current
   state.emitted_text = current
-  chatgptApiFeedResponseText(writer, current.slice(emitted.length))
+  apiTextFeedResponseText(writer, current.slice(emitted.length))
 }
 
 function chatgptApiAppendMissingFinalText(state, writer, value) {
@@ -168,7 +184,7 @@ function chatgptApiAppendMissingFinalText(state, writer, value) {
   if (!finalText) return
   const emitted = state.emitted_text || ''
   if (finalText.startsWith(emitted)) {
-    chatgptApiFeedResponseText(writer, finalText.slice(emitted.length))
+    apiTextFeedResponseText(writer, finalText.slice(emitted.length))
   } else {
     // response.completed / output_text.done 返回权威文本，工具调用也按最终正文重新解析。
     writer.output = []
@@ -176,15 +192,25 @@ function chatgptApiAppendMissingFinalText(state, writer, value) {
     writer.text = ''
     writer.parser = { buffer: '', inside: false }
     writer.silent = true
-    chatgptApiFeedResponseText(writer, finalText)
-    chatgptApiDrainToolParser(writer, true)
+    apiTextFeedResponseText(writer, finalText)
+    apiTextDrainToolParser(writer, true)
     writer.silent = false
   }
   state.emitted_text = finalText
 }
 
-function chatgptApiTextConversationPayload(auth, prompt, prepared) {
+function chatgptApiTextConversationPayload(auth, prompt, prepared, attachments = []) {
   const fingerprint = chatgptApiFingerprint(auth)
+  const metadata = chatgptApiTextMessageMetadata()
+  if (attachments.length) {
+    metadata.attachments = attachments.map((attachment) => ({
+      id: attachment.file_id,
+      library_file_id: attachment.library_file_id || '',
+      mime_type: attachment.mime_type,
+      name: attachment.name,
+      size: attachment.size,
+    }))
+  }
   return chatgptApiCompactObject({
     action: 'next',
     messages: [
@@ -192,11 +218,11 @@ function chatgptApiTextConversationPayload(auth, prompt, prepared) {
         id: prepared.user_message_id,
         author: { role: 'user' },
         create_time: Date.now() / 1000,
-        content: chatgptApiMessageContent(prepared.references || [], prompt),
-        metadata: {
-          ...chatgptApiTextMessageMetadata(),
-          attachments: (prepared.references || []).map(chatgptApiAttachmentMetadata),
-        },
+        content: chatgptApiMessageContent(
+          attachments.filter((item) => item.mime_type.startsWith('image/')),
+          prompt
+        ),
+        metadata,
       },
     ],
     parent_message_id: prepared.parent_message_id,
@@ -206,8 +232,7 @@ function chatgptApiTextConversationPayload(auth, prompt, prepared) {
     timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
     timezone: fingerprint.timezone || 'UTC',
     conversation_mode: { kind: 'primary_assistant' },
-    // 保留会话直至完成，长思考模型需要按会话轮询；完成后由调用方隐藏。
-    history_and_training_disabled: false,
+    history_and_training_disabled: true,
     system_hints: prepared.system_hints || [],
     paragen_cot_summary_display_override: 'allow',
     force_parallel_switch: 'auto',

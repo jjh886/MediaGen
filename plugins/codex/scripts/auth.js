@@ -313,7 +313,7 @@ function codexFirstNonEmpty(values) {
   }
   return ''
 }
-const CODEX_UPSTREAM_VERSION = '0.154.0'
+const CODEX_UPSTREAM_VERSION = '0.160.0'
 const CODEX_UPSTREAM_USER_AGENT =
   'codex-tui/' + CODEX_UPSTREAM_VERSION + ' (Ubuntu 22.4.0; x86_64) xterm-256color'
 

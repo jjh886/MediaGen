@@ -637,8 +637,20 @@
       "cooldown_seconds": -1
     },
     {
-      "contains_any": ["free plan limit", "image generations requests", "limit resets in"],
-      "state": "disabled"
+      "contains_any": [
+        "quota_exhausted",
+        "free plan limit",
+        "image generations requests",
+        "limit resets in",
+        "usage limit",
+        "insufficient_quota",
+        "sessionBudgetExceeded",
+        "session budget",
+        "limit exceeded"
+      ],
+      "state": "daily_quota_exhausted",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1
     }
   ],
   "failure_strategy": [
@@ -667,9 +679,11 @@
       "usage_consumed": false
     },
     {
-      "contains_any": ["invalid", "bad request", "unsupported"],
-      "category": "invalid_request",
-      "retry_action": "fail",
+      "contains_any": ["AUTH_INCONCLUSIVE", "retryable error", "timeout", "connection reset"],
+      "category": "temporary_unavailable",
+      "retry_action": "same_account_retry",
+      "same_error_threshold": 3,
+      "threshold_cooldown_seconds": 600,
       "usage_consumed": false
     },
     {
@@ -680,11 +694,9 @@
       "usage_consumed": false
     },
     {
-      "contains_any": ["AUTH_INCONCLUSIVE", "retryable error", "timeout", "connection reset"],
-      "category": "temporary_unavailable",
-      "retry_action": "same_account_retry",
-      "same_error_threshold": 3,
-      "threshold_cooldown_seconds": 600,
+      "contains_any": ["invalid", "bad request", "unsupported"],
+      "category": "invalid_request",
+      "retry_action": "fail",
       "usage_consumed": false
     },
     {
@@ -705,11 +717,22 @@
       "usage_consumed": false
     },
     {
-      "contains_any": ["free plan limit", "image generations requests", "limit resets in"],
+      "contains_any": [
+        "quota_exhausted",
+        "free plan limit",
+        "image generations requests",
+        "limit resets in",
+        "usage limit",
+        "insufficient_quota",
+        "sessionBudgetExceeded",
+        "session budget",
+        "limit exceeded"
+      ],
       "category": "quota_exhausted",
       "retry_action": "failover",
       "account_state": "daily_quota_exhausted",
       "cooldown_from_message": true,
+      "cooldown_seconds": -1,
       "usage_consumed": false
     }
   ],
@@ -875,5 +898,7 @@
       }
     ],
     "notice": "新模型是否可用取决于当前 Codex 账号授权。默认保留 GPT-5.6 Luna，确认账号支持后可切换 GPT-6。"
-  }
+  },
+  "version": "1.2.7",
+  "schema_version": 1
 }

@@ -25,9 +25,14 @@ const CHATGPT_API_SPEECH_MIME_TYPES = {
 function chatgptApiGenerateSpeech(auth, input, requestedVoice, requestedFormat) {
   const voice = chatgptApiSpeechVoice(requestedVoice)
   const formats = chatgptApiSpeechFormat(requestedFormat)
-  chatgptApiInitializeConversation(auth)
+  const init = chatgptApiInitializeConversation(auth)
   const sentinelHeaders = chatgptApiSentinelHeaders(auth)
-  const prepared = chatgptApiPrepareSpeechConversation(auth, input, 'auto', sentinelHeaders)
+  const prepared = chatgptApiPrepareSpeechConversation(
+    auth,
+    input,
+    String(init?.default_model_slug || 'auto'),
+    sentinelHeaders
+  )
   const response = chatgptApiSendSpeechMessage(auth, input, prepared, sentinelHeaders)
   const ids = chatgptApiSpeechMessageIds(response.events, input)
   if (!ids.message_id || !ids.conversation_id) {
@@ -72,7 +77,7 @@ function chatgptApiSpeechFormat(value) {
 }
 
 function chatgptApiPrepareSpeechConversation(auth, input, model, sentinelHeaders) {
-  const turnTraceId = chatgptApiUuid()
+  const turnTraceId = apiTextUuid()
   let conduit = ''
   for (const state of ['none', 'sent', 'success']) {
     const response = chatgptApiRequireOk(
@@ -101,7 +106,7 @@ function chatgptApiPrepareSpeechConversation(auth, input, model, sentinelHeaders
     turn_trace_id: turnTraceId,
     conduit,
     parent_message_id: 'client-created-root',
-    message_id: chatgptApiUuid(),
+    message_id: apiTextUuid(),
   }
 }
 
@@ -125,7 +130,7 @@ function chatgptApiSpeechPreparePayload(auth, input, model, state) {
   }
   if (state !== 'none') {
     payload.partial_query = {
-      id: chatgptApiUuid(),
+      id: apiTextUuid(),
       author: { role: 'user' },
       content: { content_type: 'text', parts: [Array.from(input).slice(0, 5).join('') || 'h'] },
     }

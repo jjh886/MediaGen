@@ -24,7 +24,7 @@ function main(ctx) {
               reasoning: { type: 'object' },
             },
           },
-          input_modalities: ['text', 'image'],
+          input_modalities: ['text', 'image', 'video', 'audio', 'file'],
           image_sources: ['data_url', 'file_id'],
           output_modalities: ['text'],
           endpoints: ['/v1/responses', '/v1/chat/completions'],

@@ -6,6 +6,7 @@ function chatgptApiImageQuotaStatus(auth) {
   const seconds = chatgptApiDurationSeconds(reason)
   return chatgptApiCompactObject({
     status: 'daily_quota_exhausted',
+    quota_task_kind: 'image',
     reason,
     cooldown_seconds: seconds > 0 ? seconds : null,
   })

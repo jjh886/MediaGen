@@ -7,7 +7,7 @@ function main(ctx) {
   }
 
   let result = codexFetchAccountProfile(auth)
-  if (!result.success && codexHttpStatus(result) === 401) {
+  if (!codexHttpSucceeded(result) && codexHttpStatus(result) === 401) {
     try {
       auth = codexRefreshAuth(ctx, auth, '账号检查返回 401')
       result = codexFetchAccountProfile(auth)
@@ -40,18 +40,24 @@ function codexUsageStatus(body) {
     ['secondary_window', '长周期'],
   ]) {
     const item = limit[key]
-    if (!item || typeof item.used_percent !== 'number') continue
+    if (!item || !Number.isFinite(item.used_percent)) continue
     const seconds = Number(item.limit_window_seconds)
+    const absoluteReset = Number(item.reset_at) * 1000
+    const relativeReset = Number(item.reset_after_seconds)
     const reset =
-      Number(item.reset_at) * 1000 ||
-      (Number(item.reset_after_seconds) > 0 ? now + item.reset_after_seconds * 1000 : 0)
+      Number.isFinite(absoluteReset) && absoluteReset > 0
+        ? absoluteReset
+        : Number.isFinite(relativeReset) && relativeReset > 0
+          ? now + relativeReset * 1000
+          : 0
     windows.push({
       name: seconds === 18000 ? '5 小时' : seconds === 604800 ? '每周' : label,
       task_kind: 'text',
       remaining_percent: Math.max(0, Math.min(100, 100 - item.used_percent)),
-      reset_at: reset > 0 ? new Date(reset).toISOString() : null,
+      reset_at: reset > 0 && reset < 8.64e15 ? new Date(reset).toISOString() : null,
     })
   }
+  if (!windows.length) return { status: 'inconclusive', reason: '额度接口未返回有效窗口' }
   const blocked = windows.filter(
     (w) => w.remaining_percent === 0 && (!w.reset_at || Date.parse(w.reset_at) > now)
   )

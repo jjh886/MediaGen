@@ -14,7 +14,7 @@ function context(platform, scripts, host = {}) {
   return ctx
 }
 
-for (const platform of ['codex', 'chatgpt', 'grok']) {
+for (const platform of ['codex', 'chatgpt', 'grok', 'doubao-api', 'deepseek-api']) {
   test(`${platform} 所有声明流程可以独立编译`, () => {
     const manifest = JSON.parse(readFileSync(`plugins/${platform}/manifest.json`, 'utf8'))
     for (const [name, flow] of Object.entries(manifest.flows)) {
@@ -353,7 +353,7 @@ test('Codex 新模型原样路由，图片主控选择不改写图片模型', ()
     assert.equal(payload.tools[0].model, 'gpt-image-2')
     assert.ok(manifest.generation_settings.fields[0].options.some((option) => option.value === id))
   }
-  assert.equal(image.buildPayload({}, '花', { model: 'gpt-image-2' }).model, 'gpt-5.6-luna')
+  assert.equal(image.buildPayload({}, '花', { model: 'gpt-image-2' }).model, 'gpt-6-luna')
   const sol = manifest.models.find((item) => item.model_id === 'gpt-6-sol').capabilities.pricing
   assert.equal(sol.input, 2)
   assert.equal(sol.cached_input, 0.2)
@@ -381,6 +381,7 @@ test('Codex 发现保留新模型及账号能力，生成按目录校验权限',
   ctx.codexEnsureFreshAuth = () => ({ tokens: { access_token: 'test' } })
   const discovered = ctx.main({}).models
   assert.equal(discovered.length, 2)
+  assert.ok(discovered[0].capabilities.input_modalities.includes('file'))
   assert.equal(discovered[0].capabilities.reasoning.default_effort, 'none')
   assert.equal(discovered[0].capabilities.max_context_window, 1050000)
   for (const model of discovered) {

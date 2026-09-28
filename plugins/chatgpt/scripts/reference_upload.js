@@ -1,20 +1,19 @@
 function chatgptApiReadReferenceFiles(ctx) {
   const paths = chatgptApiStringArray(ctx.ref_image_locals)
   if (!paths.length && chatgptApiStringArray(ctx.ref_image_dataurls).length) {
-    throw new Error('参考图没有被服务端转换为本地临时文件，无法安全上传。')
+    throw new Error('参考图尚未在本机准备完成，无法上传。')
   }
   return paths.map((path, index) => {
-    const file = host.call('file.read_base64', { path, max_bytes: 50 * 1024 * 1024 })
     const dimensions = host.call('file.inspect_image', {
       path,
       max_bytes: 50 * 1024 * 1024,
     })
-    const extension = chatgptApiImageExtension(file.mime)
+    const extension = chatgptApiImageExtension(dimensions.mime)
     return {
-      base64: file.base64,
-      mime_type: file.mime,
+      path,
+      mime_type: dimensions.mime,
       name: 'mediagen-reference-' + (index + 1) + '.' + extension,
-      size: Number(file.size || 0),
+      size: Number(dimensions.size || 0),
       width: Number(dimensions.width || 0),
       height: Number(dimensions.height || 0),
     }
@@ -22,11 +21,33 @@ function chatgptApiReadReferenceFiles(ctx) {
 }
 
 function chatgptApiUploadReferences(auth, references) {
+  if (references?.length) chatgptApiReserveUpload(auth)
   return (references || []).map((reference) => chatgptApiUploadReference(auth, reference))
+}
+
+function chatgptApiReserveUpload(auth) {
+  const path = '/backend-api/files/upload_reservations'
+  chatgptApiRequireOk(
+    chatgptApiRequest(auth, 'POST', path, {
+      target_path: path,
+      target_route: path,
+      headers: { 'content-type': 'application/json' },
+      body: {
+        intended_use_case: 'my_files',
+        entry_surface: 'chat_composer',
+        requires_gizmo_id: false,
+        store_in_library: true,
+        library_persistence_mode: 'opportunistic',
+      },
+      timeout_ms: 60000,
+    }),
+    '预留 ChatGPT 附件上传'
+  )
 }
 
 function chatgptApiUploadReference(auth, reference) {
   const fingerprint = chatgptApiFingerprint(auth)
+  const useCase = reference.use_case || 'multimodal'
   const created = chatgptApiRequireOk(
     chatgptApiRequest(auth, 'POST', '/backend-api/files', {
       target_path: '/backend-api/files',
@@ -35,13 +56,13 @@ function chatgptApiUploadReference(auth, reference) {
       body: {
         file_name: reference.name,
         file_size: reference.size,
-        use_case: 'multimodal',
+        use_case: useCase,
         timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
         reset_rate_limits: false,
         supports_direct_azure_multipart: true,
         mime_type: reference.mime_type,
         entry_surface: 'chat_composer',
-        selection_method: 'clipboard_file',
+        ...(useCase === 'multimodal' ? { selection_method: 'clipboard_file' } : {}),
         client_resolved_mime_type: reference.mime_type,
         mime_resolution_source: 'filename_extension',
         store_in_library: true,
@@ -57,7 +78,7 @@ function chatgptApiUploadReference(auth, reference) {
 
   chatgptApiUploadSignedBlob(auth, created.upload_url, reference)
   const processed = chatgptApiProcessReference(auth, created.file_id, reference)
-  chatgptApiVerifyReference(auth, created.file_id)
+  if (useCase === 'multimodal') chatgptApiVerifyReference(auth, created.file_id)
   return {
     file_id: created.file_id,
     library_file_id: processed.library_file_id,
@@ -76,15 +97,12 @@ function chatgptApiUploadSignedBlob(auth, uploadUrl, reference) {
     proxy: 'system',
     tls_profile: chatgptApiTlsProfile(auth),
     headers: {
-      ...chatgptApiBrowserHeaders(auth, 'cross-site'),
-      accept: '*/*',
-      'content-length': String(reference.size),
       'content-type': reference.mime_type,
       'x-ms-blob-type': 'BlockBlob',
-      'x-ms-version': '2020-04-08',
     },
-    body: reference.base64,
-    body_format: 'base64',
+    body_file: reference.path,
+    body_file_size: reference.size,
+    body_format: 'file',
     timeout_ms: 180000,
   })
   chatgptApiRequireOk(response, '上传 ChatGPT 参考图二进制')
@@ -98,9 +116,10 @@ function chatgptApiProcessReference(auth, fileId, reference) {
       headers: { 'content-type': 'application/json' },
       body: {
         file_id: fileId,
-        use_case: 'multimodal',
+        use_case: reference.use_case || 'multimodal',
         index_for_retrieval: false,
         file_name: reference.name,
+        mime_type: reference.mime_type,
         library_persistence_mode: 'opportunistic',
         entry_surface: 'chat_composer',
         metadata: {
@@ -121,12 +140,36 @@ function chatgptApiProcessReference(auth, fileId, reference) {
   if (!events.some((event) => event?.event === 'file.processing.completed')) {
     throw new Error('ChatGPT 参考图处理流没有返回 file.processing.completed')
   }
-  const indexed = events.find((event) => event?.event === 'file.indexing.completed')
+  const indexed =
+    events.find((event) => event?.event === 'file.indexing.completed') ||
+    events.find((event) => event?.event === 'file.processing.completed')
   return {
     library_file_id: indexed?.extra?.metadata_object_id || '',
     name: indexed?.extra?.library_file_name || reference.name,
     mime_type: indexed?.extra?.mime_type || reference.mime_type,
   }
+}
+
+function chatgptApiUploadTextAttachments(ctx, auth, input) {
+  const attachments = input.flatMap((item) => item.attachments || [])
+  if (!attachments.length) return []
+  if (typeof ctx.workspace_dir !== 'string' || !ctx.workspace_dir) {
+    throw new Error('invalid_input: 附件上传工作目录缺失。')
+  }
+  chatgptApiReserveUpload(auth)
+  return attachments.map((attachment, index) => {
+    const file = apiTextMaterializeAttachment(ctx, attachment, index)
+    const image = attachment.mime_type.startsWith('image/')
+    const dimensions = image ? host.call('file.inspect_image', { path: file.path }) : {}
+    return chatgptApiUploadReference(auth, {
+      path: file.path,
+      name: attachment.name,
+      mime_type: attachment.mime_type,
+      size: file.size,
+      ...(image ? { width: dimensions.width, height: dimensions.height } : {}),
+      use_case: image ? 'multimodal' : 'ace_upload',
+    })
+  })
 }
 
 function chatgptApiVerifyReference(auth, fileId) {
@@ -161,5 +204,6 @@ function chatgptApiStringArray(value) {
 function chatgptApiImageExtension(mime) {
   if (mime === 'image/jpeg') return 'jpg'
   if (mime === 'image/webp') return 'webp'
+  if (mime === 'image/gif') return 'gif'
   return 'png'
 }

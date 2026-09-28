@@ -1,5 +1,5 @@
 const CODEX_RESPONSES_ENDPOINT = 'https://chatgpt.com/backend-api/codex/responses'
-const CODEX_TEXT_DEFAULT_MODEL = 'gpt-5.6-luna'
+const CODEX_TEXT_DEFAULT_MODEL = 'gpt-6-luna'
 const CODEX_UNSUPPORTED_RESPONSE_FIELDS = [
   'frequency_penalty',
   'max_completion_tokens',

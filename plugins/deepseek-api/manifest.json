@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "adapter_mode": "api",
+  "failure_strategy": [
+    {
+      "contains_any": ["verification_required", "needs_verification"],
+      "category": "verification_required",
+      "retry_action": "failover",
+      "account_state": "verification_required",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": [
+        "missing_input",
+        "invalid_input",
+        "unsupported_speed",
+        "unsupported_instructions",
+        "unsupported_voice",
+        "unsupported_format"
+      ],
+      "category": "invalid_request",
+      "retry_action": "fail",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["LOGIN_EXPIRED", "HTTP 401"],
+      "category": "login_expired",
+      "retry_action": "failover",
+      "account_state": "login_expired",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["rate_limit_exceeded", "HTTP 429", "生成过于频繁"],
+      "category": "account_rate_limited",
+      "retry_action": "failover",
+      "account_state": "cooldown",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": [
+        "quota_exhausted",
+        "image generations requests",
+        "limit resets in",
+        "usage limit",
+        "insufficient_quota",
+        "limit exceeded"
+      ],
+      "category": "quota_exhausted",
+      "retry_action": "failover",
+      "account_state": "daily_quota_exhausted",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": [
+        "AUTH_INCONCLUSIVE",
+        "generation_timeout",
+        "temporary_unavailable",
+        "timeout",
+        "connection reset",
+        "HTTP 500",
+        "HTTP 502",
+        "HTTP 503",
+        "HTTP 504"
+      ],
+      "category": "transient_network",
+      "retry_action": "same_account_retry",
+      "same_error_threshold": 3,
+      "threshold_cooldown_seconds": 600,
+      "usage_consumed": false
+    }
+  ],
+  "verification": {
+    "trigger_contains_any": [],
+    "ignore_contains_any": [],
+    "captcha_selectors": []
+  },
+  "registration": {
+    "enabled": false
+  },
+  "version": "1.0.0",
+  "platform_id": "deepseek-api",
+  "display_name": "DeepSeek",
+  "sort_order": 60,
+  "login_url": "https://chat.deepseek.com/",
+  "workspace_url": "https://chat.deepseek.com/",
+  "capabilities": {
+    "actions": [
+      "browser.run_script",
+      "file.read_json",
+      "file.write_json",
+      "file.write_base64",
+      "http.request",
+      "http.sse_request",
+      "time.sleep",
+      "crypto.wasm_execute",
+      "crypto.base64_encode_utf8"
+    ],
+    "network_hosts": ["deepseek.com"],
+    "context_fields": [
+      "profile_dir",
+      "workspace_dir",
+      "request",
+      "model_id",
+      "model_capabilities",
+      "reasoning_effort",
+      "prompt",
+      "platform_config",
+      "image_aspect_ratio",
+      "video_aspect_ratio",
+      "generation_options",
+      "ref_image_dataurls",
+      "ref_image_locals",
+      "ref_video_locals",
+      "ref_audio_locals",
+      "video_duration",
+      "max_images"
+    ]
+  },
+  "models": [
+    {
+      "model_id": "deepseek-text",
+      "display_name": "DeepSeek 文本",
+      "task_kind": "text",
+      "aliases": [],
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["none", "standard"],
+          "default_effort": "standard"
+        },
+        "tool_calling": true,
+        "input_types": ["text", "image", "file"],
+        "file_extensions": [
+          "pdf",
+          "txt",
+          "md",
+          "csv",
+          "json",
+          "doc",
+          "docx",
+          "xls",
+          "xlsx",
+          "ppt",
+          "pptx",
+          "py",
+          "js",
+          "jsx",
+          "ts",
+          "tsx",
+          "go",
+          "rs",
+          "java",
+          "c",
+          "cpp",
+          "h",
+          "cs",
+          "php",
+          "rb",
+          "sh",
+          "sql",
+          "html",
+          "css",
+          "xml",
+          "yaml",
+          "yml",
+          "toml",
+          "log"
+        ],
+        "input_modalities": ["text", "image", "file"],
+        "output_modalities": ["text"],
+        "streaming": true
+      }
+    }
+  ],
+  "tiers": {
+    "free": {
+      "display_name": "默认用户",
+      "is_default": true,
+      "concurrency_limit": 1,
+      "daily_limit": 0,
+      "total_limit": 0,
+      "text_concurrency_limit": 1,
+      "text_daily_limit": 0,
+      "text_total_limit": 0,
+      "cooldown_seconds": 30,
+      "task_interval_seconds": 3
+    }
+  },
+  "login_detection": {
+    "method": "js_script",
+    "script_file": "check_login.js",
+    "await_promise": true
+  },
+  "login_credential_capture": {
+    "script_files": ["@shared/api_login_fingerprint.js", "capture_auth.js"],
+    "await_promise": true,
+    "file_name": "auth.json",
+    "cookie_urls": ["https://chat.deepseek.com/"]
+  },
+  "flows": {
+    "generate_text": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "auth.js",
+            "pow.js",
+            "attachments.js",
+            "stream.js",
+            "generate_text.js"
+          ],
+          "timeout_ms": 14400000,
+          "save_as": "result"
+        }
+      ]
+    },
+    "check_account": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "auth.js",
+            "check_account.js"
+          ],
+          "timeout_ms": 60000,
+          "save_as": "health"
+        }
+      ]
+    }
+  },
+  "watermark": {
+    "has_watermark": false,
+    "removal_strategy": "none"
+  },
+  "task_recovery": {
+    "media_types": ["text"],
+    "checkpoint_field": "conversation_id"
+  },
+  "protected_json_files": ["auth.json", "verification.json"]
+}

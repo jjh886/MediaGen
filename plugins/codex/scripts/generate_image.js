@@ -1,5 +1,5 @@
 const ENDPOINT = 'https://chatgpt.com/backend-api/codex/responses'
-const MODEL = 'gpt-5.6-luna'
+const MODEL = 'gpt-6-luna'
 const INSTRUCTIONS =
   "When invoking the image_generation tool, use the user's image prompt verbatim. Do not rewrite, expand, summarize, embellish, translate, normalize punctuation, or add or remove visual details or constraints. Preserve the original language, wording, capitalization, quotes, and punctuation exactly."
 

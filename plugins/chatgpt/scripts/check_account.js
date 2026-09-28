@@ -20,7 +20,7 @@ function chatgptApiQuotaFields(quota) {
     status: chatgptApiFirstText([quota?.status, 'available']),
     reason: chatgptApiFirstText([quota?.reason, 'ChatGPT 登录有效']),
     cooldown_seconds: quota?.cooldown_seconds || null,
-    quota_task_kind: 'image',
+    quota_task_kind: quota?.quota_task_kind || null,
   }
 }
 
@@ -42,10 +42,10 @@ function chatgptApiFirstText(values) {
 
 function chatgptApiAccountCheckError(error) {
   const message = String(error?.message || error || 'ChatGPT 登录检查失败')
-  const inconclusive = !message.startsWith('LOGIN_EXPIRED:')
+  const expired = message.startsWith('LOGIN_EXPIRED:')
   return {
-    logged_in: inconclusive ? null : false,
-    status: inconclusive ? 'inconclusive' : 'login_expired',
+    logged_in: expired ? false : null,
+    status: expired ? 'login_expired' : 'inconclusive',
     reason: message.replace(/^(AUTH_INCONCLUSIVE|LOGIN_EXPIRED):\s*/, ''),
   }
 }

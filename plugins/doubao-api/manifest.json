@@ -1,0 +1,479 @@
+{
+  "schema_version": 1,
+  "adapter_mode": "api",
+  "failure_strategy": [
+    {
+      "contains_any": ["verification_required", "needs_verification"],
+      "category": "verification_required",
+      "retry_action": "failover",
+      "account_state": "verification_required",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["verification_required"],
+      "category": "verification_required",
+      "retry_action": "fail",
+      "account_state": "verification_required",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": [
+        "missing_input",
+        "generation_requires_confirmation",
+        "invalid_input",
+        "unsupported_speed",
+        "unsupported_instructions",
+        "unsupported_voice",
+        "unsupported_format"
+      ],
+      "category": "invalid_request",
+      "retry_action": "fail",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["LOGIN_EXPIRED", "HTTP 401"],
+      "category": "login_expired",
+      "retry_action": "failover",
+      "account_state": "login_expired",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["rate_limit_exceeded", "HTTP 429", "生成过于频繁"],
+      "category": "account_rate_limited",
+      "retry_action": "failover",
+      "account_state": "cooldown",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": [
+        "quota_exhausted",
+        "image generations requests",
+        "limit resets in",
+        "usage limit",
+        "insufficient_quota",
+        "limit exceeded"
+      ],
+      "category": "quota_exhausted",
+      "retry_action": "failover",
+      "account_state": "daily_quota_exhausted",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": [
+        "AUTH_INCONCLUSIVE",
+        "generation_timeout",
+        "temporary_unavailable",
+        "timeout",
+        "connection reset",
+        "HTTP 500",
+        "HTTP 502",
+        "HTTP 503",
+        "HTTP 504"
+      ],
+      "category": "transient_network",
+      "retry_action": "same_account_retry",
+      "same_error_threshold": 3,
+      "threshold_cooldown_seconds": 600,
+      "usage_consumed": false
+    }
+  ],
+  "verification": {
+    "trigger_contains_any": [],
+    "ignore_contains_any": [],
+    "captcha_selectors": []
+  },
+  "registration": {
+    "enabled": false
+  },
+  "version": "2.0.0",
+  "platform_id": "doubao-api",
+  "display_name": "豆包",
+  "sort_order": 50,
+  "login_url": "https://www.doubao.com/chat/",
+  "workspace_url": "https://www.doubao.com/chat/",
+  "capabilities": {
+    "actions": [
+      "browser.run_script",
+      "file.read_json",
+      "file.write_json",
+      "http.request",
+      "http.sse_request",
+      "time.sleep",
+      "http.download",
+      "file.write_base64",
+      "file.read_base64",
+      "file.inspect_image",
+      "file.inspect_media",
+      "crypto.base64_encode_latin1",
+      "crypto.base64_decode_latin1",
+      "crypto.base64_encode_utf8",
+      "crypto.digest_bytes",
+      "crypto.hmac_sha256"
+    ],
+    "network_hosts": [
+      "doubao.com",
+      "vodupload.com",
+      "byteimg.com",
+      "doubaopic.com",
+      "douyinvod.com",
+      "bytevcloud.com",
+      "ibytedtos.com",
+      "snssdk.com",
+      "bytedancevod.com",
+      "mssdk.bytedance.com"
+    ],
+    "context_fields": [
+      "profile_dir",
+      "workspace_dir",
+      "request",
+      "model_id",
+      "model_capabilities",
+      "reasoning_effort",
+      "prompt",
+      "platform_config",
+      "image_aspect_ratio",
+      "video_aspect_ratio",
+      "generation_options",
+      "ref_image_dataurls",
+      "ref_image_locals",
+      "ref_video_locals",
+      "ref_audio_locals",
+      "video_duration",
+      "max_images",
+      "seconds",
+      "duration"
+    ]
+  },
+  "models": [
+    {
+      "model_id": "doubao-text",
+      "display_name": "豆包 文本",
+      "task_kind": "text",
+      "aliases": [],
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["none", "standard"],
+          "default_effort": "standard"
+        },
+        "tool_calling": true,
+        "input_types": ["text", "image", "audio", "file"],
+        "file_extensions": [
+          "pdf",
+          "txt",
+          "md",
+          "csv",
+          "json",
+          "doc",
+          "docx",
+          "xls",
+          "xlsx",
+          "ppt",
+          "pptx",
+          "py",
+          "js",
+          "jsx",
+          "ts",
+          "tsx",
+          "go",
+          "rs",
+          "java",
+          "c",
+          "cpp",
+          "h",
+          "cs",
+          "php",
+          "rb",
+          "sh",
+          "sql",
+          "html",
+          "css",
+          "xml",
+          "yaml",
+          "yml",
+          "toml",
+          "log"
+        ],
+        "input_modalities": ["text", "image", "audio", "file"],
+        "output_modalities": ["text"],
+        "streaming": true
+      }
+    },
+    {
+      "model_id": "doubao-seedream-5-pro",
+      "display_name": "Seedream 5.0 Pro",
+      "task_kind": "image",
+      "aliases": [],
+      "capabilities": {
+        "input_types": ["text", "image"],
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "streaming": false
+      }
+    },
+    {
+      "model_id": "doubao-seedream-5-flash",
+      "display_name": "Seedream 5.0 Flash",
+      "task_kind": "image",
+      "aliases": [],
+      "capabilities": {
+        "input_types": ["text", "image"],
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "streaming": false
+      }
+    },
+    {
+      "model_id": "doubao-seedream-4-5",
+      "display_name": "Seedream 4.5",
+      "task_kind": "image",
+      "aliases": [],
+      "capabilities": {
+        "input_types": ["text", "image"],
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "streaming": false
+      }
+    },
+    {
+      "model_id": "doubao-seedream-4-0",
+      "display_name": "Seedream 4.0",
+      "task_kind": "image",
+      "aliases": [],
+      "capabilities": {
+        "input_types": ["text", "image"],
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "streaming": false
+      }
+    },
+    {
+      "model_id": "doubao-seedance-2-5",
+      "display_name": "Seedance 2.5",
+      "task_kind": "video",
+      "aliases": [],
+      "capabilities": {
+        "input_types": ["text", "image"],
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["video"],
+        "streaming": false
+      }
+    },
+    {
+      "model_id": "doubao-seedance-2",
+      "display_name": "Seedance 2.0",
+      "task_kind": "video",
+      "aliases": [],
+      "capabilities": {
+        "input_types": ["text", "image"],
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["video"],
+        "streaming": false
+      }
+    },
+    {
+      "model_id": "doubao-seedance-2-fast",
+      "display_name": "Seedance 2.0 Fast",
+      "task_kind": "video",
+      "aliases": [],
+      "capabilities": {
+        "input_types": ["text", "image", "video"],
+        "input_modalities": ["text", "image", "video"],
+        "output_modalities": ["video"],
+        "streaming": false
+      }
+    },
+    {
+      "model_id": "doubao-seedance-2-mini",
+      "display_name": "Seedance 2.0 Mini",
+      "task_kind": "video",
+      "aliases": [],
+      "capabilities": {
+        "input_types": ["text", "image"],
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["video"],
+        "streaming": false
+      }
+    }
+  ],
+  "tiers": {
+    "free": {
+      "display_name": "默认用户",
+      "is_default": true,
+      "concurrency_limit": 1,
+      "daily_limit": 0,
+      "total_limit": 0,
+      "text_concurrency_limit": 1,
+      "text_daily_limit": 0,
+      "text_total_limit": 0,
+      "cooldown_seconds": 30,
+      "task_interval_seconds": 3
+    }
+  },
+  "login_detection": {
+    "method": "js_script",
+    "script_files": ["config.js", "check_login.js"],
+    "context_file": "verification.json",
+    "await_promise": true
+  },
+  "login_credential_capture": {
+    "script_files": ["@shared/api_login_fingerprint.js", "config.js", "capture_auth.js"],
+    "await_promise": true,
+    "file_name": "auth.json",
+    "cookie_urls": ["https://www.doubao.com/chat/", "https://accounts.doubao.com/"]
+  },
+  "flows": {
+    "generate_text": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "auth.js",
+            "signing_transport.js",
+            "signing_environment.js",
+            "signing.js",
+            "lifecycle.js",
+            "conversation.js",
+            "history.js",
+            "upload.js",
+            "generate_text.js"
+          ],
+          "timeout_ms": 14400000,
+          "save_as": "result"
+        }
+      ]
+    },
+    "generate_image": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "auth.js",
+            "signing_transport.js",
+            "signing_environment.js",
+            "signing.js",
+            "lifecycle.js",
+            "conversation.js",
+            "history.js",
+            "upload.js",
+            "media_options.js",
+            "generate_image.js"
+          ],
+          "timeout_ms": 14400000,
+          "save_as": "result"
+        }
+      ]
+    },
+    "generate_video": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "auth.js",
+            "signing_transport.js",
+            "signing_environment.js",
+            "signing.js",
+            "lifecycle.js",
+            "conversation.js",
+            "history.js",
+            "upload.js",
+            "media_options.js",
+            "video_upload.js",
+            "generate_video.js"
+          ],
+          "timeout_ms": 14400000,
+          "save_as": "result"
+        }
+      ]
+    },
+    "check_account": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "auth.js",
+            "signing_transport.js",
+            "signing_environment.js",
+            "signing.js",
+            "check_account.js"
+          ],
+          "timeout_ms": 120000,
+          "save_as": "health"
+        }
+      ]
+    }
+  },
+  "watermark": {
+    "has_watermark": false,
+    "removal_strategy": "none"
+  },
+  "image_capabilities": {
+    "supports_generation": true,
+    "supports_edit": true,
+    "supports_mask": false,
+    "max_reference_images": 10,
+    "supported_output_formats": ["png", "jpeg", "webp"]
+  },
+  "video_capabilities": {
+    "supports_generation": true,
+    "supports_image_reference": true,
+    "max_reference_images": 10,
+    "default_duration_seconds": 10,
+    "supported_seconds": [
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13",
+      "14",
+      "15",
+      "16",
+      "17",
+      "18",
+      "19",
+      "20",
+      "21",
+      "22",
+      "23",
+      "24",
+      "25",
+      "26",
+      "27",
+      "28",
+      "29",
+      "30"
+    ],
+    "default_size": "1280x720",
+    "supported_aspect_ratios": ["auto", "3:4", "4:3", "9:16", "16:9", "1:1", "21:9"],
+    "max_duration_seconds": 30,
+    "output_format": "mp4",
+    "supports_video_reference": true,
+    "max_reference_videos": 1,
+    "min_duration_seconds": 4
+  },
+  "task_recovery": {
+    "media_types": ["text", "image", "video"],
+    "checkpoint_field": "conversation_id"
+  },
+  "protected_json_files": ["auth.json", "verification.json"]
+}

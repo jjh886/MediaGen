@@ -117,16 +117,8 @@ function chatgptApiInstallVmDataOperations(vm) {
   operations[6] = (target, objectKey, propertyKey) =>
     vm.setValue(target, memory[objectKey]?.[memory[propertyKey]])
   operations[7] = (callableKey, ...keys) => {
-    if (typeof memory[callableKey] !== 'function') {
-      throw new Error(
-        'Sentinel VM CALL 目标不是函数: ' +
-          callableKey +
-          '，类型 ' +
-          typeof memory[callableKey] +
-          '，最近指令 ' +
-          vm.recentOpcodes.join(',')
-      )
-    }
+    // 浏览器对象会随版本增加探针；生产版解释器对不存在的方法按 undefined 调用处理。
+    if (typeof memory[callableKey] !== 'function') return undefined
     return memory[callableKey](...keys.map((key) => memory[key]))
   }
   operations[8] = (target, source) => vm.setValue(target, memory[source])
@@ -177,17 +169,8 @@ function chatgptApiInstallVmControlOperations(vm) {
   operations[24] = (target, objectKey, propertyKey) => {
     const object = memory[objectKey]
     const property = memory[propertyKey]
-    if (!object || typeof object[property] !== 'function') {
-      throw new Error(
-        'Sentinel VM BIND 目标不存在: ' +
-          objectKey +
-          '.' +
-          String(property) +
-          '，最近指令 ' +
-          vm.recentOpcodes.join(',')
-      )
-    }
-    vm.setValue(target, object[property].bind(object))
+    const method = object?.[property]
+    vm.setValue(target, typeof method === 'function' ? method.bind(object) : undefined)
   }
 }
 
