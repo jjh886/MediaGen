@@ -22,6 +22,11 @@ mediagen-browser-gateway = { path = "../../crates/mediagen-browser-gateway" }
 mediagen-core = { path = "../../crates/mediagen-core" }
 mediagen-plugin-runtime = { path = "../../crates/mediagen-plugin-runtime" }
 md-5 = { workspace = true }
+hmac = "0.12"
+crc32fast = "1"
+wasmi = "0.46"
+tempfile = "3"
+tracing = "0.1"
 qrcode = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
