@@ -151,6 +151,7 @@ function chatgptApiProcessReference(auth, fileId, reference) {
 }
 
 function chatgptApiUploadTextAttachments(ctx, auth, input) {
+  chatgptApiTranscribeAttachments(auth, input)
   const attachments = input.flatMap((item) => item.attachments || [])
   if (!attachments.length) return []
   if (typeof ctx.workspace_dir !== 'string' || !ctx.workspace_dir) {
@@ -170,6 +171,43 @@ function chatgptApiUploadTextAttachments(ctx, auth, input) {
       use_case: image ? 'multimodal' : 'ace_upload',
     })
   })
+}
+
+function chatgptApiTranscribeAttachments(auth, input) {
+  for (const item of input) {
+    const retained = []
+    for (const attachment of item.attachments || []) {
+      if (!attachment.mime_type.startsWith('audio/')) {
+        retained.push(attachment)
+        continue
+      }
+      // 普通文件上传不会把音频交给听觉模型；复用平台已有的语音转写入口。
+      const response = chatgptApiRequireOk(
+        chatgptApiRequest(auth, 'POST', '/backend-api/transcribe', {
+          body_format: 'multipart',
+          body: {
+            file: {
+              base64: attachment.base64,
+              filename: attachment.name,
+              mime_type: attachment.mime_type,
+            },
+          },
+          timeout_ms: 300000,
+        }),
+        '转写 ChatGPT 音频附件'
+      )
+      const text = typeof response.body === 'string' ? response.body : response.body?.text
+      if (typeof text !== 'string' || !text.trim())
+        throw new Error('invalid_response: ChatGPT 音频附件未返回有效转写')
+      item.text =
+        (item.text || '') +
+        '\n\n音频附件 ' +
+        attachment.name +
+        ' 的语音转写（仅含识别的语音，不代表已分析音色、音乐或其他声音）：\n' +
+        text
+    }
+    item.attachments = retained
+  }
 }
 
 function chatgptApiVerifyReference(auth, fileId) {

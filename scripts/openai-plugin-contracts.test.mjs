@@ -42,6 +42,45 @@ test('Codex 仅在实际 HTTP 成功时认为认证成功', () => {
   assert.equal(ctx.codexHttpSucceeded({ success: true, data: { ok: true, status: 200 } }), true)
 })
 
+test('Codex 文本附件保留文件身份及 Unicode 内容，二进制文档不改写', () => {
+  const ctx = context('codex', ['text_responses.js'], {
+    call(action, params) {
+      assert.equal(action, 'crypto.base64_decode_latin1')
+      return { value: Buffer.from(params.text, 'base64').toString('latin1') }
+    },
+  })
+  const text = '中文文件：427\nconsole.log("你好")'
+  const encoded = Buffer.from(text).toString('base64')
+  for (const filename of ['说明.txt', '示例.ts', 'data.json']) {
+    const source = { type: 'input_file', filename, file_data: encoded }
+    const converted = ctx.codexNormalizeTextFile(source)
+    assert.equal(converted.type, 'input_text')
+    assert.deepEqual(JSON.parse(converted.text.split('\n').slice(1).join('\n')), { filename, text })
+    assert.equal(source.type, 'input_file')
+  }
+  const pdf = {
+    type: 'input_file',
+    filename: 'a.pdf',
+    file_data: 'data:application/pdf;base64,YWJj',
+  }
+  assert.equal(ctx.codexNormalizeTextFile(pdf), pdf)
+  assert.throws(
+    () => ctx.codexNormalizeTextFile({ type: 'input_file', filename: 'a.txt', file_data: '/w==' }),
+    /有效 UTF-8/
+  )
+  const result = ctx.codexNormalizeResponsesInput([
+    {
+      role: 'user',
+      content: [
+        { type: 'input_text', text: '读取附件' },
+        { type: 'input_file', filename: 'a.txt', file_data: 'data:text/plain;base64,' + encoded },
+      ],
+    },
+  ])
+  assert.equal(result[0].content[0].text, '读取附件')
+  assert.equal(result[0].content[1].type, 'input_text')
+})
+
 test('Codex 输出工具参数、增量与 incomplete 终态不丢失', () => {
   const events = [
     { type: 'response.output_text.delta', delta: '你好' },

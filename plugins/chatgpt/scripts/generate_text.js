@@ -9,6 +9,13 @@ function main(ctx) {
     saved.phase !== 'submitting' &&
     request.input.some((item) => item.attachments?.length)
   ) {
+    if (
+      Array.isArray(saved.attachments) &&
+      request.input.some((item) =>
+        item.attachments?.some((attachment) => attachment.mime_type.startsWith('audio/'))
+      )
+    )
+      chatgptApiTranscribeAttachments(auth, request.input)
     request.attachments = Array.isArray(saved.attachments)
       ? saved.attachments
       : chatgptApiUploadTextAttachments(ctx, auth, request.input)

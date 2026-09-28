@@ -147,6 +147,19 @@ function doubaoConfirmMediaIfRequested(session, conversationId, kind, messages) 
 }
 
 function doubaoVideoDownload(session, vid) {
+  // 生成完成与创作目录可下载存在延迟，只重查原视频，不能重新提交生成。
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return doubaoVideoDownloadOnce(session, vid)
+    } catch (error) {
+      if (!String(error?.message || error).startsWith('download_pending:') || attempt >= 11)
+        throw error
+      host.call('time.sleep', { milliseconds: Math.min(2000 * (attempt + 1), 10000) })
+    }
+  }
+}
+
+function doubaoVideoDownloadOnce(session, vid) {
   const home = doubaoRequest(session, '/samantha/aispace/homepage', {})
   const folder = home.children?.find((node) => node.name === '我的创作')
   if (!folder?.id) throw new Error('download_pending: 豆包创作目录尚未就绪')

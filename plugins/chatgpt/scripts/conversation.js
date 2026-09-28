@@ -3,7 +3,14 @@ function chatgptApiCheckpoint(value) {
   return host.checkpoint(value) || {}
 }
 
-function chatgptApiGenerateConversation(auth, prompt, aspectRatio, references, generationConfig) {
+function chatgptApiGenerateConversation(
+  auth,
+  prompt,
+  aspectRatio,
+  references,
+  generationConfig,
+  initialized
+) {
   const saved = chatgptApiCheckpoint()
   if (saved.conversation_id) {
     let resumedImage
@@ -34,7 +41,7 @@ function chatgptApiGenerateConversation(auth, prompt, aspectRatio, references, g
   if (saved.phase === 'submitting') {
     throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原会话提交状态待核对')
   }
-  const init = chatgptApiInitializeConversation(auth)
+  const init = initialized || chatgptApiInitializeConversation(auth)
   chatgptApiAssertImageAvailable(init)
   const options = chatgptApiConversationOptions(init, generationConfig)
   const prepared = chatgptApiPrepareConversation(auth, prompt, references, options)
@@ -90,7 +97,7 @@ function chatgptApiImageModelSlug(value) {
 function chatgptApiPrepareConversation(auth, prompt, references, options) {
   const turnTraceId = apiTextUuid()
   let uploaded = Array.isArray(references) ? references : []
-  const needsUpload = uploaded.some((reference) => reference?.base64)
+  const needsUpload = uploaded.some((reference) => reference?.path && !reference.file_id)
   let conduit = chatgptApiPrepareConduit(
     auth,
     options.model,
@@ -101,7 +108,10 @@ function chatgptApiPrepareConversation(auth, prompt, references, options) {
     prompt
   )
   if (needsUpload) {
-    uploaded = chatgptApiUploadReferences(auth, uploaded)
+    const pending = uploaded.filter((reference) => !reference.file_id)
+    const completed = chatgptApiUploadReferences(auth, pending)
+    let index = 0
+    uploaded = uploaded.map((reference) => (reference.file_id ? reference : completed[index++]))
     // 文件处理完成后，网页会立即用 context_change 重新准备一次会话。
     conduit = chatgptApiPrepareConduit(
       auth,

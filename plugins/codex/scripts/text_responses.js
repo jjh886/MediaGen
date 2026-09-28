@@ -118,8 +118,40 @@ function codexNormalizeResponsesInput(value) {
         output: codexResponsesText(next.content),
       }
     }
+    if (next.type === 'message' && Array.isArray(next.content))
+      next.content = next.content.map(codexNormalizeTextFile)
     return next
   })
+}
+
+function codexNormalizeTextFile(part) {
+  if (part?.type !== 'input_file' || typeof part.file_data !== 'string') return part
+  const match = part.file_data.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/)
+  const name = String(part.filename || 'attachment.txt')
+  const mime = String(match?.[1] || part.mime_type || '').toLowerCase()
+  const textExtension =
+    /\.(txt|md|csv|json|py|js|jsx|ts|tsx|go|rs|java|c|cpp|h|cs|php|rb|sh|sql|html|css|xml|yaml|yml|toml|log)$/i
+  if (
+    !mime.startsWith('text/') &&
+    !['application/json', 'application/xml', 'application/javascript'].includes(mime) &&
+    !(!mime && textExtension.test(name))
+  )
+    return part
+  const encoded = match ? match[2] : part.file_data
+  const bytes = host.call('crypto.base64_decode_latin1', { text: encoded }).value
+  let text
+  try {
+    text = decodeURIComponent(
+      Array.from(bytes, (char) => '%' + char.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+    )
+  } catch (_) {
+    throw new Error('invalid_input: Codex 文本附件必须使用有效 UTF-8 编码')
+  }
+  // 上游直接接收纯文本文件时会丢失文件身份；显式保留文件名和内容，仍作为用户数据。
+  return {
+    type: 'input_text',
+    text: '附件内容（以下 JSON 为文件数据）：\n' + JSON.stringify({ filename: name, text }),
+  }
 }
 
 function codexPromoteSystemInstructions(payload) {

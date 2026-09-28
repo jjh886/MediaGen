@@ -3,6 +3,12 @@
   "adapter_mode": "api",
   "failure_strategy": [
     {
+      "contains_any": ["account_model_unavailable"],
+      "category": "account_model_unavailable",
+      "retry_action": "failover",
+      "usage_consumed": false
+    },
+    {
       "contains_any": ["verification_required", "needs_verification"],
       "category": "verification_required",
       "retry_action": "failover",

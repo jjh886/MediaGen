@@ -4,7 +4,8 @@ function main(ctx) {
 
   const auth = chatgptApiRefreshSession(chatgptApiReadAuth(ctx))
   const bootstrap = chatgptApiBootstrap(auth)
-  const generationConfig = chatgptApiGenerationConfig(ctx, bootstrap)
+  const init = chatgptApiInitializeConversation(auth)
+  const generationConfig = chatgptApiGenerationConfig(ctx, bootstrap, init)
   const count = Math.max(1, Math.min(4, Math.floor(Number(ctx.max_images || 1))))
   const aspectRatio = chatgptApiAspectRatio(ctx.image_aspect_ratio)
   let references = chatgptApiReadReferenceFiles(ctx)
@@ -26,7 +27,8 @@ function main(ctx) {
       currentPrompt,
       aspectRatio,
       references,
-      generationConfig
+      generationConfig,
+      init
     )
     references = turn.references
     const result = turn.result
@@ -58,18 +60,22 @@ function main(ctx) {
   }
 }
 
-function chatgptApiGenerationConfig(ctx, bootstrap) {
+function chatgptApiGenerationConfig(ctx, bootstrap, init) {
   const legacy = ['ChatGPT', 'chatgpt', 'ChatGPT API', 'chatgpt-api'].includes(ctx.model_id)
   const selected = String(
     legacy
       ? ctx.platform_config?.model || 'chatgpt-image-auto'
       : ctx.model_id || 'chatgpt-image-auto'
   ).trim()
-  const model = selected.startsWith('chatgpt-image-')
+  let model = selected.startsWith('chatgpt-image-')
     ? selected.slice('chatgpt-image-'.length)
     : ['ChatGPT API', 'chatgpt-api'].includes(selected)
       ? 'auto'
       : selected
+  if (model === 'auto') {
+    model = String(init?.default_model_slug || '').trim()
+    if (!model) throw new Error('invalid_response: ChatGPT 未返回默认模型')
+  }
   const selection = chatgptApiModelSelection(
     model,
     ctx.reasoning_effort ?? (legacy ? ctx.platform_config?.thinking_effort : undefined),

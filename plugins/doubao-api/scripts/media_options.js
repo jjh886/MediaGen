@@ -34,7 +34,7 @@ function doubaoMediaOptions(ctx, session, kind, saved) {
   )
   const model = selected.value
   const modelOption = modelSelector?.option_list?.find((item) => item.option_key === model)
-  if (!modelOption) throw new Error('temporary_unavailable: 当前账号没有所选豆包模型')
+  if (!modelOption) throw new Error('account_model_unavailable: 当前账号没有所选豆包模型')
   const configuration = selectors
     .flatMap((item) => Object.values(item.configs || {}))
     .find((item) => item.id === model)

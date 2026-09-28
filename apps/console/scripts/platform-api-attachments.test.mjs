@@ -3,6 +3,140 @@ import { scripts } from './platform-api-test-helper.mjs'
 
 const shared = ['_shared/api_text_attachments.js', '_shared/api_text_responses.js']
 
+describe('ChatGPT 音频翻译', () => {
+  it('转写后使用已加载的共享文本标准化入口，再调用翻译', () => {
+    const run = scripts([...shared, 'chatgpt/scripts/translate_audio.js'], {
+      checkpoint: () => ({}),
+    })
+    run(`chatgptApiTranscribe=()=>({text:'数字是四二七'});
+      chatgptApiReadAuth=()=>({});chatgptApiRefreshSession=auth=>auth;
+      chatgptApiGenerateTextConversation=(_auth,request)=>{
+        received=request;return {output_text:'The number is four two seven.'}
+      }`)
+    expect(run('main({request:{}}).text')).toBe('The number is four two seven.')
+    expect(run('received.input[0].text')).toBe('数字是四二七')
+    expect(run('received.instructions')).toContain('Translate')
+    run(`chatgptApiTranscribe=()=>({text:' '});
+      chatgptApiGenerateTextConversation=()=>{throw Error('空转写不应调用翻译')}`)
+    expect(run('main({request:{}}).text')).toBe('')
+    expect(() => run(`main({request:{language:'zh'}})`)).toThrow('不接受 language')
+  })
+})
+
+describe('ChatGPT 图片默认模型与参考图', () => {
+  it('自动入口采用上游默认模型，显式选错模型仍报错', () => {
+    const run = scripts(['chatgpt/scripts/conversation.js', 'chatgpt/scripts/generate_image.js'])
+    run(`bootstrap={'/backend-api/models':{models:[{slug:'gpt-6-pro'}]}};
+      init={default_model_slug:'gpt-6-pro'}`)
+    expect(run(`chatgptApiGenerationConfig({model_id:'ChatGPT'},bootstrap,init).model`)).toBe(
+      'gpt-6-pro'
+    )
+    expect(() => run(`chatgptApiGenerationConfig({model_id:'ChatGPT'},bootstrap,{})`)).toThrow(
+      '未返回默认模型'
+    )
+    expect(() =>
+      run(`chatgptApiGenerationConfig({model_id:'chatgpt-image-missing'},bootstrap,init)`)
+    ).toThrow('不支持所选模型')
+  })
+
+  it('本地路径参考图先上传，已上传文件复用，并保留混合顺序', () => {
+    const run = scripts(['chatgpt/scripts/conversation.js'])
+    const uploads = []
+    const prepares = []
+    run(
+      `apiTextUuid=()=> 'trace';chatgptApiUploadReferences=upload;
+      chatgptApiPrepareConduit=prepare`,
+      {
+        upload: (_auth, references) => {
+          uploads.push(references)
+          return references.map((reference) => ({ file_id: 'new-file', name: reference.name }))
+        },
+        prepare: (_auth, _model, _trace, references, source) => {
+          prepares.push({ references, source })
+          return 'conduit'
+        },
+      }
+    )
+    const prepared = run(`chatgptApiPrepareConversation({},'编辑',[
+      {file_id:'existing-file',name:'old.png'},{path:'/local/new.png',name:'new.png'}
+    ],{model:'gpt-6-pro'})`)
+    expect(uploads).toHaveLength(1)
+    expect(uploads[0]).toEqual([{ path: '/local/new.png', name: 'new.png' }])
+    expect(prepared.references.map((reference) => reference.file_id)).toEqual([
+      'existing-file',
+      'new-file',
+    ])
+    expect(prepares.map((prepare) => prepare.source)).toEqual(['file_picker', 'context_change'])
+    run('chatgptApiPrepareConversation({},"编辑",references,{model:"gpt-6-pro"})', {
+      references: prepared.references,
+    })
+    expect(uploads).toHaveLength(1)
+    expect(prepares.at(-1).source).toBe('composer_editor_state')
+  })
+})
+
+describe('ChatGPT 聊天音频转写', () => {
+  it('提交前重试复用已上传文件时，不能丢失音频转写', () => {
+    const run = scripts(
+      ['chatgpt/scripts/reference_upload.js', 'chatgpt/scripts/generate_text.js'],
+      { checkpoint: () => ({ phase: 'ready', attachments: [] }) }
+    )
+    run(`apiTextNormalizeTextRequest=request=>request;
+      chatgptApiCheckpoint=()=>({phase:'ready',attachments:[]});
+      chatgptApiReadAuth=()=>({});chatgptApiRefreshSession=auth=>auth;
+      chatgptApiTextReasoning=()=>{};chatgptApiRequireOk=result=>result;
+      chatgptApiRequest=()=>({body:{text:'427'}});
+      chatgptApiGenerateTextConversation=(_auth,request)=>({text:request.input[0].text});
+      chatgptApiUploadTextAttachments=()=>{throw new Error('不应重复上传文件')}`)
+    expect(
+      run(`main({request:{input:[{text:'读取录音',attachments:[{
+        name:'a.wav',mime_type:'audio/wav',base64:'YWJj'
+      }]}]}}).response.text`)
+    ).toContain('427')
+  })
+
+  it('使用真实音频字节转写，不再把音频作为普通文件上传', () => {
+    const requests = []
+    const run = scripts(['chatgpt/scripts/reference_upload.js'])
+    run('chatgptApiRequireOk=result=>result; chatgptApiRequest=request', {
+      request: (_auth, method, path, options) => {
+        requests.push({ method, path, ...options })
+        return { ok: true, body: { text: '识别到的数字为427' } }
+      },
+    })
+    run(`input=[{text:'读取数字',attachments:[{
+      name:'录音.wav',mime_type:'audio/wav',base64:'YWJj',size:3
+    }]}]`)
+    expect(run('chatgptApiUploadTextAttachments({}, {}, input)')).toEqual([])
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({
+      method: 'POST',
+      path: '/backend-api/transcribe',
+      body_format: 'multipart',
+      body: { file: { filename: '录音.wav', mime_type: 'audio/wav', base64: 'YWJj' } },
+    })
+    expect(run('input[0].text')).toContain('读取数字')
+    expect(run('input[0].text')).toContain('识别到的数字为427')
+    expect(run('input[0].text')).toContain('不代表已分析音色')
+  })
+
+  it('保留同一消息中的图片、文档，空转写和上游失败不得静默丢弃音频', () => {
+    const run = scripts(['chatgpt/scripts/reference_upload.js'])
+    run(`chatgptApiRequireOk=result=>result;
+      chatgptApiRequest=()=>({body:'427'});
+      input=[{attachments:[{name:'a.mp3',mime_type:'audio/mpeg'},
+      {name:'a.pdf',mime_type:'application/pdf'},{name:'a.png',mime_type:'image/png'}]}];
+      chatgptApiTranscribeAttachments({},input)`)
+    expect(run('input[0].attachments.map(item=>item.name)')).toEqual(['a.pdf', 'a.png'])
+    run(`input=[{attachments:[{name:'b.mp3',mime_type:'audio/mpeg'}]}];
+      chatgptApiRequest=()=>({body:{text:''}})`)
+    expect(() => run('chatgptApiTranscribeAttachments({},input)')).toThrow('未返回有效转写')
+    expect(run('input[0].attachments')).toHaveLength(1)
+    run(`chatgptApiRequest=()=>{throw new Error('LOGIN_EXPIRED')}`)
+    expect(() => run('chatgptApiTranscribeAttachments({},input)')).toThrow('LOGIN_EXPIRED')
+  })
+})
+
 describe('API 插件共同附件协议', () => {
   it('自定义后缀保留文件名，使用宿主提供的 MIME 类型', () => {
     const run = scripts(shared)

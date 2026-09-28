@@ -84,7 +84,13 @@ const input = fields([
     '文件 Base64 / Data URL；模型须支持文件输入。',
   ],
   ['input[].content[].filename', 'string', '内联文件时建议', '未设置', '文件名及扩展名。'],
-  ['input[].content[].input_audio.data', 'string', '音频块必填', '—', '音频原始字节的 Base64。'],
+  [
+    'input[].content[].input_audio.data',
+    'string',
+    '音频块必填',
+    '—',
+    '音频原始字节的 Base64；ChatGPT 聊天先转写语音再回答，不提供音色或音乐分析。',
+  ],
   ['input[].content[].input_audio.format', 'string', '音频块必填', '—', 'wav 或 mp3。'],
   [
     'input[].type',
@@ -210,7 +216,7 @@ export const chatRequest = [
       'string',
       '音频块必填',
       '—',
-      '音频原始字节的 Base64。',
+      '音频原始字节的 Base64；ChatGPT 聊天先转写语音再回答，不提供音色或音乐分析。',
     ],
     ['messages[].content[].input_audio.format', 'string', '音频块必填', '—', 'wav 或 mp3。'],
     [

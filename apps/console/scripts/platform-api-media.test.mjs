@@ -1,5 +1,60 @@
 import { describe, expect, it } from 'vitest'
+import doubaoManifest from '../../../plugins/doubao-api/manifest.json'
 import { scripts } from './platform-api-test-helper.mjs'
+
+describe('豆包已生成视频的下载等待', () => {
+  it('等待创作目录和下载地址就绪，始终读取原视频', () => {
+    const waits = []
+    const requests = []
+    let round = 0
+    const run = scripts(['doubao-api/scripts/history.js'], {
+      call: (action, params) => {
+        expect(action).toBe('time.sleep')
+        waits.push(params.milliseconds)
+      },
+    })
+    run('doubaoRequest=request', {
+      request: (_session, path, body) => {
+        requests.push({ path, body })
+        if (path.endsWith('/homepage')) {
+          round++
+          return { children: round === 1 ? [] : [{ name: '我的创作', id: 'folder' }] }
+        }
+        if (path.endsWith('/node_info'))
+          return { children: round === 2 ? [] : [{ key: 'original', id: 'video-node' }] }
+        if (path.endsWith('/get_download_info'))
+          return {
+            download_infos: round === 3 ? [] : [{ main_url: 'https://media.example/v.mp4' }],
+          }
+        throw new Error('不能重新提交生成')
+      },
+    })
+    expect(run("doubaoVideoDownload({}, 'original')")).toBe('https://media.example/v.mp4')
+    expect(waits).toEqual([2000, 4000, 6000])
+    expect(requests.filter(({ path }) => path.endsWith('/get_download_info'))).toHaveLength(2)
+  })
+
+  it('持续未就绪时有上限地退出，不把失败当成功', () => {
+    const waits = []
+    const run = scripts(['doubao-api/scripts/history.js'], {
+      call: (_action, params) => waits.push(params.milliseconds),
+    })
+    run('doubaoRequest=()=>({children:[]})')
+    expect(() => run("doubaoVideoDownload({}, 'original')")).toThrow('download_pending:')
+    expect(waits).toHaveLength(11)
+    expect(Math.max(...waits)).toBe(10000)
+  })
+
+  it('人工验证等非下载延迟错误立即返回', () => {
+    const run = scripts(['doubao-api/scripts/history.js'], {
+      call: () => {
+        throw new Error('不应等待')
+      },
+    })
+    run("doubaoRequest=()=>{throw new Error('verification_required: 请验证')}")
+    expect(() => run("doubaoVideoDownload({}, 'original')")).toThrow('verification_required:')
+  })
+})
 
 describe('豆包媒体参数', () => {
   const run = scripts(['doubao-api/scripts/media_options.js'])
@@ -84,6 +139,18 @@ describe('豆包媒体参数', () => {
         seconds,
       }).duration
     ).toBe(seconds)
+  })
+  it('账号缺少具体模型时允许换号，不能冷却整个账号或退回其他模型', () => {
+    expect(() =>
+      run(`doubaoMediaOptions({model_id:'doubao-seedance-2-5',seconds:4}, {}, 'video')`)
+    ).toThrow('account_model_unavailable:')
+    const policy = doubaoManifest.failure_strategy.find((rule) =>
+      rule.contains_any.some((text) =>
+        'account_model_unavailable: 当前账号没有所选豆包模型'.includes(text)
+      )
+    )
+    expect(policy).toMatchObject({ retry_action: 'failover', usage_consumed: false })
+    expect(policy.account_state).toBeUndefined()
   })
   it.each([0, 3, 16, 4.5, 'bad'])('拒绝平台不支持的秒数 %s', (seconds) => {
     expect(() =>
