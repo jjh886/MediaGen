@@ -4,41 +4,55 @@ import {
   copyBrowserSelection,
   cutBrowserSelection,
   selectAllBrowserContent,
-  writeBrowserClipboard,
+  type BrowserInputRequest,
 } from '@/shared/services/browser-session-service'
 
 interface BrowserActionOptions {
   sessionId: string
   sinkRef: RefObject<HTMLTextAreaElement | null>
   onStatus: (status: string) => void
+  sendInput: (input: BrowserInputRequest) => void
 }
 
 export function useRemoteBrowserActions(options: BrowserActionOptions) {
   const focus = () => options.sinkRef.current?.focus({ preventScroll: true })
-  const sendText = async (text: string) => {
-    if (text) await writeBrowserClipboard(options.sessionId, text)
-    focus()
+  const runAction = async (name: string, action: () => void | Promise<void>) => {
+    try {
+      await action()
+    } catch {
+      options.onStatus(`${name}未完成，请检查远程页面后重试`)
+    } finally {
+      focus()
+    }
   }
-  const copy = async () => {
-    const text = await copyBrowserSelection(options.sessionId)
-    if (text) await navigator.clipboard.writeText(text).catch(() => undefined)
-    options.onStatus(text ? '已复制远端选中内容' : '没有可复制的内容')
-    focus()
-  }
-  const cut = async () => {
-    const text = await cutBrowserSelection(options.sessionId)
-    if (text) await navigator.clipboard.writeText(text).catch(() => undefined)
-    focus()
-  }
-  const paste = async () => sendText(await navigator.clipboard.readText().catch(() => ''))
-  const selectAll = async () => {
-    await selectAllBrowserContent(options.sessionId)
-    focus()
-  }
-  const history = async (action: 'back' | 'forward' | 'reload') => {
-    await browserSessionHistory(options.sessionId, action)
-    focus()
-  }
+  // 与键盘输入共用有序连接，避免粘贴另开 HTTP 请求经过加速节点。
+  const sendText = (text: string) =>
+    runAction('粘贴', () => {
+      if (text) options.sendInput({ kind: 'ime', event: 'commit', text })
+    })
+  const copy = () =>
+    runAction('复制', async () => {
+      const text = await copyBrowserSelection(options.sessionId)
+      if (text) await navigator.clipboard.writeText(text).catch(() => undefined)
+      options.onStatus(text ? '已复制远端选中内容' : '没有可复制的内容')
+    })
+  const cut = () =>
+    runAction('剪切', async () => {
+      const text = await cutBrowserSelection(options.sessionId)
+      if (text) await navigator.clipboard.writeText(text).catch(() => undefined)
+    })
+  const paste = () =>
+    runAction('粘贴', async () => {
+      await sendText(await navigator.clipboard.readText())
+    })
+  const selectAll = () =>
+    runAction('全选', async () => {
+      await selectAllBrowserContent(options.sessionId)
+    })
+  const history = (action: 'back' | 'forward' | 'reload') =>
+    runAction('页面操作', async () => {
+      await browserSessionHistory(options.sessionId, action)
+    })
 
   // 菜单和快捷键共用同一组动作，确保两种入口行为一致。
   const actionMap: Record<string, () => void> = {

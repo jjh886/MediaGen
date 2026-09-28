@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useRemoteBrowserStream } from '../useRemoteBrowserStream'
+import { HttpApiError } from '@/shared/services/http-api-client'
 
 const mocks = vi.hoisted(() => ({ sendFallback: vi.fn() }))
 
@@ -37,13 +38,20 @@ class FakeWebSocket {
   }
 }
 
-function Harness({ onFrame }: { onFrame: (blob: Blob) => void }) {
+function Harness({
+  onFrame,
+  onError = vi.fn(),
+}: {
+  onFrame: (blob: Blob) => void
+  onError?: (message: string) => void
+}) {
   const [cursor, setCursor] = useState('')
   const send = useRemoteBrowserStream('session-1', {
     onFrame: (blob) => onFrame(blob),
     onSession: vi.fn(),
     onInput: (result) => setCursor(result.cursor),
     onConnection: vi.fn(),
+    onError,
   })
   return (
     <button onClick={() => send({ kind: 'mouse', event: 'move', x: 1, y: 2 })}>
@@ -55,7 +63,53 @@ function Harness({ onFrame }: { onFrame: (blob: Blob) => void }) {
 describe('useRemoteBrowserStream', () => {
   beforeEach(() => {
     FakeWebSocket.instances = []
+    mocks.sendFallback.mockReset()
     vi.stubGlobal('WebSocket', FakeWebSocket)
+  })
+
+  it('reports input errors from the stream without exposing server details', () => {
+    const onError = vi.fn()
+    render(<Harness onFrame={vi.fn()} onError={onError} />)
+    const socket = FakeWebSocket.instances[0]
+    act(() =>
+      socket.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'error', sequence: 1, error: 'private server details' }),
+        })
+      )
+    )
+    expect(onError).toHaveBeenCalledExactlyOnceWith('远程输入未完成，请检查输入框内容后重试')
+  })
+
+  it.each([408, 502])(
+    'reports HTTP %s from fallback input without replaying it',
+    async (status) => {
+      const onError = vi.fn()
+      mocks.sendFallback.mockRejectedValue(new HttpApiError('private server details', status))
+      render(<Harness onFrame={vi.fn()} onError={onError} />)
+      FakeWebSocket.instances[0].readyState = 3
+      fireEvent.click(screen.getByText('发送'))
+
+      await waitFor(() =>
+        expect(onError).toHaveBeenCalledExactlyOnceWith(
+          status === 408
+            ? '远程输入请求超时，请检查输入框内容后重试'
+            : '远程输入未完成，请检查输入框内容后重试'
+        )
+      )
+      expect(mocks.sendFallback).toHaveBeenCalledTimes(1)
+    }
+  )
+
+  it('reports a socket send failure without falling back and duplicating input', () => {
+    const onError = vi.fn()
+    render(<Harness onFrame={vi.fn()} onError={onError} />)
+    vi.spyOn(FakeWebSocket.instances[0], 'send').mockImplementation(() => {
+      throw new Error('socket unavailable')
+    })
+    fireEvent.click(screen.getByText('发送'))
+    expect(onError).toHaveBeenCalledExactlyOnceWith('远程输入未完成，请检查输入框内容后重试')
+    expect(mocks.sendFallback).not.toHaveBeenCalled()
   })
 
   afterEach(() => vi.unstubAllGlobals())

@@ -6,6 +6,7 @@ import {
   type BrowserInputResponse,
   type BrowserSession,
 } from '@/shared/services/browser-session-service'
+import { HttpApiError } from '@/shared/services/http-api-client'
 
 interface FrameMetadata {
   viewport?: BrowserSession['viewport']
@@ -17,6 +18,7 @@ interface StreamCallbacks {
   onSession: (session: BrowserSession) => void
   onInput: (result: BrowserInputResponse) => void
   onConnection: (connected: boolean) => void
+  onError: (message: string) => void
 }
 
 export function useRemoteBrowserStream(
@@ -71,12 +73,22 @@ export function useRemoteBrowserStream(
     const sequence = ++sequenceRef.current
     const socket = socketRef.current
     if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'input', sequence, input }))
+      try {
+        socket.send(JSON.stringify({ type: 'input', sequence, input }))
+      } catch {
+        callbacksRef.current.onError('远程输入未完成，请检查输入框内容后重试')
+      }
       return
     }
     void sendBrowserInput(sessionId, input)
       .then(callbacksRef.current.onInput)
-      .catch(() => undefined)
+      .catch((error: unknown) =>
+        callbacksRef.current.onError(
+          error instanceof HttpApiError && error.status === 408
+            ? '远程输入请求超时，请检查输入框内容后重试'
+            : '远程输入未完成，请检查输入框内容后重试'
+        )
+      )
   }
 }
 
@@ -96,5 +108,7 @@ function handleTextMessage(
     callbacks.onInput(message.data as BrowserInputResponse)
   } else if (message.type === 'event' && message.event === 'status') {
     callbacks.onSession(message.data as BrowserSession)
+  } else if (message.type === 'error') {
+    callbacks.onError('远程输入未完成，请检查输入框内容后重试')
   }
 }

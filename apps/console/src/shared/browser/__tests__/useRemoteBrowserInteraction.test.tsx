@@ -20,7 +20,7 @@ vi.mock('@/shared/services/browser-session-service', () => ({
 }))
 
 function Harness({ sendInput = vi.fn() }: { sendInput?: (value: unknown) => void }) {
-  const [, setStatus] = useState('')
+  const [status, setStatus] = useState('')
   const interaction = useRemoteBrowserInteraction({
     sessionId: 'session-1',
     viewport: { width: 1000, height: 500 },
@@ -31,6 +31,7 @@ function Harness({ sendInput = vi.fn() }: { sendInput?: (value: unknown) => void
     <div>
       <canvas data-testid="canvas" {...interaction.pointerHandlers} />
       <textarea aria-label="input" ref={interaction.sinkRef} {...interaction.keyHandlers} />
+      <span role="status">{status}</span>
       {interaction.menu ? (
         <button onClick={() => interaction.runContextAction('reload')}>菜单</button>
       ) : null}
@@ -61,15 +62,57 @@ describe('useRemoteBrowserInteraction', () => {
   })
 
   it('routes clipboard shortcuts without affecting the management page', async () => {
-    render(<Harness />)
+    const sendInput = vi.fn()
+    render(<Harness sendInput={sendInput} />)
     const input = screen.getByLabelText('input')
     fireEvent.keyDown(input, { key: 'c', ctrlKey: true })
     fireEvent.paste(input, { clipboardData: { getData: () => 'pasted' } })
     fireEvent.keyDown(input, { key: 'a', ctrlKey: true })
 
     await waitFor(() => expect(mocks.copy).toHaveBeenCalledWith('session-1'))
-    expect(mocks.write).toHaveBeenCalledWith('session-1', 'pasted')
+    expect(sendInput).toHaveBeenCalledWith({ kind: 'ime', event: 'commit', text: 'pasted' })
+    expect(mocks.write).not.toHaveBeenCalled()
     expect(mocks.selectAll).toHaveBeenCalledWith('session-1')
+  })
+
+  it('pastes multiline Chinese text once through the keyboard connection', async () => {
+    const sendInput = vi.fn()
+    render(<Harness sendInput={sendInput} />)
+    const input = screen.getByLabelText('input')
+    const text = '中文文本\n第二行'
+    fireEvent.paste(input, { clipboardData: { getData: () => text } })
+
+    await waitFor(() => expect(input).toHaveFocus())
+    expect(sendInput).toHaveBeenCalledExactlyOnceWith({ kind: 'ime', event: 'commit', text })
+    expect(mocks.write).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed paste without exposing text or retrying it', async () => {
+    const sendInput = vi.fn().mockImplementation(() => {
+      throw new Error('private pasted text')
+    })
+    render(<Harness sendInput={sendInput} />)
+    const input = screen.getByLabelText('input')
+    fireEvent.paste(input, { clipboardData: { getData: () => 'private pasted text' } })
+
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('粘贴未完成，请检查远程页面后重试')
+    )
+    expect(screen.queryByText('private pasted text')).not.toBeInTheDocument()
+    expect(sendInput).toHaveBeenCalledTimes(1)
+    expect(input).toHaveFocus()
+  })
+
+  it('handles HTTP failures from clipboard shortcuts without an unhandled rejection', async () => {
+    mocks.copy.mockRejectedValue(new Error('HTTP 408'))
+    render(<Harness />)
+    const input = screen.getByLabelText('input')
+    fireEvent.keyDown(input, { key: 'c', ctrlKey: true })
+
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('复制未完成，请检查远程页面后重试')
+    )
+    expect(input).toHaveFocus()
   })
 
   it('keeps the keyboard sink focused after clicking the remote page', () => {

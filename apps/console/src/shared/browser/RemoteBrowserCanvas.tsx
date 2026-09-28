@@ -68,6 +68,27 @@ export default function RemoteBrowserCanvas(props: RemoteBrowserCanvasProps) {
           {props.statusText || '等待浏览器画面'}
         </div>
       ) : null}
+      {props.hasFrame && props.statusText ? (
+        <div
+          role="status"
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            left: 8,
+            right: 8,
+            width: 'fit-content',
+            maxWidth: 'calc(100% - 16px)',
+            padding: '4px 8px',
+            borderRadius: 4,
+            background: 'rgba(255,255,255,0.92)',
+            color: '#30343b',
+            fontSize: 12,
+            pointerEvents: 'none',
+          }}
+        >
+          {props.statusText}
+        </div>
+      ) : null}
       {props.menu ? (
         <RemoteBrowserContextMenu
           position={props.menu}

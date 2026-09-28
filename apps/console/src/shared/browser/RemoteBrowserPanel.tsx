@@ -77,6 +77,7 @@ export default function RemoteBrowserPanel({ session, mode = 'debug' }: RemoteBr
     onFrame: (blob, metadata) => void drawFrame(blob, metadata),
     onSession: updateFromSession,
     onInput: (result) => pointerUpdateRef.current(result),
+    onError: setStatusText,
     onConnection: (connected) =>
       setStatusText(connected ? '远程浏览器已连接' : '连接中断，正在等待重连'),
   })
