@@ -62,7 +62,8 @@ export async function startAccountLoginSession(
   proxyUrl?: string,
   proxyId?: string,
   browserProfile?: BrowserProfilePayload,
-  proxyMode?: 'direct'
+  proxyMode?: 'direct',
+  reuseBrowserProfileAccountId?: string
 ): Promise<BrowserSession> {
   const plugin = await resolvePluginLoginInfo(platform)
   const account = accountId ? await fetchAccount(accountId) : null
@@ -98,6 +99,7 @@ export async function startAccountLoginSession(
     start_url: plugin.login_url || plugin.workspace_url || 'https://example.com',
     // 重新登录沿用账号目录，保留 Cookie、本地存储和已有浏览器资料。
     profile_dir: account?.profile_dir || null,
+    reuse_browser_profile_account_id: reuseBrowserProfileAccountId || null,
     proxy_id: resolvedProxyId || null,
     metadata,
     width: 1365,

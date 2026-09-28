@@ -151,6 +151,10 @@ pub struct BrowserSessionCreateRequest {
     #[serde(default)]
     pub profile_dir: Option<String>,
     #[serde(default)]
+    pub browser_profile_dir: Option<String>,
+    #[serde(default)]
+    pub reuse_browser_profile_account_id: Option<String>,
+    #[serde(default)]
     pub headless: Option<bool>,
     #[serde(default)]
     pub width: Option<u32>,
@@ -225,6 +229,7 @@ pub struct BrowserSession {
     pub browser_name: String,
     pub runtime_id: String,
     pub profile_dir: String,
+    pub browser_profile_dir: String,
     pub viewport: BrowserViewport,
     pub device_scale_factor: f64,
     pub message: String,

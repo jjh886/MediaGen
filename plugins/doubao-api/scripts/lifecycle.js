@@ -6,14 +6,20 @@ function doubaoFlowTrace() {
   return '04-' + hex(randomId()) + hex(randomId()) + '-' + hex(span) + '-01'
 }
 
-function doubaoImRequest(session, path, cmd, uplink) {
-  const response = doubaoRequest(session, path, {
-    cmd,
-    uplink_body: uplink,
-    sequence_id: apiTextUuid(),
-    channel: 2,
-    version: '1',
-  })
+function doubaoImRequest(session, path, cmd, uplink, timeoutMs = 60000) {
+  const response = doubaoRequest(
+    session,
+    path,
+    {
+      cmd,
+      uplink_body: uplink,
+      sequence_id: apiTextUuid(),
+      channel: 2,
+      version: '1',
+    },
+    'POST',
+    timeoutMs
+  )
   if (Number(response.status_code) !== 0) throw new Error('temporary_unavailable: 豆包会话同步失败')
   return response
 }

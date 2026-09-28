@@ -133,3 +133,98 @@ pub(crate) async fn inputs(
     items.truncate(limit);
     HttpResponse::Ok().json(json!({"object":"list","first_id":items.first().and_then(|item|item.get("id")),"last_id":items.last().and_then(|item|item.get("id")),"has_more":has_more,"data":items}))
 }
+
+/// 请求附带的元数据与插件输出共同保留；生成结果中的同名字段优先。
+pub(crate) fn response_metadata(response: &Value, request: &Value) -> Value {
+    let mut metadata = request.as_object().cloned().unwrap_or_default();
+    if let Some(provider) = response["metadata"].as_object() {
+        metadata.extend(provider.clone());
+    }
+    Value::Object(metadata)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    #[actix_web::test]
+    async fn conversation_titles_survive_storage_http_and_streaming_adapters() {
+        let state = crate::protocol_api_tests::state();
+        let script = state
+            .plugin_loader
+            .get_plugin_dir("test")
+            .unwrap()
+            .join("scripts/text.js");
+        let source = std::fs::read_to_string(&script).unwrap().replace(
+            "status:'completed',model:",
+            "status:'completed',metadata:{conversation_id:'upstream-id',conversation_title:'杯子广告'},model:",
+        );
+        std::fs::write(script, source).unwrap();
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(crate::configure_routes),
+        )
+        .await;
+        for endpoint in ["responses", "chat/completions"] {
+            for streaming in [false, true] {
+                let mut body = json!({"model":"text-model","stream":streaming,"metadata":{"client":"retained","conversation_title":"caller-title"}});
+                if endpoint == "responses" {
+                    body["input"] = json!("你好");
+                } else {
+                    body["messages"] = json!([{"role":"user","content":"你好"}]);
+                }
+                let result = test::call_service(
+                    &app,
+                    test::TestRequest::post()
+                        .uri(&format!("/v1/{endpoint}"))
+                        .insert_header(("authorization", "Bearer key-a"))
+                        .set_json(body)
+                        .to_request(),
+                )
+                .await;
+                assert_eq!(result.status(), 200);
+                let bytes = test::read_body(result).await;
+                let response: Value = if streaming {
+                    String::from_utf8(bytes.to_vec())
+                        .unwrap()
+                        .lines()
+                        .filter_map(|line| line.strip_prefix("data: "))
+                        .filter_map(|data| serde_json::from_str::<Value>(data).ok())
+                        .find_map(|event| {
+                            if endpoint == "responses" && event["type"] == "response.completed" {
+                                Some(event["response"].clone())
+                            } else if endpoint != "responses"
+                                && event["choices"][0]["finish_reason"] == "stop"
+                            {
+                                Some(event)
+                            } else {
+                                None
+                            }
+                        })
+                        .expect("缺少完成事件")
+                } else {
+                    serde_json::from_slice(&bytes).unwrap()
+                };
+                assert_eq!(response["metadata"]["conversation_title"], "杯子广告");
+                assert_eq!(response["metadata"]["conversation_id"], "upstream-id");
+                assert_eq!(response["metadata"]["client"], "retained");
+                if endpoint == "responses" {
+                    let stored: Value = test::call_and_read_body_json(
+                        &app,
+                        test::TestRequest::get()
+                            .uri(&format!(
+                                "/v1/responses/{}",
+                                response["id"].as_str().unwrap()
+                            ))
+                            .insert_header(("authorization", "Bearer key-a"))
+                            .to_request(),
+                    )
+                    .await;
+                    assert_eq!(stored["metadata"], response["metadata"]);
+                }
+            }
+        }
+    }
+}

@@ -40,6 +40,10 @@ pub struct BrowserGateway {
 }
 
 impl BrowserGateway {
+    pub async fn installed_browser_major_version(&self) -> Result<u16, BrowserGatewayError> {
+        crate::runtime::installed_browser_major_version(&self.config).await
+    }
+
     pub fn profile_root(&self) -> &std::path::Path {
         &self.config.profile_root
     }
@@ -157,6 +161,13 @@ impl BrowserGateway {
             &session_id,
             request.profile_dir.as_deref(),
         );
+        let browser_profile_dir = request
+            .browser_profile_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&profile_dir)
+            .to_string();
 
         BrowserSession {
             id: session_id,
@@ -174,6 +185,7 @@ impl BrowserGateway {
             browser_name: DEFAULT_BROWSER_NAME.to_string(),
             runtime_id,
             profile_dir,
+            browser_profile_dir,
             viewport,
             device_scale_factor,
             message: "Browser session 正在启动 CloakBrowser".to_string(),

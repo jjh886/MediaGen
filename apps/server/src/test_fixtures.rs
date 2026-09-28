@@ -46,6 +46,7 @@ pub fn account_record(id: &str, platform: &str, name: &str, api_key: &str) -> Ac
         browser_version: String::new(),
         api_key: api_key.to_string(),
         profile_dir: String::new(),
+        browser_profile_dir: String::new(),
         created_at: "2026-06-29T00:00:00Z".to_string(),
     }
 }

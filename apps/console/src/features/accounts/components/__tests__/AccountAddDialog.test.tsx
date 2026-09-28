@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   cancelBrowserSession: vi.fn(),
   completeBrowserSession: vi.fn(),
   fetchProxies: vi.fn(),
+  fetchAccounts: vi.fn(),
+  fetchAccount: vi.fn(),
+  fetchFingerprintOptions: vi.fn(),
 }))
 
 vi.mock('../../services/account-service', () => ({
@@ -19,6 +22,11 @@ vi.mock('@/shared/services/proxy-service', () => ({
     `${proxy.name} · 已绑定 ${proxy.bound_account_count ?? 0} 个账号`,
 }))
 
+vi.mock('@/shared/services/account-service', () => ({
+  fetchAllAccounts: (...args: unknown[]) => mocks.fetchAccounts(...args),
+  fetchAccount: (...args: unknown[]) => mocks.fetchAccount(...args),
+}))
+
 vi.mock('@/shared/browser/RemoteBrowserPanel', () => ({
   default: () => <div>远程浏览器画面</div>,
 }))
@@ -27,6 +35,7 @@ vi.mock('@/shared/services/browser-session-service', () => ({
   browserSessionHistory: vi.fn(),
   cancelBrowserSession: (...args: unknown[]) => mocks.cancelBrowserSession(...args),
   completeBrowserSession: (...args: unknown[]) => mocks.completeBrowserSession(...args),
+  fetchBrowserFingerprintOptions: () => mocks.fetchFingerprintOptions(),
 }))
 
 describe('AccountAddDialog', () => {
@@ -36,6 +45,12 @@ describe('AccountAddDialog', () => {
     mocks.completeBrowserSession.mockReset()
     mocks.fetchProxies.mockReset()
     mocks.fetchProxies.mockResolvedValue([])
+    mocks.fetchAccounts.mockResolvedValue([])
+    mocks.fetchFingerprintOptions.mockResolvedValue({
+      browser_version: '154',
+      installed_browser_version: '146',
+      os: 'linux',
+    })
   })
 
   it('显示插件返回的设备授权验证码提示', async () => {
@@ -46,6 +61,7 @@ describe('AccountAddDialog', () => {
       metadata: { login_instructions: '请在授权页面输入 ABCD-1234' },
     })
     render(<AccountAddDialog open platform="grok" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await screen.findByText('Chrome 154 · 最新稳定版')
     fireEvent.click(screen.getByText('打开登录页'))
     expect(await screen.findByText('请在授权页面输入 ABCD-1234')).toBeInTheDocument()
   })
@@ -56,6 +72,7 @@ describe('AccountAddDialog', () => {
     )
 
     render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await screen.findByText('Chrome 154 · 最新稳定版')
     fireEvent.click(screen.getByText('打开登录页'))
 
     await waitFor(() => {
@@ -66,6 +83,7 @@ describe('AccountAddDialog', () => {
       undefined,
       '',
       undefined,
+      { browser_os: 'linux', browser_version: '154' },
       undefined,
       undefined
     )
@@ -81,6 +99,7 @@ describe('AccountAddDialog', () => {
     })
 
     render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await screen.findByText('Chrome 154 · 最新稳定版')
     fireEvent.change(screen.getByLabelText('账号代理'), { target: { value: 'manual' } })
     fireEvent.change(
       screen.getByPlaceholderText('主机、完整代理 URL 或 username:password@ip:port'),
@@ -95,6 +114,7 @@ describe('AccountAddDialog', () => {
         undefined,
         'socks5h://proxy.example.com:1080',
         undefined,
+        { browser_os: 'linux', browser_version: '154' },
         undefined,
         undefined
       )
@@ -120,6 +140,7 @@ describe('AccountAddDialog', () => {
     })
 
     render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await screen.findByText('Chrome 154 · 最新稳定版')
     fireEvent.change(await screen.findByLabelText('账号代理'), {
       target: { value: 'saved:proxy-1' },
     })
@@ -131,6 +152,7 @@ describe('AccountAddDialog', () => {
         undefined,
         '',
         'proxy-1',
+        { browser_os: 'linux', browser_version: '154' },
         undefined,
         undefined
       )
@@ -146,9 +168,16 @@ describe('AccountAddDialog', () => {
     })
 
     render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
-    fireEvent.click(screen.getByLabelText('模拟这个账号的系统和浏览器版本'))
-    expect(screen.queryByText('Chrome 主版本')).not.toBeInTheDocument()
-    expect(screen.getByText(/当前的稳定主版本 150/)).toBeInTheDocument()
+    await screen.findByText('Chrome 154 · 最新稳定版')
+    expect(screen.getByRole('button', { name: 'Linux' })).toHaveAttribute('aria-pressed', 'true')
+    for (const os of ['Windows', 'macOS', 'Linux']) {
+      expect(
+        screen.getByRole('button', { name: os }).querySelector('[data-system-icon]')
+      ).not.toBeNull()
+    }
+    expect(screen.queryByRole('button', { name: '服务器默认' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Windows' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Chrome 153' }))
     fireEvent.click(screen.getByText('打开登录页'))
 
     await waitFor(() => {
@@ -157,10 +186,43 @@ describe('AccountAddDialog', () => {
         undefined,
         '',
         undefined,
-        { browser_os: 'windows', browser_version: '150' },
+        { browser_os: 'windows', browser_version: '153' },
+        undefined,
         undefined
       )
     })
+  })
+
+  it('选择已有账号后持续复用其资料并锁定代理和指纹', async () => {
+    mocks.fetchAccounts.mockResolvedValue([
+      {
+        id: 'chatgpt-1',
+        platform: 'chatgpt',
+        name: '我的 ChatGPT',
+        profile_dir: '/profiles/chatgpt-1',
+        browser_os: 'macos',
+        browser_version: '145',
+      },
+    ])
+    mocks.startAccountLoginSession.mockResolvedValue({ id: 'shared-session', status: 'active' })
+    render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    fireEvent.change(await screen.findByLabelText('复用已有账号浏览器资料'), {
+      target: { value: 'chatgpt-1' },
+    })
+    expect(screen.queryByLabelText('账号代理')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'macOS' })).toBeDisabled()
+    fireEvent.click(screen.getByText('打开登录页'))
+    await waitFor(() =>
+      expect(mocks.startAccountLoginSession).toHaveBeenCalledWith(
+        'codex',
+        undefined,
+        '',
+        undefined,
+        undefined,
+        undefined,
+        'chatgpt-1'
+      )
+    )
   })
 
   it('创建登录页过程中取消时会清理稍后返回的后端会话', async () => {
@@ -174,6 +236,7 @@ describe('AccountAddDialog', () => {
     const onClose = vi.fn()
 
     render(<AccountAddDialog open platform="codex" onClose={onClose} onSuccess={vi.fn()} />)
+    await screen.findByText('Chrome 154 · 最新稳定版')
     fireEvent.click(screen.getByText('打开登录页'))
     fireEvent.click(screen.getByText('取消等待'))
     resolveSession({ id: 'session-late', platform: 'codex', status: 'active' })
@@ -196,6 +259,7 @@ describe('AccountAddDialog', () => {
     )
 
     render(<AccountAddDialog open platform="chatgpt" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await screen.findByText('Chrome 154 · 最新稳定版')
     fireEvent.click(screen.getByText('打开登录页'))
 
     expect(await screen.findByText('远程浏览器画面')).toBeInTheDocument()

@@ -32,7 +32,19 @@ pub struct AccountRecord {
     pub browser_version: String,
     pub api_key: String,
     pub profile_dir: String,
+    #[serde(default)]
+    pub browser_profile_dir: String,
     pub created_at: String,
+}
+
+impl AccountRecord {
+    pub fn effective_browser_profile_dir(&self) -> &str {
+        if self.browser_profile_dir.trim().is_empty() {
+            &self.profile_dir
+        } else {
+            &self.browser_profile_dir
+        }
+    }
 }
 
 /// 账号调度和健康状态；旧数据通过默认值兼容。

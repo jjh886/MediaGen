@@ -20,14 +20,14 @@ function deepseekHeaders(session, path = '/') {
   }
 }
 
-function deepseekRequest(session, path, body, method) {
+function deepseekRequest(session, path, body, method, timeoutMs = 60000) {
   const result = apiSessionRequireOk(
     host.call('http.request', {
       method: method || 'POST',
       url: DEEPSEEK_ORIGIN + '/api/v0' + path,
       headers: deepseekHeaders(session, '/api/v0' + path.split('?')[0]),
       proxy: 'system',
-      timeout_ms: 60000,
+      timeout_ms: timeoutMs,
       retry: { max_attempts: 1 },
       ...(body === undefined ? {} : { body }),
     }),

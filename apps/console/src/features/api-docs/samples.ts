@@ -47,6 +47,7 @@ export const video = {
   size: '1280x720',
 }
 export const textNotes = [
+  'ChatGPT、豆包、DeepSeek 完成后可返回 metadata.conversation_title / conversation_id；Responses 在最终 response 中读取，Chat 流式在结束帧读取。标题获取失败时省略，不影响正文；Codex 不提供此平台标题读取能力。',
   'ChatGPT、Codex 的文档与聊天视频走 input_file（Responses）或 file（Chat）内容块，先上传 /v1/files 后引用 file_id；生成视频使用 /v1/videos。',
   '多媒体文件单个不超过 50 MiB、去重后累计不超过 64 MiB；视频最长 1 小时。不支持原生视频或文件超过 16 MiB 时最多抽取 8 帧，音轨按模型能力原生传入或转写。转写需要当前 Key 有可用的转写模型授权。',
   '豆包聊天支持图片、文档、音频，视频附件会经网关转换后再校验；豆包视频生成的参考视频仅在相应 Seedance 模型支持时可用。DeepSeek 不支持的输入类型会拒绝，具体以 /v1/models 为准。',

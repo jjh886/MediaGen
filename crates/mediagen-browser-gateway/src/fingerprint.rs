@@ -138,7 +138,7 @@ pub(crate) async fn apply_browser_fingerprint(
         return Ok(());
     };
     // CDP 的 UA override 必须在首次导航前设置，后续页面请求才会带上账号配置。
-    let override_result = client
+    client
         .send(
             "Network.setUserAgentOverride",
             json!({
@@ -147,18 +147,7 @@ pub(crate) async fn apply_browser_fingerprint(
                 "userAgentMetadata": fingerprint.user_agent_metadata()
             }),
         )
-        .await;
-    if override_result.is_err() {
-        client
-            .send(
-                "Network.setUserAgentOverride",
-                json!({
-                    "userAgent": fingerprint.user_agent(),
-                    "platform": fingerprint.navigator_platform()
-                }),
-            )
-            .await?;
-    }
+        .await?;
     client
         .send(
             "Page.addScriptToEvaluateOnNewDocument",

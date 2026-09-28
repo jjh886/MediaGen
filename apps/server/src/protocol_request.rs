@@ -292,7 +292,7 @@ pub(crate) fn chat_response(response: &Value, model: &str) -> Value {
     if !calls.is_empty() {
         message["tool_calls"] = json!(calls);
     }
-    json!({"id":response["id"].as_str().unwrap_or("").replace("resp_", "chatcmpl-"),"object":"chat.completion","created":response["created_at"],"model":model,"choices":[{"index":0,"message":message,"finish_reason":finish_reason(response, !calls.is_empty()),"logprobs":null}],"usage":chat_usage(&response["usage"])})
+    json!({"id":response["id"].as_str().unwrap_or("").replace("resp_", "chatcmpl-"),"object":"chat.completion","created":response["created_at"],"model":model,"choices":[{"index":0,"message":message,"finish_reason":finish_reason(response, !calls.is_empty()),"logprobs":null}],"usage":chat_usage(&response["usage"]),"metadata":response["metadata"].as_object().cloned().unwrap_or_default()})
 }
 
 pub(crate) fn finish_reason(response: &Value, tools: bool) -> &'static str {

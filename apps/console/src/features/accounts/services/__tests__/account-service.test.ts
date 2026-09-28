@@ -197,6 +197,28 @@ describe('account-service', () => {
     })
   })
 
+  it('添加账号时把共享来源账号 ID 交给服务端解析资料目录', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: [{ platform_id: 'codex' }] }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, session: { id: 'shared-session' } }))
+
+    await startAccountLoginSession(
+      'codex',
+      undefined,
+      '',
+      undefined,
+      undefined,
+      undefined,
+      'source'
+    )
+
+    expect(parseBody(1)).toMatchObject({
+      purpose: 'add_account',
+      reuse_browser_profile_account_id: 'source',
+      profile_dir: null,
+    })
+  })
+
   it('重新登录会话复用账号 profile 并让后端兜底账号代理', async () => {
     const session = { id: 'session-2', platform: 'codex', status: 'active' }
     fetchMock

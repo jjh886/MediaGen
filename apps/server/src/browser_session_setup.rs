@@ -1,6 +1,6 @@
 use actix_web::HttpResponse;
 use mediagen_browser_gateway::{
-    BrowserGatewayError, BrowserSessionCreateRequest, BrowserSessionPurpose,
+    BrowserFingerprint, BrowserGatewayError, BrowserSessionCreateRequest, BrowserSessionPurpose,
 };
 use serde_json::{json, Value};
 
@@ -12,8 +12,73 @@ pub(crate) fn prepare_browser_session_create_request(
     state: &ServerState,
     request: &mut BrowserSessionCreateRequest,
 ) -> Result<(), HttpResponse> {
+    apply_shared_browser_profile(state, request)?;
     apply_relogin_defaults(state, request)?;
+    validate_browser_fingerprint(request)?;
     apply_saved_proxy(state, request)
+}
+
+fn validate_browser_fingerprint(request: &BrowserSessionCreateRequest) -> Result<(), HttpResponse> {
+    let os = request
+        .metadata
+        .get("browser_os")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let version = request
+        .metadata
+        .get("browser_version")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if (os.is_empty() && version.is_empty())
+        || BrowserFingerprint::from_values(os, version).is_some()
+    {
+        return Ok(());
+    }
+    Err(HttpResponse::BadRequest().json(json!({
+        "ok": false,
+        "error": "系统指纹的系统或浏览器版本无效。"
+    })))
+}
+
+fn apply_shared_browser_profile(
+    state: &ServerState,
+    request: &mut BrowserSessionCreateRequest,
+) -> Result<(), HttpResponse> {
+    let Some(source_id) = request.reuse_browser_profile_account_id.as_deref() else {
+        return Ok(());
+    };
+    if request.purpose != BrowserSessionPurpose::AddAccount || source_id.trim().is_empty() {
+        return Err(HttpResponse::BadRequest().json(json!({
+            "ok": false,
+            "error": "仅添加账号时可选择复用已有账号浏览器资料。"
+        })));
+    }
+    let Some(source) = state.store.account_by_id(source_id.trim()) else {
+        return Err(HttpResponse::BadRequest().json(json!({
+            "ok": false,
+            "error": "来源账号不存在，请刷新后重试。"
+        })));
+    };
+    let browser_dir = source.effective_browser_profile_dir().trim();
+    if browser_dir.is_empty() {
+        return Err(HttpResponse::BadRequest().json(json!({
+            "ok": false,
+            "error": "来源账号没有可复用的浏览器资料。"
+        })));
+    }
+    // 账号凭据仍存新账号独立目录，浏览器的 Cookie 和本地存储才持续共用。
+    request.profile_dir = None;
+    request.browser_profile_dir = Some(browser_dir.to_string());
+    request.proxy_id = None;
+    request.metadata.remove("proxy_server");
+    request.metadata.remove("proxy_username");
+    request.metadata.remove("proxy_password");
+    request.metadata.remove("proxy_mode");
+    request.metadata.remove("browser_os");
+    request.metadata.remove("browser_version");
+    apply_account_proxy(request, &source.proxy_id, &source.proxy_url);
+    add_missing_browser_profile(request, &source.browser_os, &source.browser_version);
+    Ok(())
 }
 
 fn apply_relogin_defaults(
@@ -33,6 +98,7 @@ fn apply_relogin_defaults(
         })));
     };
     apply_account_profile_dir(request, &account.profile_dir);
+    request.browser_profile_dir = Some(account.effective_browser_profile_dir().to_string());
     apply_account_proxy(request, &account.proxy_id, &account.proxy_url);
     add_missing_browser_profile(request, &account.browser_os, &account.browser_version);
     Ok(())
@@ -46,7 +112,11 @@ pub(crate) async fn release_relogin_profile(
     if request.purpose != BrowserSessionPurpose::ReloginAccount {
         return Ok(0);
     }
-    let profile_dir = request.profile_dir.as_deref().unwrap_or_default().trim();
+    let profile_dir = request
+        .browser_profile_dir
+        .as_deref()
+        .unwrap_or_default()
+        .trim();
     state
         .browser_gateway
         .cancel_active_profile_sessions(profile_dir)

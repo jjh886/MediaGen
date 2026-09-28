@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, type CSSProperties, type ReactNode } from 
 import BrowserHistoryControls from '@/shared/browser/BrowserHistoryControls'
 import RemoteBrowserPanel from '@/shared/browser/RemoteBrowserPanel'
 import { fetchAllProxies, proxyOptionLabel, type ProxyItem } from '@/shared/services/proxy-service'
+import { fetchAccount, fetchAllAccounts } from '@/shared/services/account-service'
+import type { Account } from '@/shared/types/account'
 import { KtModal, KtButton, KtSelect } from '@/shared/ui'
 import {
   browserSessionHistory,
@@ -16,6 +18,7 @@ import AccountProxyFields from './AccountProxyFields'
 import {
   buildBrowserProfilePayload,
   emptyBrowserProfileForm,
+  parseBrowserProfile,
   type BrowserProfilePayload,
   type BrowserProfileFormState,
 } from '../utils/browser-profile'
@@ -56,8 +59,11 @@ export default function AccountAddDialog({
   const [proxyForm, setProxyForm] = useState<ProxyFormState>(emptyProxyForm)
   const [browserProfileForm, setBrowserProfileForm] =
     useState<BrowserProfileFormState>(emptyBrowserProfileForm)
+  const [browserProfileChanged, setBrowserProfileChanged] = useState(false)
   const [proxyMode, setProxyMode] = useState('none')
   const [proxies, setProxies] = useState<ProxyItem[]>([])
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [reuseAccountId, setReuseAccountId] = useState('')
   const completingRef = useRef(false)
   const cancelledRef = useRef(false)
 
@@ -71,13 +77,26 @@ export default function AccountAddDialog({
       setBrowserSession(null)
       setProxyForm(emptyProxyForm)
       setBrowserProfileForm(emptyBrowserProfileForm)
+      setBrowserProfileChanged(false)
       setProxyMode(reloginAccountId ? 'keep' : 'none')
+      setReuseAccountId('')
     } else {
       cancelledRef.current = false
       setErrorText('')
       void fetchAllProxies()
         .then(setProxies)
         .catch(() => setProxies([]))
+      if (!reloginAccountId) {
+        void fetchAllAccounts()
+          .then(setAccounts)
+          .catch(() => setAccounts([]))
+      } else {
+        void fetchAccount(reloginAccountId)
+          .then((account) =>
+            setBrowserProfileForm(parseBrowserProfile(account.browser_os, account.browser_version))
+          )
+          .catch(() => undefined)
+      }
     }
   }, [open])
 
@@ -86,9 +105,10 @@ export default function AccountAddDialog({
     let browserProfile: BrowserProfilePayload | undefined
     try {
       proxyUrl = proxyMode === 'manual' ? buildProxyUrl(proxyForm) : ''
-      browserProfile = browserProfileForm.enabled
-        ? buildBrowserProfilePayload(browserProfileForm)
-        : undefined
+      browserProfile =
+        !reuseAccountId && browserProfileForm.enabled && (!isRelogin || browserProfileChanged)
+          ? buildBrowserProfilePayload(browserProfileForm)
+          : undefined
     } catch (error) {
       setErrorText(loginErrorMessage(error))
       return
@@ -116,7 +136,8 @@ export default function AccountAddDialog({
         proxyOverride,
         selectedProxyId,
         browserProfile,
-        proxyMode === 'direct' ? 'direct' : undefined
+        proxyMode === 'direct' ? 'direct' : undefined,
+        reuseAccountId || undefined
       )
       if (cancelledRef.current) {
         await cancelBrowserSession(session.id).catch(() => undefined)
@@ -201,7 +222,13 @@ export default function AccountAddDialog({
             <KtButton variant="default" onClick={handleCancelClick}>
               取消
             </KtButton>
-            <KtButton variant="primary" onClick={handleStart}>
+            <KtButton
+              variant="primary"
+              onClick={handleStart}
+              disabled={
+                !reuseAccountId && browserProfileForm.enabled && !browserProfileForm.version
+              }
+            >
               打开登录页
             </KtButton>
           </>
@@ -274,21 +301,65 @@ export default function AccountAddDialog({
             <div style={{ color: 'var(--text-primary)', fontSize: 14, marginBottom: 14 }}>
               {isRelogin
                 ? '重新登录时默认沿用账号当前代理和浏览器环境；需要临时调整时再修改下面的选项。'
-                : '登录前可以给这个账号绑定独立代理和浏览器环境；不设置则使用服务器默认环境。'}
+                : '登录前可以绑定代理和系统指纹；系统会按服务器实际系统和已安装浏览器版本预选。'}
             </div>
-            <SavedProxyPicker
-              value={proxyMode}
-              proxies={proxies}
-              isRelogin={isRelogin}
-              onChange={handleProxyModeChange}
-            />
-            {proxyMode === 'manual' && (
-              <AccountProxyFields value={proxyForm} onChange={setProxyForm} />
+            {!isRelogin && (
+              <div style={{ ...pickerStyle, marginBottom: 16 }}>
+                <PickerLabel id="account-browser-profile-source">
+                  复用已有账号浏览器资料
+                </PickerLabel>
+                <KtSelect
+                  id="account-browser-profile-source"
+                  aria-label="复用已有账号浏览器资料"
+                  value={reuseAccountId}
+                  onChange={(accountId) => {
+                    setReuseAccountId(accountId)
+                    const source = accounts.find((account) => account.id === accountId)
+                    if (source?.browser_os && source.browser_version) {
+                      setBrowserProfileForm(
+                        parseBrowserProfile(source.browser_os, source.browser_version)
+                      )
+                    }
+                  }}
+                  options={[
+                    { value: '', label: '创建独立浏览器资料' },
+                    ...accounts
+                      .filter((account) => account.profile_dir)
+                      .map((account) => ({
+                        value: account.id,
+                        label: `${account.platform} · ${account.name || account.email || account.id}`,
+                      })),
+                  ]}
+                />
+                {reuseAccountId && (
+                  <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                    持续共用浏览器 Cookie 和本地存储；代理与指纹沿用来源账号，插件凭据单独保存。
+                  </span>
+                )}
+              </div>
+            )}
+            {!reuseAccountId && (
+              <>
+                <SavedProxyPicker
+                  value={proxyMode}
+                  proxies={proxies}
+                  isRelogin={isRelogin}
+                  onChange={handleProxyModeChange}
+                />
+                {proxyMode === 'manual' && (
+                  <AccountProxyFields value={proxyForm} onChange={setProxyForm} />
+                )}
+              </>
             )}
             <div style={{ marginTop: 16 }}>
               <AccountBrowserProfileFields
                 value={browserProfileForm}
-                onChange={setBrowserProfileForm}
+                onChange={(next) => {
+                  setBrowserProfileForm(next)
+                  setBrowserProfileChanged(true)
+                }}
+                onInitialized={setBrowserProfileForm}
+                disabled={!!reuseAccountId}
               />
             </div>
             {errorText && (

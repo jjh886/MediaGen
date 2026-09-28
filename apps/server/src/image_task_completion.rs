@@ -26,15 +26,26 @@ pub(crate) async fn create_verification_session(
         task_id: Some(task_id.to_string()),
         start_url: manifest.workspace_url.clone(),
         profile_dir: Some(account.profile_dir.clone()),
+        browser_profile_dir: Some(account.effective_browser_profile_dir().to_string()),
         headless: Some(true),
         metadata: browser_metadata_from_account(account),
         ..mediagen_browser_gateway::BrowserSessionCreateRequest::default()
     };
-    let response = state
+    let profile_lock = state
         .browser_gateway
-        .create_session(request)
-        .await
+        .profile_open_lock(account.effective_browser_profile_dir())
         .map_err(|error| (409, "verification_required", error.to_string()))?;
+    let _guard = profile_lock.lock().await;
+    let response = match state
+        .browser_gateway
+        .create_profile_tab_session(request.clone())
+        .await
+    {
+        Ok(Some(response)) => Ok(response),
+        Ok(None) => state.browser_gateway.create_session(request).await,
+        Err(error) => Err(error),
+    }
+    .map_err(|error| (409, "verification_required", error.to_string()))?;
     if let Some(detection) = manifest.extra.get("login_detection") {
         if detection.get("context_file").is_some() {
             let references = crate::flow_templates::collect_script_files(detection);

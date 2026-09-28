@@ -102,6 +102,79 @@ export const guideSections: GuideSection[] = [
     ],
   },
   {
+    id: 'conversation-title',
+    title: '会话名称',
+    description: 'ChatGPT、豆包和 DeepSeek 自动读取平台会话标题，通过 metadata 返回。',
+    blocks: [
+      {
+        kind: 'table',
+        title: '会话名称的读取位置',
+        headings: ['调用方式', '读取位置', '返回时机'],
+        rows: [
+          ['Responses JSON', 'metadata.conversation_title', '请求完成后的响应'],
+          [
+            'Responses SSE / WebSocket',
+            'response.metadata.conversation_title',
+            'response.completed 事件',
+          ],
+          ['Chat JSON', 'metadata.conversation_title', '请求完成后的响应，MediaGen 扩展'],
+          [
+            'Chat SSE',
+            'metadata.conversation_title',
+            'finish_reason 非空的结束帧，位于 [DONE] 之前',
+          ],
+          [
+            '查询已保存响应',
+            'metadata.conversation_title',
+            'GET /v1/responses/{response_id}，须 store=true',
+          ],
+        ],
+      },
+      {
+        kind: 'code',
+        title: '请求示例 · POST /v1/responses',
+        language: 'json',
+        value: JSON.stringify(
+          {
+            model: 'doubao-text',
+            input: '帮我设计橙色杯子的广告文案',
+            metadata: { project: 'cup' },
+            store: true,
+          },
+          null,
+          2
+        ),
+      },
+      {
+        kind: 'code',
+        title: '完成响应中的元数据示例',
+        language: 'json',
+        value: JSON.stringify(
+          {
+            metadata: {
+              project: 'cup',
+              conversation_id: 'upstream-conversation-id',
+              conversation_title: '橙色杯子广告',
+            },
+          },
+          null,
+          2
+        ),
+      },
+      {
+        kind: 'code',
+        title: 'Chat 流式结束帧示例',
+        language: 'text',
+        value:
+          'data: {"id":"chatcmpl_example","object":"chat.completion.chunk","created":1790000000,"model":"doubao-text","choices":[{"index":0,"delta":{},"finish_reason":"stop","logprobs":null}],"metadata":{"conversation_id":"upstream-conversation-id","conversation_title":"橙色杯子广告"}}\n\ndata: [DONE]',
+      },
+      {
+        kind: 'note',
+        text: '无需额外参数，也不会额外调用模型生成标题。最多读取 3 次，每次请求超时 3 秒；默认标题、空标题或读取失败时省略标题字段，正文仍正常返回。标题最多 120 个 Unicode 字符；Codex 当前不提供此平台标题。请求 metadata 会保留，同名冲突时插件字段优先。conversation_id 是上游 ID，不能代替 previous_response_id。',
+      },
+    ],
+  },
+  {
     id: 'queue',
     title: '图片排队',
     description: '先提交任务，再查询结果。排队只适用于图片生成，不能同时开启 stream=true。',

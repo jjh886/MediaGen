@@ -58,7 +58,8 @@ async fn browser_reuse_requires_same_proxy_credentials_and_fingerprint() {
     let root = std::env::temp_dir().join(format!("browser-registry-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     session.profile_dir = root.to_string_lossy().into();
-    let path = super::runtime_port_file(&session.profile_dir);
+    session.browser_profile_dir = session.profile_dir.clone();
+    let path = super::runtime_port_file(&session.browser_profile_dir);
     std::fs::write(&path, "52500").unwrap();
     assert!(!crate::proxy::runtime_config_matches(&path, &session).await);
     super::write_runtime_port(&session, 52500).await.unwrap();

@@ -50,5 +50,6 @@ export interface Account {
   api_key_masked?: string
   api_key_configured?: boolean
   profile_dir?: string
+  browser_profile_dir?: string
   created_at: string
 }

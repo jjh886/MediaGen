@@ -8,6 +8,23 @@ export const usageFields = output([
   ['usage.input_tokens_details', 'object', '条件返回', '—', '输入细分，例如 cached_tokens。'],
   ['usage.output_tokens_details', 'object', '条件返回', '—', '输出细分，例如 reasoning_tokens。'],
 ])
+const conversationFields = [
+  [
+    'metadata.conversation_id',
+    'string',
+    '平台提供有效标题时',
+    '未提供时省略',
+    '上游会话 ID；不能用作本地 previous_response_id。',
+  ],
+  [
+    'metadata.conversation_title',
+    'string',
+    '平台提供有效标题时',
+    '未提供时省略',
+    'ChatGPT、豆包、DeepSeek 自动读取的会话名称，最多 120 个 Unicode 字符；失败不影响正文。',
+  ],
+] as const
+
 export const responseFields = output([
   ['id', 'string', '是', '—', '响应 ID；保存后可查询、删除或续接。'],
   ['object', 'string', '是', 'response', '对象类型。'],
@@ -33,7 +50,8 @@ export const responseFields = output([
   ['output[].arguments', 'string', '工具调用返回', '—', 'JSON 编码的函数参数。'],
   ['error', 'object | null', '条件返回', '—', '响应执行失败的错误信息。'],
   ['incomplete_details', 'object | null', '条件返回', '—', '未完成原因，例如输出长度限制。'],
-  ['metadata', 'object', '条件返回', '—', '请求关联的元数据。'],
+  ['metadata', 'object', '条件返回', '—', '合并请求元数据与插件会话信息；插件输出的同名字段优先。'],
+  ...conversationFields,
   ['previous_response_id', 'string | null', '条件返回', '—', '续接所使用的响应 ID。'],
 ]).concat(usageFields)
 export const responseStreamFields = output([
@@ -53,6 +71,8 @@ export const responseStreamFields = output([
   ['response', 'object', '生命周期事件返回', '—', '响应快照；completed 事件携带最终响应。'],
 ]).concat(prefix(responseFields, 'response.'))
 export const chatResponseFields = output([
+  ['metadata', 'object', '是', '{}', 'MediaGen 扩展，合并请求元数据和插件会话信息。'],
+  ...conversationFields,
   ['id', 'string', '是', '—', 'Chat Completion ID。'],
   ['object', 'string', '是', 'chat.completion', '非流式对象类型。'],
   ['created', 'integer', '是', '—', '创建时间，Unix 秒。'],
@@ -82,6 +102,14 @@ export const chatResponseFields = output([
   ['usage.total_tokens', 'integer', '有用量时', '—', '总 token 数。'],
 ])
 export const chatStreamFields = output([
+  [
+    'metadata',
+    'object',
+    '结束帧有元数据时',
+    '未提供时省略',
+    'MediaGen 扩展，位于 finish_reason 非空的结束帧，独立于正文 delta。',
+  ],
+  ...conversationFields,
   ['id', 'string', 'JSON 帧返回', '—', '同一次生成使用相同 ID。'],
   ['object', 'string', 'JSON 帧返回', 'chat.completion.chunk', '流式对象类型。'],
   ['created', 'integer', 'JSON 帧返回', '—', '创建时间，Unix 秒。'],

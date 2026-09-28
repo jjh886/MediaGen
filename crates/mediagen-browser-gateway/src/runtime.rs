@@ -15,20 +15,16 @@ use crate::fingerprint::BrowserFingerprint;
 use crate::proxy;
 use crate::{BrowserGatewayConfig, BrowserGatewayError, BrowserSession};
 
+#[path = "runtime_targets.rs"]
+mod targets;
+pub(crate) use targets::{
+    close_page_target, create_page_target, get_best_page_target, get_page_target,
+    is_useful_page_url, BrowserTarget,
+};
+
 const SAFE_LAUNCH_URL: &str = "about:blank";
 const RUNTIME_PORT_FILE: &str = ".mediagen-browser-port";
 const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
-
-#[derive(Debug, Clone, Deserialize)]
-pub(crate) struct BrowserTarget {
-    pub id: String,
-    #[serde(default)]
-    pub url: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(rename = "webSocketDebuggerUrl")]
-    pub websocket_url: String,
-}
 
 #[derive(Clone)]
 pub(crate) struct BrowserRuntime {
@@ -101,12 +97,16 @@ pub(crate) async fn launch_cloakbrowser(
     config: &BrowserGatewayConfig,
     session: &BrowserSession,
 ) -> Result<(BrowserRuntime, BrowserTarget), BrowserGatewayError> {
+    tokio::fs::create_dir_all(&session.browser_profile_dir)
+        .await
+        .map_err(|err| BrowserGatewayError::BrowserLaunch(err.to_string()))?;
     tokio::fs::create_dir_all(&session.profile_dir)
         .await
         .map_err(|err| BrowserGatewayError::BrowserLaunch(err.to_string()))?;
     let bridge_config = crate::proxy_bridge::config(session);
-    if let Some(runtime) = attach_registered_runtime(&session.profile_dir).await {
-        if proxy::runtime_config_matches(&runtime_port_file(&session.profile_dir), session).await
+    if let Some(runtime) = attach_registered_runtime(&session.browser_profile_dir).await {
+        if proxy::runtime_config_matches(&runtime_port_file(&session.browser_profile_dir), session)
+            .await
             && (bridge_config.is_none() || runtime.0.bridge.is_some())
         {
             return Ok(runtime);
@@ -116,7 +116,7 @@ pub(crate) async fn launch_cloakbrowser(
         sleep(Duration::from_secs(1)).await;
     }
     let bridge = if let Some(config) = bridge_config {
-        Some(crate::proxy_bridge::start(&session.profile_dir, config).await?)
+        Some(crate::proxy_bridge::start(&session.browser_profile_dir, config).await?)
     } else {
         None
     };
@@ -126,7 +126,7 @@ pub(crate) async fn launch_cloakbrowser(
     let viewport = session.viewport;
     let mut args = vec![
         format!("--remote-debugging-port={debugging_port}"),
-        format!("--user-data-dir={}", session.profile_dir),
+        format!("--user-data-dir={}", session.browser_profile_dir),
         format!("--window-size={},{}", viewport.width, viewport.height),
         "--disable-dev-shm-usage".to_string(),
         "--no-first-run".to_string(),
@@ -173,9 +173,12 @@ pub(crate) async fn launch_cloakbrowser(
         Ok(target) => target,
         Err(error) => {
             // 两个服务实例同时启动时，另一个实例可能刚写好端口登记；失败后再接管一次。
-            if let Some(runtime) = attach_registered_runtime(&session.profile_dir).await {
-                if proxy::runtime_config_matches(&runtime_port_file(&session.profile_dir), session)
-                    .await
+            if let Some(runtime) = attach_registered_runtime(&session.browser_profile_dir).await {
+                if proxy::runtime_config_matches(
+                    &runtime_port_file(&session.browser_profile_dir),
+                    session,
+                )
+                .await
                     && (crate::proxy_bridge::config(session).is_none()
                         || runtime.0.bridge.is_some())
                 {
@@ -186,7 +189,7 @@ pub(crate) async fn launch_cloakbrowser(
         }
     };
     write_runtime_port(session, debugging_port).await?;
-    let mut runtime = BrowserRuntime::owned(debugging_port, child, &session.profile_dir);
+    let mut runtime = BrowserRuntime::owned(debugging_port, child, &session.browser_profile_dir);
     runtime.bridge = bridge;
     Ok((runtime, target))
 }
@@ -225,7 +228,7 @@ async fn write_runtime_port(
     debugging_port: u16,
 ) -> Result<(), BrowserGatewayError> {
     tokio::fs::write(
-        runtime_port_file(&session.profile_dir),
+        runtime_port_file(&session.browser_profile_dir),
         serde_json::json!({
             "port": debugging_port, "settings": proxy::runtime_signature(session)
         })
@@ -260,80 +263,6 @@ fn browser_launch_url() -> &'static str {
     SAFE_LAUNCH_URL
 }
 
-pub(crate) async fn get_best_page_target(
-    debugging_port: u16,
-) -> Result<BrowserTarget, BrowserGatewayError> {
-    let targets = get_page_targets(debugging_port).await?;
-    best_page_target(&targets)
-}
-
-pub(crate) async fn get_page_target(
-    debugging_port: u16,
-    target_id: &str,
-) -> Result<Option<BrowserTarget>, BrowserGatewayError> {
-    Ok(get_page_targets(debugging_port)
-        .await?
-        .into_iter()
-        .find(|target| target.id == target_id))
-}
-
-pub(crate) async fn create_page_target(
-    debugging_port: u16,
-) -> Result<BrowserTarget, BrowserGatewayError> {
-    reqwest::Client::new()
-        .put(format!(
-            "http://127.0.0.1:{debugging_port}/json/new?{SAFE_LAUNCH_URL}"
-        ))
-        .send()
-        .await
-        .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))?
-        .error_for_status()
-        .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))?
-        .json::<BrowserTarget>()
-        .await
-        .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))
-}
-
-pub(crate) async fn close_page_target(
-    debugging_port: u16,
-    target_id: &str,
-) -> Result<(), BrowserGatewayError> {
-    if target_id.trim().is_empty() {
-        return Ok(());
-    }
-    reqwest::get(format!(
-        "http://127.0.0.1:{debugging_port}/json/close/{target_id}"
-    ))
-    .await
-    .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))?
-    .error_for_status()
-    .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))?;
-    Ok(())
-}
-
-async fn get_page_targets(debugging_port: u16) -> Result<Vec<BrowserTarget>, BrowserGatewayError> {
-    let url = format!("http://127.0.0.1:{debugging_port}/json/list");
-    reqwest::get(url)
-        .await
-        .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))?
-        .json::<Vec<BrowserTarget>>()
-        .await
-        .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))
-}
-
-fn best_page_target(targets: &[BrowserTarget]) -> Result<BrowserTarget, BrowserGatewayError> {
-    targets
-        .iter()
-        .find(|target| is_useful_page_url(&target.url))
-        .or_else(|| targets.first())
-        .cloned()
-        .ok_or_else(|| BrowserGatewayError::Cdp("没有找到可控制的浏览器页面".to_string()))
-}
-
-pub(crate) fn is_useful_page_url(url: &str) -> bool {
-    !url.is_empty() && url != "about:blank" && !url.starts_with("chrome://")
-}
-
 fn resolve_cloakbrowser_path(
     config: &BrowserGatewayConfig,
 ) -> Result<PathBuf, BrowserGatewayError> {
@@ -354,6 +283,29 @@ fn resolve_cloakbrowser_path(
             "未检测到 CloakBrowser；源码运行请在项目根目录执行 node scripts/ensure-cloakbrowser-runtime.mjs，或将 CLOAK_BROWSER_PATH 设置为浏览器可执行文件或运行时目录".to_string(),
         )
     })
+}
+
+pub(crate) async fn installed_browser_major_version(
+    config: &BrowserGatewayConfig,
+) -> Result<u16, BrowserGatewayError> {
+    let executable = resolve_cloakbrowser_path(config)?;
+    let output = timeout(
+        Duration::from_secs(5),
+        Command::new(executable).arg("--version").output(),
+    )
+    .await
+    .map_err(|_| BrowserGatewayError::BrowserRuntimeUnavailable("读取浏览器版本超时".into()))?
+    .map_err(|error| BrowserGatewayError::BrowserRuntimeUnavailable(error.to_string()))?;
+    if !output.status.success() {
+        return Err(BrowserGatewayError::BrowserRuntimeUnavailable(
+            "无法读取浏览器版本".into(),
+        ));
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .find_map(|part| part.split('.').next()?.parse::<u16>().ok())
+        .filter(|version| *version > 0)
+        .ok_or_else(|| BrowserGatewayError::BrowserRuntimeUnavailable("浏览器版本格式无效".into()))
 }
 
 fn candidate_paths() -> Vec<PathBuf> {

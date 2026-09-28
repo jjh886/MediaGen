@@ -217,3 +217,61 @@ describe('手机号和用户名映射', () => {
     }
   )
 })
+
+describe('豆包登录检测与凭据采集一致', () => {
+  const resources = [
+    'https://accounts.doubao.com/passport/account/info/v2/?aid=497858',
+    'https://www.doubao.com/chat/?web_id=web&web_tab_id=tab',
+    'https://www.doubao.com/bdms-sdk.test123.js',
+  ]
+  const capture = readFileSync(
+    path.resolve(scriptDirectory, '../../../plugins/doubao-api/scripts/capture_auth.js'),
+    'utf8'
+  )
+  const check = readFileSync(
+    path.resolve(scriptDirectory, '../../../plugins/doubao-api/scripts/check_login.js'),
+    'utf8'
+  )
+  function browser(user, ok = true, initialized = true) {
+    const run = scripts(['doubao-api/scripts/config.js'])
+    run(
+      `performance={getEntriesByType:()=>resources.map(name=>({name}))};
+      document={cookie:'s_v_web_id=fingerprint'};
+      localStorage={getItem:key=>key==='xmst' ? security : null};
+      sessionStorage={getItem:()=>null}; apiLoginFingerprint=async()=>({});fetch=request`,
+      {
+        resources,
+        URL,
+        security: initialized ? 'private-security' : null,
+        request: async () => ({ ok, json: async () => ({ data: user }) }),
+      }
+    )
+    return run
+  }
+  it.each([
+    { user_id_str: '90071992547409931', screen_name: '网页昵称', name: '账号名' },
+    { user_id: 123, name: '旧版账号' },
+    { user_id_str: '90071992547409931', user_id: 123, mobile: '199******31' },
+  ])('接受字符串或旧版数字 ID，并优先保留精确字符串 ID', async (user) => {
+    const run = browser(user)
+    const login = JSON.parse(await run(check))
+    const auth = JSON.parse(await run(capture))
+    expect(login.loggedIn).toBe(true)
+    expect(auth.user.user_id).toBe(login.userId)
+    expect(auth.user.name).toBe(login.username)
+    expect(auth.security.storage.xmst).toBe('private-security')
+  })
+  it('拒绝未登录、HTTP 错误及未初始化的安全会话', async () => {
+    for (const [user, ok] of [
+      [{}, true],
+      [{ user_id_str: 'known' }, false],
+    ]) {
+      const run = browser(user, ok)
+      expect(JSON.parse(await run(check)).loggedIn).toBe(false)
+      await expect(run(capture)).rejects.toThrow('豆包登录状态尚未确认')
+    }
+    await expect(browser({ user_id_str: 'known' }, true, false)(capture)).rejects.toThrow(
+      '豆包安全会话尚未初始化'
+    )
+  })
+})

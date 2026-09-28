@@ -28,6 +28,9 @@ function main(ctx) {
       if (!state.text.trim()) throw new Error('invalid_response: 豆包未返回正文')
     }
     doubaoMarkConversationRead(session, conversationId)
+    apiTextReadConversationTitle(writer, conversationId, () =>
+      doubaoReadTextTitle(session, conversationId)
+    )
     const response = apiTextCompleteResponse(writer)
     const result = { success: true, status: 'done', source: 'doubao-api', response }
     host.checkpoint({ phase: 'completed', conversation_id: conversationId, result })
@@ -36,4 +39,26 @@ function main(ctx) {
     apiTextFailResponse(writer, error)
     throw error
   }
+}
+
+function doubaoReadTextTitle(session, conversationId) {
+  const info = doubaoImRequest(
+    session,
+    '/im/conversation/info',
+    1110,
+    {
+      get_conv_info_uplink_body: {
+        conversation_id: conversationId,
+        ext: { cold_start: 'true' },
+        bot_id: '',
+        conversation_type: 3,
+        option: { need_bot_info: true },
+      },
+    },
+    3000
+  )
+  const conversation = info.downlink_body?.get_conv_info_downlink_body?.conversation_info
+  return String(conversation?.conversation_id) === String(conversationId)
+    ? conversation.name || ''
+    : ''
 }

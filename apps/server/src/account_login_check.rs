@@ -116,7 +116,7 @@ async fn open_login_check_session(
     let request = login_check_request(manifest, account);
     let profile_lock = state
         .browser_gateway
-        .profile_open_lock(&account.profile_dir)
+        .profile_open_lock(account.effective_browser_profile_dir())
         .map_err(|error| error.to_string())?;
     let _profile_guard = profile_lock.lock().await;
     if let Some(response) = state
@@ -308,6 +308,7 @@ fn login_check_request(
         start_url,
         account_id: Some(account.id.clone()),
         profile_dir: Some(account.profile_dir.clone()),
+        browser_profile_dir: Some(account.effective_browser_profile_dir().to_string()),
         headless: Some(true),
         width: Some(1365),
         height: Some(768),

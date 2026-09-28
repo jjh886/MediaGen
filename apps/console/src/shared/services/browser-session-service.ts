@@ -46,10 +46,23 @@ export interface BrowserSessionCreateRequest {
   proxy_id?: string | null
   verification_reason?: string | null
   profile_dir?: string | null
+  reuse_browser_profile_account_id?: string | null
   metadata?: Record<string, unknown>
   width?: number
   height?: number
   deviceScaleFactor?: number
+}
+
+export async function fetchBrowserFingerprintOptions(): Promise<{
+  browser_version: string
+  installed_browser_version: string
+  os: 'windows' | 'macos' | 'linux'
+}> {
+  return await apiGet<{
+    browser_version: string
+    installed_browser_version: string
+    os: 'windows' | 'macos' | 'linux'
+  }>('/api/browser-sessions/fingerprint-options')
 }
 
 export type BrowserInputRequest =

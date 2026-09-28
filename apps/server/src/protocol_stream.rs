@@ -63,12 +63,13 @@ impl Encoder {
             }
             "response.completed" | "response.incomplete" => {
                 self.terminal = true;
-                let mut result = self.chunk(
+                let mut result = self.chunk_with_metadata(
                     json!({}),
                     json!(crate::protocol_request::finish_reason(
                         &event["response"],
                         !self.tools.is_empty()
                     )),
+                    event["response"]["metadata"].as_object(),
                 );
                 if self.include_usage {
                     let usage = json!({"id":self.id,"object":"chat.completion.chunk","created":self.created,"model":self.model,"choices":[],"usage":crate::protocol_request::chat_usage(&event["response"]["usage"])});
@@ -86,9 +87,20 @@ impl Encoder {
         }
     }
     fn chunk(&self, delta: Value, reason: Value) -> String {
+        self.chunk_with_metadata(delta, reason, None)
+    }
+    fn chunk_with_metadata(
+        &self,
+        delta: Value,
+        reason: Value,
+        metadata: Option<&serde_json::Map<String, Value>>,
+    ) -> String {
         let mut chunk = json!({"id":self.id,"object":"chat.completion.chunk","created":self.created,"model":self.model,"choices":[{"index":0,"delta":delta,"finish_reason":reason,"logprobs":null}]});
         if self.include_usage {
             chunk["usage"] = Value::Null;
+        }
+        if let Some(metadata) = metadata.filter(|metadata| !metadata.is_empty()) {
+            chunk["metadata"] = json!(metadata);
         }
         format!("data: {chunk}\n\n")
     }

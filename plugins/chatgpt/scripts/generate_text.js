@@ -116,6 +116,11 @@ function chatgptApiGenerateTextConversation(auth, request) {
         ? state.text
         : chatgptApiWaitForText(auth, conversationId, parentId)
     chatgptApiAppendMissingFinalText(state, writer, finalText)
+    apiTextReadConversationTitle(
+      writer,
+      conversationId,
+      () => chatgptApiFetchTextConversation(auth, conversationId, 3000).title || ''
+    )
     const response = apiTextCompleteResponse(writer)
     // 先保存正文再清理远端会话，清理失败不能丢失已生成结果。
     chatgptApiCheckpoint({

@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use crate::settings::apply_settings_update;
 use crate::store_entities::migrate_legacy_api_keys;
 use crate::store_helpers::{
-    apply_account_update, first_result_url, recover_interrupted_direct_tasks, reset_daily_usage,
+    apply_account_update, recover_interrupted_direct_tasks, reset_daily_usage,
     state_releases_after_until,
 };
 pub use crate::store_models::{
@@ -15,7 +15,6 @@ pub use crate::store_models::{
 };
 use crate::store_persistence::{read_store_snapshot, write_store_snapshot};
 use chrono::{DateTime, Local, Utc};
-use uuid::Uuid;
 
 pub use crate::settings::{AppSettings, SettingsUpdate};
 
@@ -156,146 +155,26 @@ impl AppStore {
         updated
     }
 
-    pub fn list_tasks(&self, platform: Option<&str>) -> Vec<TaskRecord> {
-        let mut tasks: Vec<_> = self
-            .tasks
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
-            .iter()
-            .filter(|task| platform.is_none_or(|value| value.is_empty() || task.platform == value))
-            .cloned()
-            .collect();
-        tasks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        tasks
-    }
-
-    pub fn task_by_id(&self, id: &str) -> Option<TaskRecord> {
-        self.tasks
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
-            .iter()
-            .find(|task| task.id == id)
-            .cloned()
-    }
-
-    pub fn insert_task(&self, task: TaskRecord) {
-        if task.status == "processing" {
-            if let Some(id) = &task.account_id {
-                self.mark_account_dispatched(id);
-            }
-        }
-        self.tasks
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
-            .push(task);
-        self.save();
-    }
-
-    pub fn add_task_event(&self, task_id: &str, level: &str, message: String) {
-        self.task_events
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
-            .push(TaskEventRecord {
-                id: format!("event-{}", Uuid::new_v4()),
-                task_id: task_id.to_string(),
-                level: level.to_string(),
-                message,
-                created_at: Utc::now().to_rfc3339(),
-            });
-        self.save();
-    }
-
-    pub fn complete_task(&self, id: &str, result: serde_json::Value) -> Option<TaskRecord> {
-        self.update_task(id, |task| {
-            if task.status == "cancelled" {
-                return;
-            }
-            task.status = "completed".to_string();
-            task.result_data = Some(result.to_string());
-            task.completed_at = Some(Utc::now().to_rfc3339());
-            if let Some(url) = first_result_url(&result) {
-                task.result_url = Some(url);
-            }
-        })
-    }
-
-    pub(crate) fn clear_task_progress(&self, id: &str) {
-        self.update_task(id, |task| task.result_data = None);
-    }
-
-    pub(crate) fn save_task_progress(
-        &self,
-        id: &str,
-        progress: serde_json::Value,
-    ) -> Option<TaskRecord> {
-        self.update_task(id, |task| {
-            if task.status == "processing" {
-                task.result_data = Some(progress.to_string());
-            }
-        })
-    }
-
-    pub fn set_task_account(&self, id: &str, account_id: &str) -> Option<TaskRecord> {
-        self.update_task(id, |task| {
-            task.account_id = Some(account_id.to_string());
-        })
-    }
-
-    pub fn start_task(&self, id: &str) -> Option<TaskRecord> {
-        self.update_task(id, |task| {
-            task.status = "processing".to_string();
-        })
-    }
-
-    pub fn fail_task(&self, id: &str, message: String) -> Option<TaskRecord> {
-        self.update_task(id, |task| {
-            if task.status == "cancelled" {
-                return;
-            }
-            task.status = "failed".to_string();
-            task.error_message = Some(message);
-            task.completed_at = Some(Utc::now().to_rfc3339());
-        })
-    }
-
-    pub fn require_task_verification(&self, id: &str, message: String) -> Option<TaskRecord> {
-        self.update_task(id, |task| {
-            task.status = "verification_required".to_string();
-            task.error_message = Some(message);
-        })
-    }
-
-    pub fn resume_task_after_verification(&self, id: &str) -> Option<TaskRecord> {
-        self.update_task(id, |task| {
-            task.status = "queued".to_string();
-            task.error_message = None;
-            task.completed_at = None;
-        })
-    }
-
-    pub fn cancel_task(&self, id: &str) -> Option<TaskRecord> {
-        self.update_task(id, |task| {
-            task.status = "cancelled".to_string();
-            task.error_message = Some("用户取消".to_string());
-            task.completed_at = Some(Utc::now().to_rfc3339());
-        })
-    }
-
-    fn update_task(&self, id: &str, update: impl FnOnce(&mut TaskRecord)) -> Option<TaskRecord> {
-        let mut tasks = self.tasks.lock().unwrap_or_else(|err| err.into_inner());
-        let task = tasks.iter_mut().find(|task| task.id == id)?;
-        update(task);
-        let task = task.clone();
-        drop(tasks);
-        self.save();
-        Some(task)
-    }
-
     pub fn update_account(&self, id: &str, update: AccountUpdate) -> Option<AccountRecord> {
         let mut accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
+        let sync_browser_settings = update.proxy_url.is_some()
+            || update.proxy_id.is_some()
+            || update.browser_os.is_some()
+            || update.browser_version.is_some();
         let account = accounts.iter_mut().find(|account| account.id == id)?;
         apply_account_update(account, update);
         let account = account.clone();
+        let browser_dir = account.effective_browser_profile_dir().to_string();
+        if sync_browser_settings && !browser_dir.trim().is_empty() {
+            for other in accounts.iter_mut().filter(|other| {
+                other.id != id && other.effective_browser_profile_dir() == browser_dir
+            }) {
+                other.proxy_url = account.proxy_url.clone();
+                other.proxy_id = account.proxy_id.clone();
+                other.browser_os = account.browser_os.clone();
+                other.browser_version = account.browser_version.clone();
+            }
+        }
         drop(accounts);
         self.save();
         Some(account)

@@ -6,7 +6,9 @@
     headers: { 'content-type': 'application/json' },
   })
   const body = await response.json()
-  if (!response.ok || !body.data?.user_id) throw new Error('豆包登录状态尚未确认')
+  const user = body.data
+  const userId = user?.user_id_str || user?.user_id
+  if (!response.ok || !userId) throw new Error('豆包登录状态尚未确认，请在页面完成登录后重试')
   const sdk = resources.find((url) => /\/bdms-sdk\.[a-z0-9]+\.js$/.test(url))
   const queryResource = resources
     .slice()
@@ -47,7 +49,10 @@
     ?.slice(11)
   if (!fp || !query.get('web_id')) throw new Error('豆包网页身份尚未初始化，请稍后重试')
   return JSON.stringify({
-    user: { user_id: body.data.user_id_str || body.data.user_id, name: body.data.name },
+    user: {
+      user_id: String(userId),
+      name: user.screen_name || user.name || user.mobile || user.email || '',
+    },
     account_query: Object.fromEntries(accountUrl.searchParams),
     protocol_query: {
       ...Object.fromEntries(

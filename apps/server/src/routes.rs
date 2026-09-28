@@ -180,6 +180,7 @@ pub(crate) fn public_account(account: AccountRecord) -> Value {
         "api_key": "",
         "api_key_masked": api_key,
         "api_key_configured": !account.api_key.trim().is_empty(),
+        "browser_profile_dir": account.effective_browser_profile_dir(),
         "profile_dir": account.profile_dir,
         "created_at": account.created_at,
     })

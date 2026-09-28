@@ -69,6 +69,22 @@ const run = () =>
   vm.runInContext(`main({ request: { input: '提取资产', model: 'gpt-5-6-instant' } })`, context)
 
 describe('ChatGPT 文本提交与恢复', () => {
+  it('清理远端会话前获取标题，标题和正文一起持久化并可恢复', () => {
+    checkpoint = { phase: 'accepted', conversation_id: 'original' }
+    context.chatgptApiFetchTextConversation = vi.fn(() => ({ title: '杯子广告' }))
+    context.chatgptApiHideConversation.mockImplementation(() => {
+      expect(checkpoint.result.response.metadata).toEqual({
+        conversation_id: 'original',
+        conversation_title: '杯子广告',
+      })
+    })
+    const result = run()
+    expect(result.response.output_text).toBe('原会话的完整结果')
+    expect(context.chatgptApiFetchTextConversation).toHaveBeenCalledWith({}, 'original', 3000)
+    expect(run()).toEqual(result)
+    expect(context.chatgptApiFetchTextConversation).toHaveBeenCalledTimes(1)
+  })
+
   it('文本提交边界由实际发送前的检查点控制，不覆盖整个认证和准备步骤', () => {
     const manifest = JSON.parse(
       readFileSync(path.join(scriptDirectory, '../manifest.json'), 'utf8')

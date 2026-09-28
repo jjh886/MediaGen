@@ -86,6 +86,23 @@ describe('对外接口文档', () => {
     }
   })
 
+  it('会话名称字段、结束帧与平台范围进入文档及复制全文', () => {
+    const markdown = fullDocumentation()
+    expect(markdown).toContain('metadata.conversation_title')
+    expect(markdown).toContain('metadata.conversation_id')
+    expect(markdown).toContain('Chat 流式结束帧示例')
+    expect(markdown).toContain('Codex 当前不提供')
+    for (const path of ['/v1/responses', '/v1/chat/completions']) {
+      const doc = documents.find((doc) => doc.path === path && doc.method === 'POST')!
+      expect(doc.responseFields.some((field) => field.name === 'metadata.conversation_title')).toBe(
+        true
+      )
+      expect(
+        doc.streamFields?.some((field) => field.name.endsWith('metadata.conversation_title'))
+      ).toBe(true)
+    }
+  })
+
   it('覆盖全部注册的对外路由，不包含管理接口', () => {
     const source = ['main.rs', 'realtime_api.rs', 'generation_queue/api.rs']
       .map((file) => readFileSync(`../server/src/${file}`, 'utf8'))

@@ -50,7 +50,7 @@ const RUST_INCLUDE_REGEX = [
   'apps/server/src/net_client\\.rs$',
   'apps/server/src/(protocol_.*|model_api|audio_api|realtime_api|realtime_transport|request_identity|sse_decoder|plugin_file_io|plugin_http_.*|plugin_locks|plugin_process|audio_transcode|store_accounts|account_status_refresh|account_login_credentials)\\.rs$',
   'crates/mediagen-plugin-runtime/src/js_runtime\\.rs$',
-  'apps/server/src/store\\.rs$',
+  'apps/server/src/(store|store_tasks)\\.rs$',
   'apps/server/src/store_entities\\.rs$',
   'apps/server/src/store_persistence\\.rs$',
   'apps/server/src/flow_runtime\\.rs$',

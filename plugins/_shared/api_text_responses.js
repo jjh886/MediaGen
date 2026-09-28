@@ -392,7 +392,26 @@ function apiTextResponseObject(writer, status) {
     truncation: 'disabled',
     usage: null,
     user: null,
-    metadata: {},
+    metadata: writer.metadata || {},
+  }
+}
+
+// 标题属于可选会话元数据；读取失败不能把已经完成的正文变成失败任务。
+function apiTextReadConversationTitle(writer, conversationId, read) {
+  if (!conversationId) return
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const value = read()
+      if (typeof value !== 'string') return
+      const title = Array.from(value.replace(/\s+/gu, ' ').trim()).slice(0, 120).join('')
+      if (title && !/^(new chat|new conversation|新对话|新会话|未命名会话)$/i.test(title)) {
+        writer.metadata = { conversation_id: String(conversationId), conversation_title: title }
+        return
+      }
+      if (attempt < 2) host.call('time.sleep', { milliseconds: 500 })
+    } catch (_) {
+      return
+    }
   }
 }
 

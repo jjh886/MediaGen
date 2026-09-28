@@ -8,10 +8,11 @@ use mediagen_core::{PluginManifest, TierDef};
 use serde_json::json;
 
 use crate::account_login::AccountLoginProfile;
-use crate::store::{
-    AccountRecord, AccountUpdate, AppStore, ProxyRecord, SettingsUpdate, TaskRecord,
-};
+use crate::store::{AccountRecord, AccountUpdate, AppStore, ProxyRecord, SettingsUpdate};
 use crate::test_fixtures::account_record;
+
+#[path = "store_task_tests.rs"]
+mod tasks;
 
 #[test]
 fn api_key_selects_accounts_by_global_or_explicit_key() {
@@ -54,6 +55,47 @@ fn settings_and_account_updates_are_normalized_and_persisted() {
     let updated = update_account_config(&store);
     assert_updated_account(&updated);
     assert_reloaded_settings_and_account();
+}
+
+#[test]
+fn shared_browser_accounts_keep_private_credentials_and_sync_runtime_settings() {
+    let store = temp_store("shared-browser-settings");
+    let mut source = account("source", "");
+    source.profile_dir = "/profiles/source".into();
+    source.browser_profile_dir = "/profiles/browser-shared".into();
+    let mut target = account("target", "");
+    target.profile_dir = "/profiles/target".into();
+    target.browser_profile_dir = "/profiles/browser-shared".into();
+    store.insert_account(source);
+    store.insert_account(target);
+
+    store.update_account(
+        "source",
+        AccountUpdate {
+            proxy_id: Some("proxy-1".into()),
+            browser_os: Some("linux".into()),
+            browser_version: Some("146".into()),
+            ..AccountUpdate::default()
+        },
+    );
+    let target = store.account_by_id("target").unwrap();
+    assert_eq!(target.profile_dir, "/profiles/target");
+    assert_eq!(target.proxy_id, "proxy-1");
+    assert_eq!(target.browser_os, "linux");
+    assert_eq!(target.browser_version, "146");
+
+    let mut relogin = session(BrowserSessionPurpose::ReloginAccount, Some("target".into()));
+    relogin.profile_dir = "/profiles/target".into();
+    relogin.browser_profile_dir = "/profiles/browser-shared".into();
+    relogin.metadata.insert("browser_os".into(), json!("macos"));
+    relogin
+        .metadata
+        .insert("browser_version".into(), json!("145"));
+    store.upsert_from_browser_session(&relogin).unwrap();
+    let source = store.account_by_id("source").unwrap();
+    assert_eq!(source.browser_os, "macos");
+    assert_eq!(source.browser_version, "145");
+    assert_eq!(source.profile_dir, "/profiles/source");
 }
 
 fn update_and_assert_settings(store: &AppStore) {
@@ -225,96 +267,6 @@ fn saved_proxy_id_builds_runtime_proxy_without_copying_password_to_account() {
 }
 
 #[test]
-fn task_lifecycle_updates_result_error_and_sort_order() {
-    let store = temp_store("tasks");
-    store.insert_task(task("task-old", "running", "2026-06-28T00:00:00Z"));
-    store.insert_task(task("task-new", "running", "2026-06-29T00:00:00Z"));
-
-    let tasks = store.list_tasks(Some("platform-a"));
-    assert_eq!(
-        tasks
-            .iter()
-            .map(|task| task.id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["task-new", "task-old",]
-    );
-
-    let completed = store
-        .complete_task(
-            "task-old",
-            json!({ "images": [{ "url": "https://example.test/out.png" }] }),
-        )
-        .unwrap();
-    assert_eq!(completed.status, "completed");
-    assert_eq!(
-        completed.result_url.as_deref(),
-        Some("https://example.test/out.png")
-    );
-
-    assert_eq!(
-        store
-            .fail_task("task-new", "boom".to_string())
-            .unwrap()
-            .error_message
-            .as_deref(),
-        Some("boom")
-    );
-    store.insert_task(task("task-cancel", "running", "2026-06-30T00:00:00Z"));
-    assert_eq!(
-        store.cancel_task("task-cancel").unwrap().status.as_str(),
-        "cancelled"
-    );
-    assert_eq!(
-        store
-            .list_tasks(Some("platform-a"))
-            .into_iter()
-            .find(|task| task.id == "task-cancel")
-            .unwrap()
-            .error_message
-            .as_deref(),
-        Some("用户取消")
-    );
-    assert!(store.complete_task("missing", json!({})).is_none());
-}
-
-#[test]
-fn task_runtime_events_usage_and_verification_are_recorded() {
-    let store = temp_store("task-runtime");
-    store.insert_account(account("acc-runtime", ""));
-    store.insert_task(TaskRecord {
-        account_id: Some("acc-runtime".to_string()),
-        ..task("task-runtime", "processing", "2026-06-30T00:00:00Z")
-    });
-
-    store.add_task_event("task-runtime", "info", "开始执行".to_string());
-    store.mark_account_usage("acc-runtime");
-    let account = store.list_accounts(Some("platform-a")).remove(0);
-    assert_eq!(account.used_today, 1);
-    assert_eq!(account.used_total, 1);
-
-    let verification = store
-        .require_task_verification("task-runtime", "需要验证".to_string())
-        .unwrap();
-    assert_eq!(verification.status, "verification_required");
-    assert_eq!(verification.error_message.as_deref(), Some("需要验证"));
-
-    let resumed = store
-        .resume_task_after_verification("task-runtime")
-        .unwrap();
-    assert_eq!(resumed.status, "queued");
-    assert!(resumed.error_message.is_none());
-
-    let reloaded = AppStore::load(store_path("task-runtime"));
-    let interrupted = &reloaded.list_tasks(Some("platform-a"))[0];
-    // 同步任务没有持久化 worker，服务重启后不能继续执行，必须结束并释放账号并发。
-    assert_eq!(interrupted.status, "failed");
-    assert_eq!(
-        interrupted.error_message.as_deref(),
-        Some("MediaGen 上次退出时任务仍在执行，请重新提交")
-    );
-}
-
-#[test]
 fn browser_session_upsert_creates_and_relogs_accounts() {
     let store = temp_store("browser-upsert");
     let add_session = session(BrowserSessionPurpose::AddAccount, None);
@@ -395,24 +347,6 @@ fn proxy(id: &str) -> ProxyRecord {
     }
 }
 
-fn task(id: &str, status: &str, created_at: &str) -> TaskRecord {
-    TaskRecord {
-        id: id.to_string(),
-        platform: "platform-a".to_string(),
-        task_kind: "image".to_string(),
-        model_id: "image-model".to_string(),
-        prompt: "draw".to_string(),
-        account_id: None,
-        status: status.to_string(),
-        result_url: None,
-        storage_key: None,
-        error_message: None,
-        result_data: None,
-        created_at: created_at.to_string(),
-        completed_at: None,
-    }
-}
-
 fn session(purpose: BrowserSessionPurpose, account_id: Option<String>) -> BrowserSession {
     let mut metadata = HashMap::new();
     metadata.insert("proxy_server".to_string(), json!("socks5://127.0.0.1:1080"));
@@ -434,6 +368,7 @@ fn session(purpose: BrowserSessionPurpose, account_id: Option<String>) -> Browse
         browser_name: "CloakBrowser".to_string(),
         runtime_id: "cloakbrowser".to_string(),
         profile_dir: "/tmp/profile".to_string(),
+        browser_profile_dir: "/tmp/profile".to_string(),
         viewport: BrowserViewport {
             width: 1366,
             height: 820,

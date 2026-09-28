@@ -20,7 +20,7 @@ impl BrowserGateway {
             .into_iter()
             .filter(|session| {
                 session.status == BrowserSessionStatus::Active
-                    && session.profile_dir.trim() == profile_dir
+                    && session.browser_profile_dir.trim() == profile_dir
             })
             .map(|session| session.id)
             .collect::<Vec<_>>();
@@ -93,12 +93,12 @@ impl BrowserGateway {
             if current.status != BrowserSessionStatus::Active {
                 return Err(BrowserGatewayError::SessionClosed(id.to_string()));
             }
-            let profile_dir = current.profile_dir.clone();
+            let profile_dir = current.browser_profile_dir.clone();
             let should_close_tab = state.sessions.iter().any(|(session_id, session)| {
                 session_id != id
                     && session.status == BrowserSessionStatus::Active
                     && session.task_id.is_some()
-                    && session.profile_dir == profile_dir
+                    && session.browser_profile_dir == profile_dir
             });
             let session = state
                 .sessions

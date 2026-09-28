@@ -23,10 +23,11 @@ pub(crate) async fn open_browser(
     let profile_dir =
         text_param(params, "profile_dir").unwrap_or_else(|| account.profile_dir.clone());
     let request = create_request(params, manifest, account, task_id, &start_url, &profile_dir);
+    let browser_profile_dir = account.effective_browser_profile_dir();
 
     // 同一 profile 的首次启动必须串行，等待者随后会进入“创建新 Tab”分支。
     let profile_lock = browser_gateway
-        .profile_open_lock(&profile_dir)
+        .profile_open_lock(browser_profile_dir)
         .map_err(|error| error.to_string())?;
     let _profile_guard = profile_lock.lock().await;
     if let Some(result) = reuse_idle_session(
@@ -111,6 +112,7 @@ fn create_request(
         task_id: task_id.map(str::to_string),
         start_url: start_url.to_string(),
         profile_dir: Some(profile_dir.to_string()),
+        browser_profile_dir: Some(account.effective_browser_profile_dir().to_string()),
         headless: Some(bool_param(params, "headless").unwrap_or(true)),
         metadata: browser_metadata_from_account(account),
         ..BrowserSessionCreateRequest::default()

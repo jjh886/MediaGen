@@ -107,6 +107,9 @@ function main(ctx) {
       deepseekRefreshSession(session, response, targetPath)
     }
     if (!state.finished) throw new Error('generation_incomplete: DeepSeek 未返回完整正文')
+    apiTextReadConversationTitle(writer, conversationId, () =>
+      deepseekReadTextTitle(session, conversationId)
+    )
     const response = apiTextCompleteResponse(writer)
     const result = { success: true, status: 'done', source: 'deepseek-api', response }
     host.checkpoint({ phase: 'completed', conversation_id: conversationId, result })
@@ -115,4 +118,15 @@ function main(ctx) {
     apiTextFailResponse(writer, error)
     throw error
   }
+}
+
+function deepseekReadTextTitle(session, conversationId) {
+  const history = deepseekRequest(
+    session,
+    '/chat/history_messages?chat_session_id=' + encodeURIComponent(conversationId),
+    undefined,
+    'GET',
+    3000
+  )
+  return history.chat_session?.id === conversationId ? history.chat_session.title || '' : ''
 }

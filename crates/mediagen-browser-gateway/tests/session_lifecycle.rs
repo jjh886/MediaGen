@@ -187,6 +187,121 @@ async fn same_profile_tasks_use_independent_tabs_in_one_browser() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[tokio::test]
+#[ignore = "需要 CloakBrowser 和 MEDIAGEN_BROWSER_PROBE_ORIGIN"]
+async fn separate_accounts_share_cookies_without_sharing_private_files() {
+    let origin = std::env::var("MEDIAGEN_BROWSER_PROBE_ORIGIN")
+        .expect("请设置 MEDIAGEN_BROWSER_PROBE_ORIGIN 为可访问的测试站点");
+    let browser_version =
+        std::env::var("MEDIAGEN_BROWSER_PROBE_VERSION").unwrap_or_else(|_| "154".to_string());
+    let root =
+        std::env::temp_dir().join(format!("mediagen-shared-browser-{}", uuid::Uuid::new_v4()));
+    let browser_dir = root.join("browser").to_string_lossy().to_string();
+    let first_private = root.join("account-a").to_string_lossy().to_string();
+    let second_private = root.join("account-b").to_string_lossy().to_string();
+    let gateway = BrowserGateway::new(BrowserGatewayConfig {
+        profile_root: root.clone(),
+        ..BrowserGatewayConfig::default()
+    });
+    let metadata = HashMap::from([
+        ("proxy_mode".to_string(), json!("direct")),
+        ("browser_os".to_string(), json!("windows")),
+        ("browser_version".to_string(), json!(browser_version)),
+    ]);
+    let first = gateway
+        .create_session(BrowserSessionCreateRequest {
+            profile_dir: Some(first_private.clone()),
+            browser_profile_dir: Some(browser_dir.clone()),
+            start_url: origin.clone(),
+            metadata: metadata.clone(),
+            ..BrowserSessionCreateRequest::default()
+        })
+        .await
+        .unwrap()
+        .session;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    assert_eq!(
+        gateway
+            .evaluate_script(&first.id, "navigator.platform", false)
+            .await
+            .unwrap(),
+        json!("Win32")
+    );
+    assert_eq!(
+        gateway
+            .evaluate_script(&first.id, "navigator.userAgentData.platform", false)
+            .await
+            .unwrap(),
+        json!("Windows")
+    );
+    let ua = gateway
+        .evaluate_script(&first.id, "navigator.userAgent", false)
+        .await
+        .unwrap();
+    assert!(ua
+        .as_str()
+        .unwrap()
+        .contains(&format!("Chrome/{browser_version}.0.0.0")));
+    let brands = gateway
+        .evaluate_script(&first.id, "navigator.userAgentData.brands", false)
+        .await
+        .unwrap();
+    assert!(brands
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|brand| { brand["brand"] == "Google Chrome" && brand["version"] == browser_version }));
+    gateway
+        .evaluate_script(
+            &first.id,
+            "localStorage.setItem('mediagen_probe', 'shared-ok'); document.cookie = 'mediagen_probe=shared-ok; Path=/; SameSite=Lax'; true",
+            false,
+        )
+        .await
+        .unwrap();
+
+    let second = gateway
+        .create_profile_tab_session(BrowserSessionCreateRequest {
+            profile_dir: Some(second_private.clone()),
+            browser_profile_dir: Some(browser_dir.clone()),
+            start_url: origin,
+            metadata,
+            ..BrowserSessionCreateRequest::default()
+        })
+        .await
+        .unwrap()
+        .expect("相同浏览器资料应复用进程并新开标签页")
+        .session;
+    assert_ne!(first.profile_dir, second.profile_dir);
+    assert_eq!(first.browser_profile_dir, second.browser_profile_dir);
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    assert_eq!(
+        gateway
+            .evaluate_script(&second.id, "localStorage.getItem('mediagen_probe')", false)
+            .await
+            .unwrap(),
+        json!("shared-ok")
+    );
+    let cookie = gateway
+        .evaluate_script(&second.id, "document.cookie", false)
+        .await
+        .unwrap();
+    assert!(cookie
+        .as_str()
+        .unwrap()
+        .contains("mediagen_probe=shared-ok"));
+    gateway.complete_session(&first.id).await.unwrap();
+    assert_eq!(
+        gateway
+            .evaluate_script(&second.id, "1 + 1", false)
+            .await
+            .unwrap(),
+        json!(2)
+    );
+    gateway.complete_session(&second.id).await.unwrap();
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// 模拟服务重启：新的 Gateway 没有旧内存状态，也必须通过 profile 端口登记接管浏览器。
 #[tokio::test]
 #[ignore = "需要本机 CloakBrowser"]

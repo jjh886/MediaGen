@@ -420,12 +420,13 @@ function chatgptApiTextConversationError(conversation) {
   return ''
 }
 
-function chatgptApiFetchTextConversation(auth, conversationId) {
+function chatgptApiFetchTextConversation(auth, conversationId, timeoutMs = 60000) {
   const path = '/backend-api/conversation/' + encodeURIComponent(conversationId)
   const response = chatgptApiRequest(auth, 'GET', path, {
     target_path: path,
     target_route: '/backend-api/conversation/{conversation_id}',
-    timeout_ms: 60000,
+    timeout_ms: timeoutMs,
+    retry: { max_attempts: 1 },
   })
   if (response.status === 429) {
     const retry = Number(response.headers?.['retry-after'])

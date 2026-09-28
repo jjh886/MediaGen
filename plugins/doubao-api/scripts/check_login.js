@@ -36,8 +36,10 @@
     })
     const body = await response.json()
     const user = body.data
+    if (!response.ok || !(user?.user_id_str || user?.user_id))
+      return JSON.stringify({ loggedIn: false })
     return JSON.stringify({
-      loggedIn: response.ok && Boolean(user?.user_id_str || user?.user_id),
+      loggedIn: true,
       userId: String(user?.user_id_str || user?.user_id || ''),
       username: user?.screen_name || user?.name || user?.mobile || user?.email || '',
       email: user?.mobile || user?.email || '',

@@ -95,7 +95,7 @@ impl BrowserGateway {
         let mut state = self.lock_state()?;
         if state.sessions.values().any(|existing| {
             existing.status == BrowserSessionStatus::Active
-                && existing.profile_dir.trim() == session.profile_dir.trim()
+                && existing.browser_profile_dir.trim() == session.browser_profile_dir.trim()
                 && crate::proxy::runtime_signature(existing)
                     != crate::proxy::runtime_signature(session)
         }) {
@@ -105,7 +105,7 @@ impl BrowserGateway {
         }
         let shared_browser = state.sessions.iter().find_map(|(id, existing)| {
             (existing.status == BrowserSessionStatus::Active
-                && existing.profile_dir.trim() == session.profile_dir.trim())
+                && existing.browser_profile_dir.trim() == session.browser_profile_dir.trim())
             .then(|| {
                 state
                     .runtimes

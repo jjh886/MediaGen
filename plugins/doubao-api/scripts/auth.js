@@ -43,13 +43,13 @@ function doubaoHeaders(session, path = '/') {
   return headers
 }
 
-function doubaoRequest(session, path, body, method) {
+function doubaoRequest(session, path, body, method, timeoutMs = 60000) {
   const request = doubaoSignedRequest(session, path, body, method || 'POST')
   if (path.startsWith('/passport/')) doubaoCorsPreflight(session, request, ['content-type'], true)
   const result = apiSessionRequireOk(
     host.call('http.request', {
       ...request,
-      timeout_ms: 60000,
+      timeout_ms: timeoutMs,
     }),
     '豆包请求失败'
   )

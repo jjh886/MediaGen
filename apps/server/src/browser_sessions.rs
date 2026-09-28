@@ -1,8 +1,9 @@
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
+
 use actix_web::{web, HttpResponse, Responder};
 use mediagen_browser_gateway::{
-    BrowserCdpRequest, BrowserClipboardRequest, BrowserGatewayError, BrowserHistoryRequest,
-    BrowserInputRequest, BrowserNavigateRequest, BrowserResizeRequest, BrowserScreenshotRequest,
-    BrowserSession, BrowserSessionCreateRequest, BrowserSessionPurpose,
+    BrowserGatewayError, BrowserSession, BrowserSessionCreateRequest, BrowserSessionPurpose,
 };
 use mediagen_core::PluginManifest;
 use serde_json::{json, Value};
@@ -14,12 +15,27 @@ use crate::browser_session_setup::{
 };
 use crate::oauth_login;
 use crate::routes::public_account;
-use crate::value_utils::file_paths_from_value;
 use crate::ServerState;
+
+#[path = "browser_session_actions.rs"]
+mod actions;
+use actions::{
+    browser_session_history, cdp_browser_session, click_browser_session, clipboard_browser_session,
+    download_browser_session, evaluate_browser_session, input_browser_session,
+    navigate_browser_session, resize_browser_session, screenshot_browser_session,
+    type_browser_session, upload_browser_session,
+};
+
+const CHROME_STABLE_VERSIONS_URL: &str =
+    "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json";
+const CHROME_STABLE_FALLBACK_MAJOR: u16 = 154;
+const CHROME_VERSION_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+static CHROME_VERSION_CACHE: OnceLock<tokio::sync::Mutex<Option<(Instant, u16)>>> = OnceLock::new();
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/browser-sessions")
+            .route("/fingerprint-options", web::get().to(fingerprint_options))
             .route(
                 "",
                 web::get().to(crate::browser_session_list::list_browser_sessions),
@@ -54,34 +70,75 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     );
 }
 
-pub async fn navigate_browser_session(
-    state: web::Data<ServerState>,
-    path: web::Path<String>,
-    request: web::Json<BrowserNavigateRequest>,
-) -> impl Responder {
+async fn fingerprint_options(state: web::Data<ServerState>) -> impl Responder {
     match state
         .browser_gateway
-        .navigate_session(&path.into_inner(), request.into_inner())
+        .installed_browser_major_version()
         .await
     {
-        Ok(response) => HttpResponse::Ok().json(response),
-        Err(err) => gateway_error_response(err),
+        Ok(installed_version) => {
+            let stable_version = latest_stable_chrome_major().await.max(installed_version);
+            HttpResponse::Ok().json(json!({
+                "data": {
+                    "browser_version": stable_version.to_string(),
+                    "installed_browser_version": installed_version.to_string(),
+                    "os": match std::env::consts::OS {
+                        "macos" => "macos",
+                        "linux" => "linux",
+                        "windows" => "windows",
+                        _ => "windows",
+                    }
+                }
+            }))
+        }
+        Err(error) => gateway_error_response(error),
     }
 }
 
-pub async fn browser_session_history(
-    state: web::Data<ServerState>,
-    path: web::Path<String>,
-    request: web::Json<BrowserHistoryRequest>,
-) -> impl Responder {
-    match state
-        .browser_gateway
-        .history_session(&path.into_inner(), request.into_inner())
-        .await
-    {
-        Ok(response) => HttpResponse::Ok().json(response),
-        Err(err) => gateway_error_response(err),
+async fn latest_stable_chrome_major() -> u16 {
+    let cache = CHROME_VERSION_CACHE.get_or_init(|| tokio::sync::Mutex::new(None));
+    let mut cached = cache.lock().await;
+    if let Some((checked_at, major)) = *cached {
+        if checked_at.elapsed() < CHROME_VERSION_CACHE_TTL {
+            return major;
+        }
     }
+
+    let result: Result<u16, String> = async {
+        let response = reqwest::Client::new()
+            .get(CHROME_STABLE_VERSIONS_URL)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+            .map_err(|error| error.to_string())?
+            .error_for_status()
+            .map_err(|error| error.to_string())?;
+        let body = response
+            .json::<Value>()
+            .await
+            .map_err(|error| error.to_string())?;
+        parse_stable_chrome_major(&body).ok_or_else(|| "Chrome Stable 版本格式无效".to_string())
+    }
+    .await;
+    match result {
+        Ok(major) => {
+            *cached = Some((Instant::now(), major));
+            major.max(CHROME_STABLE_FALLBACK_MAJOR)
+        }
+        Err(error) => {
+            tracing::warn!(%error, "读取 Chrome Stable 版本失败");
+            cached
+                .map(|(_, major)| major)
+                .unwrap_or(CHROME_STABLE_FALLBACK_MAJOR)
+                .max(CHROME_STABLE_FALLBACK_MAJOR)
+        }
+    }
+}
+
+fn parse_stable_chrome_major(body: &Value) -> Option<u16> {
+    let version = body.pointer("/channels/Stable/version")?.as_str()?;
+    let major = version.split('.').next()?.parse::<u16>().ok()?;
+    (major >= 100 && version.split('.').count() == 4).then_some(major)
 }
 
 pub async fn create_browser_session(
@@ -113,7 +170,30 @@ pub async fn create_browser_session(
             return HttpResponse::Conflict().json(json!({ "ok": false, "error": message }));
         }
     }
-    match state.browser_gateway.create_session(request).await {
+    let browser_profile_dir = request
+        .browser_profile_dir
+        .clone()
+        .or_else(|| request.profile_dir.clone());
+    let result = if let Some(profile_dir) = browser_profile_dir.as_deref() {
+        match state.browser_gateway.profile_open_lock(profile_dir) {
+            Ok(lock) => {
+                let _guard = lock.lock().await;
+                match state
+                    .browser_gateway
+                    .create_profile_tab_session(request.clone())
+                    .await
+                {
+                    Ok(Some(response)) => Ok(response),
+                    Ok(None) => state.browser_gateway.create_session(request).await,
+                    Err(error) => Err(error),
+                }
+            }
+            Err(error) => Err(error),
+        }
+    } else {
+        state.browser_gateway.create_session(request).await
+    };
+    match result {
         Ok(response) => HttpResponse::Ok().json(public_browser_response(response)),
         Err(err) => {
             if let Some(oauth_state) = oauth_state {
@@ -278,201 +358,6 @@ fn finish_human_verification(state: &ServerState, task_id: &str, account_id: &Op
     );
 }
 
-pub async fn resize_browser_session(
-    state: web::Data<ServerState>,
-    path: web::Path<String>,
-    request: web::Json<BrowserResizeRequest>,
-) -> impl Responder {
-    match state
-        .browser_gateway
-        .resize_session(&path.into_inner(), request.into_inner())
-        .await
-    {
-        Ok(response) => HttpResponse::Ok().json(response),
-        Err(err) => gateway_error_response(err),
-    }
-}
-
-pub async fn screenshot_browser_session(
-    state: web::Data<ServerState>,
-    path: web::Path<String>,
-    request: web::Json<BrowserScreenshotRequest>,
-) -> impl Responder {
-    match state
-        .browser_gateway
-        .screenshot_session(&path.into_inner(), request.into_inner())
-        .await
-    {
-        Ok(response) => HttpResponse::Ok().json(response),
-        Err(err) => gateway_error_response(err),
-    }
-}
-
-pub async fn evaluate_browser_session(
-    state: web::Data<ServerState>,
-    path: web::Path<String>,
-    request: web::Json<Value>,
-) -> impl Responder {
-    let script = request["script"].as_str().unwrap_or_default();
-    if script.trim().is_empty() {
-        return HttpResponse::BadRequest().json(json!({ "ok": false, "error": "缺少 script" }));
-    }
-    let await_promise = request["await_promise"]
-        .as_bool()
-        .or_else(|| request["awaitPromise"].as_bool())
-        .unwrap_or(false);
-    match state
-        .browser_gateway
-        .evaluate_script(&path.into_inner(), script, await_promise)
-        .await
-    {
-        Ok(data) => HttpResponse::Ok().json(json!({ "ok": true, "data": data })),
-        Err(err) => gateway_error_response(err),
-    }
-}
-
-pub async fn click_browser_session(
-    state: web::Data<ServerState>,
-    path: web::Path<String>,
-    request: web::Json<Value>,
-) -> impl Responder {
-    let session_id = path.into_inner();
-    let result = if let Some(selector) = request["selector"].as_str() {
-        state
-            .browser_gateway
-            .click_selector(&session_id, selector)
-            .await
-    } else if let Some(text) = request["text"].as_str() {
-        state
-            .browser_gateway
-            .click_text(
-                &session_id,
-                text,
-                request["tag"].as_str().unwrap_or("*"),
-                request["exact"].as_bool().unwrap_or(false),
-            )
-            .await
-    } else {
-        return HttpResponse::BadRequest().json(json!({
-            "ok": false,
-            "error": "缺少 selector 或 text"
-        }));
-    };
-    match result {
-        Ok(data) => HttpResponse::Ok().json(json!({ "ok": true, "data": data })),
-        Err(err) => gateway_error_response(err),
-    }
-}
-
-pub async fn type_browser_session(
-    state: web::Data<ServerState>,
-    path: web::Path<String>,
-    request: web::Json<Value>,
-) -> impl Responder {
-    let selector = request["selector"].as_str().unwrap_or_default();
-    let text = request["text"].as_str().unwrap_or_default();
-    if selector.is_empty() {
-        return HttpResponse::BadRequest().json(json!({ "ok": false, "error": "缺少 selector" }));
-    }
-    match state
-        .browser_gateway
-        .type_text(
-            &path.into_inner(),
-            selector,
-            text,
-            request["clear_first"].as_bool().unwrap_or(false),
-        )
-        .await
-    {
-        Ok(data) => HttpResponse::Ok().json(json!({ "ok": true, "data": data })),
-        Err(err) => gateway_error_response(err),
-    }
-}
-
-pub async fn upload_browser_session(
-    state: web::Data<ServerState>,
-    path: web::Path<String>,
-    request: web::Json<Value>,
-) -> impl Responder {
-    let selector = request["selector"].as_str().unwrap_or_default();
-    if selector.is_empty() {
-        return HttpResponse::BadRequest().json(json!({ "ok": false, "error": "缺少 selector" }));
-    }
-    let files = file_paths_from_value(&request["file_paths"]);
-    match state
-        .browser_gateway
-        .set_file_input(&path.into_inner(), selector, files)
-        .await
-    {
-        Ok(data) => HttpResponse::Ok().json(json!({ "ok": true, "data": data })),
-        Err(err) => gateway_error_response(err),
-    }
-}
-
-pub async fn download_browser_session(
-    state: web::Data<ServerState>,
-    path: web::Path<String>,
-    request: web::Json<Value>,
-) -> impl Responder {
-    let url = request["url"].as_str().unwrap_or_default();
-    if url.trim().is_empty() {
-        return HttpResponse::BadRequest().json(json!({ "ok": false, "error": "缺少 url" }));
-    }
-    match state
-        .browser_gateway
-        .download_in_browser(&path.into_inner(), url)
-        .await
-    {
-        Ok(data) => HttpResponse::Ok().json(json!({ "ok": true, "data": data })),
-        Err(err) => gateway_error_response(err),
-    }
-}
-
-pub async fn cdp_browser_session(
-    state: web::Data<ServerState>,
-    path: web::Path<String>,
-    request: web::Json<BrowserCdpRequest>,
-) -> impl Responder {
-    match state
-        .browser_gateway
-        .send_cdp_command(&path.into_inner(), request.into_inner())
-        .await
-    {
-        Ok(response) => HttpResponse::Ok().json(response),
-        Err(err) => gateway_error_response(err),
-    }
-}
-
-pub async fn input_browser_session(
-    state: web::Data<ServerState>,
-    path: web::Path<String>,
-    request: web::Json<BrowserInputRequest>,
-) -> impl Responder {
-    match state
-        .browser_gateway
-        .dispatch_input(&path.into_inner(), request.into_inner())
-        .await
-    {
-        Ok(response) => HttpResponse::Ok().json(response),
-        Err(err) => gateway_error_response(err),
-    }
-}
-
-pub async fn clipboard_browser_session(
-    state: web::Data<ServerState>,
-    path: web::Path<String>,
-    request: web::Json<BrowserClipboardRequest>,
-) -> impl Responder {
-    match state
-        .browser_gateway
-        .clipboard(&path.into_inner(), request.into_inner())
-        .await
-    {
-        Ok(response) => HttpResponse::Ok().json(response),
-        Err(err) => gateway_error_response(err),
-    }
-}
-
 pub(crate) fn gateway_error_response(err: BrowserGatewayError) -> HttpResponse {
     let status = match err {
         BrowserGatewayError::SessionNotFound(_) => actix_web::http::StatusCode::NOT_FOUND,
@@ -490,4 +375,32 @@ pub(crate) fn gateway_error_response(err: BrowserGatewayError) -> HttpResponse {
         "ok": false,
         "error": err.to_string(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_stable_chrome_major;
+    use serde_json::json;
+
+    #[test]
+    fn accepts_only_stable_four_part_chrome_versions() {
+        assert_eq!(
+            parse_stable_chrome_major(&json!({
+                "channels": { "Stable": { "version": "154.0.8037.57" } }
+            })),
+            Some(154)
+        );
+        assert_eq!(
+            parse_stable_chrome_major(&json!({
+                "channels": { "Beta": { "version": "155.0.8059.12" } }
+            })),
+            None
+        );
+        assert_eq!(
+            parse_stable_chrome_major(&json!({
+                "channels": { "Stable": { "version": "bad-version" } }
+            })),
+            None
+        );
+    }
 }

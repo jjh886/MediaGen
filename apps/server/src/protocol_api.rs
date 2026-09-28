@@ -264,7 +264,8 @@ pub(crate) async fn dispatch(
         if let Ok(value) = &mut result {
             if value["response"]["object"] == "response" {
                 value["response"]["store"] = json!(store_response);
-                value["response"]["metadata"] = metadata;
+                value["response"]["metadata"] =
+                    crate::protocol_storage::response_metadata(&value["response"], &metadata);
                 value["response"]["previous_response_id"] = previous_response_id;
                 if value["terminal_event"]["response"].is_object() {
                     value["terminal_event"]["response"] = value["response"].clone();

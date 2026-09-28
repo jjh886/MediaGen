@@ -274,6 +274,7 @@ impl AppStore {
             .unwrap_or_default(),
             api_key: String::new(),
             profile_dir: session.profile_dir.clone(),
+            browser_profile_dir: session.browser_profile_dir.clone(),
             created_at: Utc::now().to_rfc3339(),
         };
         self.insert_account(account.clone());
@@ -300,6 +301,7 @@ impl AppStore {
         }
         let account = accounts.iter_mut().find(|account| account.id == id)?;
         account.profile_dir = session.profile_dir.clone();
+        account.browser_profile_dir = session.browser_profile_dir.clone();
         account.policy.last_check_at = Some(Utc::now().to_rfc3339());
         account.policy.login_state_reason.clear();
         account.login_state = "available".to_string();
@@ -309,6 +311,17 @@ impl AppStore {
             apply_account_profile(account, profile);
         }
         let account = account.clone();
+        let browser_dir = account.effective_browser_profile_dir().to_string();
+        if !browser_dir.trim().is_empty() {
+            for other in accounts.iter_mut().filter(|other| {
+                other.id != id && other.effective_browser_profile_dir() == browser_dir
+            }) {
+                other.proxy_url = account.proxy_url.clone();
+                other.proxy_id = account.proxy_id.clone();
+                other.browser_os = account.browser_os.clone();
+                other.browser_version = account.browser_version.clone();
+            }
+        }
         drop(accounts);
         self.save();
         Some(account)
@@ -330,12 +343,8 @@ fn account_tier(profile: &AccountLoginProfile, manifest: Option<&PluginManifest>
 }
 
 fn apply_session_metadata(account: &mut AccountRecord, session: &BrowserSession) {
-    if let Some(proxy_url) = proxy_url_from_session_metadata(&session.metadata) {
-        account.proxy_url = proxy_url;
-    }
-    if let Some(proxy_id) = non_empty(session.proxy_id.as_deref()) {
-        account.proxy_id = proxy_id.to_string();
-    }
+    account.proxy_url = proxy_url_from_session_metadata(&session.metadata).unwrap_or_default();
+    account.proxy_id = session.proxy_id.clone().unwrap_or_default();
     if let Some(value) = text_from_session_metadata(&session.metadata, BROWSER_OS_METADATA_KEY) {
         account.browser_os = value;
     }
@@ -343,10 +352,6 @@ fn apply_session_metadata(account: &mut AccountRecord, session: &BrowserSession)
     {
         account.browser_version = value;
     }
-}
-
-fn non_empty(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 fn same_upstream_identity(account: &AccountRecord, profile: &AccountLoginProfile) -> bool {

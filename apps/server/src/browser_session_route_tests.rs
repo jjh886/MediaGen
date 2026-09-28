@@ -64,6 +64,57 @@ async fn saved_proxy_id_is_resolved_before_creating_browser_session() {
 }
 
 #[actix_web::test]
+async fn new_account_shares_only_browser_data_and_inherits_runtime_settings() {
+    let state = test_state("share-browser-data");
+    insert_proxy(&state, "proxy-1", true, "user", "pass");
+    let mut source = account_record("source", "platform-a", "Platform A", "");
+    source.profile_dir = "/profiles/source-private".into();
+    source.browser_profile_dir = "/profiles/shared-browser".into();
+    source.proxy_id = "proxy-1".into();
+    source.browser_os = "macos".into();
+    source.browser_version = "145".into();
+    state.store.insert_account(source);
+    let app = crate::init_admin_test_app!(state.clone());
+
+    let response = post_browser_session!(
+        app,
+        json!({
+            "purpose": "add_account",
+            "platform": "fake",
+            "start_url": "https://example.test",
+            "reuse_browser_profile_account_id": "source",
+            "profile_dir": "/profiles/source-private",
+            "metadata": { "browser_os": "windows", "browser_version": "150" }
+        })
+    );
+    assert!(response.status().is_success());
+    let body = read_json(response).await;
+    let session = session_from_body(&state, &body);
+    assert_ne!(session.profile_dir, "/profiles/source-private");
+    assert_ne!(session.profile_dir, session.browser_profile_dir);
+    assert_eq!(session.browser_profile_dir, "/profiles/shared-browser");
+    assert_eq!(session.proxy_id.as_deref(), Some("proxy-1"));
+    assert_eq!(session.metadata["browser_os"], "macos");
+    assert_eq!(session.metadata["browser_version"], "145");
+}
+
+#[actix_web::test]
+async fn invalid_browser_fingerprint_is_rejected_before_browser_launch() {
+    let state = test_state("invalid-browser-fingerprint");
+    let app = crate::init_admin_test_app!(state);
+    let response = post_browser_session!(
+        app,
+        json!({
+            "purpose": "add_account",
+            "platform": "fake",
+            "start_url": "https://example.test",
+            "metadata": { "browser_os": "windows", "browser_version": "invalid" }
+        })
+    );
+    assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+}
+
+#[actix_web::test]
 async fn relogin_session_uses_saved_proxy_from_account() {
     let state = test_state("relogin-saved-proxy");
     insert_proxy(&state, "proxy-1", true, "user", "pass");
