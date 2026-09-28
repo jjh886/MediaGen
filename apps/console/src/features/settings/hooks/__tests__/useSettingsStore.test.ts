@@ -18,9 +18,6 @@ vi.mock('@/shared/services/settings-service', () => ({
 // 测试用 fixture，字段值故意与源码 DEFAULTS 不同以避免重复代码检测
 const defaultSettings: AppSettings = {
   api_port: 7777,
-  api_end_port: 7786,
-  api_ports: '7777-7780',
-  api_port_count: 10,
   api_address: '192.168.1.1',
   api_allowed_origins: '*',
   image_task_concurrency: 64,

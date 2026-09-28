@@ -140,6 +140,7 @@ use routes::{
 
 #[derive(Clone)]
 pub struct ServerState {
+    pub(crate) api_bind: (String, u16),
     pub(crate) admin: Arc<admin_users_store::AdminStore>,
     pub plugin_loader: Arc<PluginLoader>,
     pub browser_gateway: Arc<BrowserGateway>,
@@ -221,6 +222,7 @@ fn build_state(config: &ServerConfig) -> Result<ServerState, String> {
     let credential_cipher = CredentialCipher::new(&config.data_dir)?;
     let generation_queue_enabled = true;
     Ok(ServerState {
+        api_bind: (config.host.clone(), config.port),
         admin: Arc::new(admin_auth::initialize(&config.data_dir)?),
         plugin_loader: Arc::new(plugin_loader),
         browser_gateway: Arc::new(BrowserGateway::new(BrowserGatewayConfig {
@@ -439,7 +441,7 @@ impl ServerConfig {
         let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let data_dir = env_path("MEDIAGEN_DATA_DIR", root.join("data"));
         Self {
-            host: std::env::var("MEDIAGEN_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
+            host: std::env::var("MEDIAGEN_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             port: std::env::var("MEDIAGEN_PORT")
                 .ok()
                 .and_then(|value| value.parse().ok())

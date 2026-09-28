@@ -9,7 +9,6 @@ import {
 
 const settings: AppSettings = {
   ...DEFAULT_SETTINGS,
-  api_ports: '18080',
   platform_generation_configs: '{"other":{"quality":"high"}}',
 }
 

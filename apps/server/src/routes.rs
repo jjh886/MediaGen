@@ -235,7 +235,10 @@ pub(crate) async fn cancel_task_browser_sessions(state: &ServerState, task_id: &
 }
 
 pub async fn settings(state: web::Data<ServerState>) -> impl Responder {
-    let saved = state.store.settings();
+    let mut saved = state.store.settings();
+    // 监听配置由启动环境决定，不能展示数据库中遗留的地址或端口。
+    saved.api_address.clone_from(&state.api_bind.0);
+    saved.api_port = state.api_bind.1;
     HttpResponse::Ok().json(serde_json::json!({ "data": saved }))
 }
 
@@ -244,7 +247,11 @@ pub async fn update_settings(
     payload: web::Json<SettingsUpdate>,
 ) -> impl Responder {
     let previous_interval = state.store.settings().check_interval_minutes;
-    let data = state.store.update_settings(payload.into_inner());
+    let data = state.store.update_settings(SettingsUpdate {
+        api_address: Some(state.api_bind.0.clone()),
+        api_port: Some(state.api_bind.1),
+        ..payload.into_inner()
+    });
     if data.check_interval_minutes != previous_interval {
         state.account_refresh.notify_schedule_changed();
     }

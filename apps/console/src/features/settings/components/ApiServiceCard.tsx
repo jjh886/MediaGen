@@ -2,22 +2,14 @@ import type { ReactNode } from 'react'
 import type { AppSettings } from '@/shared/services/settings-service'
 import { cardStyle, titleStyle, Field } from './settings-shared'
 
-export function ApiServiceCard({
-  settings: s,
-}: {
-  settings: AppSettings
-  update: <K extends keyof AppSettings>(k: K, v: AppSettings[K]) => void
-}) {
+export function ApiServiceCard({ settings: s }: { settings: AppSettings }) {
   return (
     <div style={cardStyle}>
       <h2 style={titleStyle}>API 服务</h2>
-      <Field label="开始端口" hint="当前版本由启动参数控制，只在这里展示。">
+      <Field label="服务端口" hint="仅监听一个端口，通过 MEDIAGEN_PORT 环境变量配置，重启后生效。">
         <ReadOnlyValue>{s.api_port}</ReadOnlyValue>
       </Field>
-      <Field label="结束端口" hint="当前版本由启动参数控制，只在这里展示。">
-        <ReadOnlyValue>{s.api_end_port}</ReadOnlyValue>
-      </Field>
-      <Field label="监听地址" hint="如需调整，请通过 MEDIAGEN_HOST/MEDIAGEN_PORT 启动参数配置。">
+      <Field label="监听地址" hint="默认 0.0.0.0，通过 MEDIAGEN_HOST 环境变量配置，重启后生效。">
         <ReadOnlyValue>{s.api_address}</ReadOnlyValue>
       </Field>
     </div>

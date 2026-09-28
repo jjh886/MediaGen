@@ -66,8 +66,30 @@ describe('settings-service', () => {
     const settings = await getAllSettings()
 
     expect(settings.api_port).toBe(18082)
-    expect(settings.api_address).toBe('127.0.0.1')
+    expect(settings.api_address).toBe('0.0.0.0')
     expect(settings.image_task_concurrency).toBe(64)
+  })
+
+  it('忽略旧版多端口字段，保留服务端实际监听配置', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        data: {
+          api_port: 19080,
+          api_address: '192.0.2.10',
+          api_end_port: 19089,
+          api_ports: '19080-19089',
+          api_port_count: 10,
+        },
+      })
+    )
+
+    const settings = await getAllSettings()
+
+    expect(settings.api_port).toBe(19080)
+    expect(settings.api_address).toBe('192.0.2.10')
+    expect(settings).not.toHaveProperty('api_end_port')
+    expect(settings).not.toHaveProperty('api_ports')
+    expect(settings).not.toHaveProperty('api_port_count')
   })
 
   it('缓存清理暂未接入真实文件清理', async () => {

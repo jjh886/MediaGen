@@ -31,7 +31,7 @@ function SettingsCardGrid({ settings, update }: { settings: AppSettings; update:
         overflow: 'auto',
       }}
     >
-      <ApiServiceCard settings={settings} update={update} />
+      <ApiServiceCard settings={settings} />
       <LoginManageCard settings={settings} update={update} />
       <div style={{ gridColumn: '1 / -1' }}>
         <PlatformGenerationConfigCard settings={settings} update={update} />

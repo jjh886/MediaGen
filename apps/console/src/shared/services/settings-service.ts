@@ -2,9 +2,6 @@ import { apiGet, apiPost } from '@/shared/services/http-api-client'
 
 export interface AppSettings {
   api_port: number
-  api_end_port: number
-  api_ports: string
-  api_port_count: number
   api_address: string
   api_allowed_origins: string
   image_task_concurrency: number
@@ -31,10 +28,7 @@ export interface TierOverride {
 // 导出统一默认值，测试与界面都从同一事实来源构造设置，避免字段新增后两边漂移。
 export const DEFAULT_SETTINGS: AppSettings = {
   api_port: 18080,
-  api_end_port: 18089,
-  api_ports: '',
-  api_port_count: 10,
-  api_address: '127.0.0.1',
+  api_address: '0.0.0.0',
   api_allowed_origins: '*',
   image_task_concurrency: 64,
   image_task_queue_limit: 512,

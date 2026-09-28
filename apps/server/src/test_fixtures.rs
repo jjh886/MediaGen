@@ -53,6 +53,7 @@ pub fn account_record(id: &str, platform: &str, name: &str, api_key: &str) -> Ac
 
 pub fn server_state(root: std::path::PathBuf, plugin_loader: PluginLoader) -> ServerState {
     ServerState {
+        api_bind: ("0.0.0.0".to_string(), 18080),
         admin: Arc::new(
             crate::admin_users_store::AdminStore::open(&root.join("admin.sqlite"), false).unwrap(),
         ),

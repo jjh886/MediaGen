@@ -92,7 +92,7 @@ function changedKeys(settings: AppSettings, saved: AppSettings): (keyof AppSetti
 }
 
 function saveMessage(keys: (keyof AppSettings)[]) {
-  const restartKeys: (keyof AppSettings)[] = ['api_port', 'api_end_port', 'api_address']
+  const restartKeys: (keyof AppSettings)[] = ['api_port', 'api_address']
   const restartRequired = keys.some((key) => restartKeys.includes(key))
   return restartRequired ? '设置已保存，端口或监听地址变更需要重启后生效。' : '设置已保存。'
 }

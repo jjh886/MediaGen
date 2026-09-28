@@ -5,9 +5,6 @@ import type { AppSettings } from '@/shared/services/settings-service'
 
 const settings: AppSettings = {
   api_port: 17777,
-  api_end_port: 17779,
-  api_ports: '17777-17779',
-  api_port_count: 3,
   api_address: '0.0.0.0',
   api_allowed_origins: 'https://client.example.com',
   image_task_concurrency: 8,
