@@ -378,6 +378,31 @@ mod tests {
         wait_for_port(&bind, false).await;
     }
 
+    #[actix_web::test]
+    async fn valid_callback_returns_page_before_stopping_listener() {
+        let bind = unused_loopback_bind();
+        let root = std::env::temp_dir().join(format!("mediagen-oauth-{}", uuid::Uuid::new_v4()));
+        let mut state = crate::test_fixtures::server_state(root, PluginLoader::empty());
+        let logins = OAuthLoginStore::new(bind.clone());
+        state.oauth_logins = logins.clone();
+        let state = actix_web::web::Data::new(state);
+        logins.start_login(state, "valid-state").unwrap();
+        wait_for_port(&bind, true).await;
+
+        let response = reqwest::get(format!(
+            "http://{bind}/auth/callback?state=valid-state&code=test-code"
+        ))
+        .await
+        .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert!(response.text().await.unwrap().contains("登录已完成"));
+        assert_eq!(
+            logins.take_callback("valid-state").unwrap().code,
+            "test-code"
+        );
+        wait_for_port(&bind, false).await;
+    }
+
     fn unused_loopback_bind() -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         format!("127.0.0.1:{}", listener.local_addr().unwrap().port())

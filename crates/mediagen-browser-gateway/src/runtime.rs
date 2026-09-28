@@ -144,14 +144,12 @@ pub(crate) async fn launch_cloakbrowser(
     if let Some(fingerprint) = BrowserFingerprint::from_metadata(&session.metadata) {
         args.push(format!("--user-agent={}", fingerprint.user_agent()));
     }
-    if let Some(proxy_server) = bridge
-        .as_ref()
-        .map(|b| b.address.clone())
-        .or_else(|| proxy::proxy_server_from_session(session))
-    {
-        args.push(format!("--proxy-server={proxy_server}"));
-        args.push("--proxy-bypass-list=<-loopback>".into());
-    }
+    args.extend(proxy_launch_args(
+        bridge
+            .as_ref()
+            .map(|b| b.address.clone())
+            .or_else(|| proxy::proxy_server_from_session(session)),
+    ));
     // 先打开空白页，等 CDP 原生弹窗 guard 安装完成后再导航到目标页，避免页面抢先弹出系统认证框。
     args.push(browser_launch_url().to_string());
 
@@ -191,6 +189,13 @@ pub(crate) async fn launch_cloakbrowser(
     let mut runtime = BrowserRuntime::owned(debugging_port, child, &session.profile_dir);
     runtime.bridge = bridge;
     Ok((runtime, target))
+}
+
+fn proxy_launch_args(server: Option<String>) -> Vec<String> {
+    // Chromium 默认让 localhost 直连；OAuth 的本机回调需要保留这条规则。
+    server
+        .map(|server| vec![format!("--proxy-server={server}")])
+        .unwrap_or_default()
 }
 
 async fn attach_registered_runtime(profile_dir: &str) -> Option<(BrowserRuntime, BrowserTarget)> {

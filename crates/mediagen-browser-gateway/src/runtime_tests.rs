@@ -1,4 +1,6 @@
-use super::{browser_launch_url, local_bundle_candidate_paths, parse_runtime_port};
+use super::{
+    browser_launch_url, local_bundle_candidate_paths, parse_runtime_port, proxy_launch_args,
+};
 use mediagen_core::{bundled_cloakbrowser_candidates, first_existing_browser_binary};
 
 #[test]
@@ -30,6 +32,15 @@ fn local_bundle_resolution_reuses_packaged_runtime_and_prefers_install_directory
 #[test]
 fn browser_starts_blank_before_cdp_guards_are_ready() {
     assert_eq!(browser_launch_url(), "about:blank");
+}
+
+#[test]
+fn proxied_browser_keeps_chromiums_implicit_loopback_bypass() {
+    assert_eq!(proxy_launch_args(None), Vec::<String>::new());
+    assert_eq!(
+        proxy_launch_args(Some("http://127.0.0.1:12345".into())),
+        vec!["--proxy-server=http://127.0.0.1:12345"]
+    );
 }
 
 #[test]
