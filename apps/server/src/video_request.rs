@@ -30,6 +30,7 @@ pub struct OpenAiVideoRequest {
 
 #[derive(Clone, Debug)]
 pub struct VideoFlowRequest {
+    pub ref_video_locals: Vec<String>,
     pub task_id: String,
     pub model_id: String,
     pub model_display_name: String,
@@ -60,6 +61,13 @@ impl OpenAiVideoRequest {
     }
 
     pub fn validate(&self) -> Result<(), ApiError> {
+        if self.extra.contains_key("ref_video_locals")
+            || self.extra.contains_key("ref_audio_locals")
+        {
+            return request_error(
+                "不能提交服务器本地路径，请使用 video_reference.file_id 或 data URL",
+            );
+        }
         if self.model.trim().is_empty() {
             return request_error("model 不能为空");
         }
@@ -168,6 +176,7 @@ impl OpenAiVideoRequest {
         ref_image_locals: Vec<String>,
     ) -> Result<VideoFlowRequest, ApiError> {
         Ok(VideoFlowRequest {
+            ref_video_locals: Vec::new(),
             task_id,
             model_id: self.model.clone(),
             model_display_name,
@@ -285,6 +294,19 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn public_video_requests_cannot_read_server_local_paths() {
+        for field in ["ref_video_locals", "ref_audio_locals"] {
+            let mut request = OpenAiVideoRequest::empty();
+            request.model = "video".into();
+            request.prompt = "测试".into();
+            request
+                .extra
+                .insert(field.into(), json!(["/private/credentials"]));
+            assert!(request.validate().is_err());
+        }
+    }
 
     #[test]
     fn accepts_openai_string_seconds_and_maps_size_to_ratio() {

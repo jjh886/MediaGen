@@ -7,6 +7,11 @@ impl ServerPluginHost {
         profile_dir: &str,
         manifest: &mediagen_core::PluginManifest,
     ) -> Self {
+        self.policy = manifest.extra.get("capabilities").map(|capabilities| {
+            let policy = policy::Policy::new(capabilities);
+            policy.visible_context(json!({"profile_dir": profile_dir}));
+            policy
+        });
         self.credential_cipher = Some(cipher);
         self.profile_dir = PathBuf::from(profile_dir);
         self.protected_files = manifest
@@ -103,15 +108,37 @@ impl ServerPluginHost {
         let metadata = tokio::fs::metadata(&path)
             .await
             .map_err(|err| format!("file.read_base64 找不到文件 {path}: {err}"))?;
-        let max_bytes = params["max_bytes"].as_u64().unwrap_or(MAX_FILE_BYTES);
+        let max_bytes = params["max_bytes"]
+            .as_u64()
+            .unwrap_or(MAX_FILE_BYTES)
+            .min(MAX_FILE_BYTES);
         if metadata.len() > max_bytes {
             return Err(format!(
                 "file.read_base64 文件超过限制 {max_bytes} bytes: {path}"
             ));
         }
-        let bytes = tokio::fs::read(&path)
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+        let offset = params["offset"].as_u64().unwrap_or(0);
+        let length = params["length"]
+            .as_u64()
+            .unwrap_or(metadata.len().saturating_sub(offset));
+        if offset > metadata.len() || length > max_bytes || length > metadata.len() - offset {
+            return Err("文件读取范围无效".into());
+        }
+        let mut file = tokio::fs::File::open(&path)
             .await
-            .map_err(|err| err.to_string())?;
+            .map_err(|_| "文件不可读")?;
+        file.seek(std::io::SeekFrom::Start(offset))
+            .await
+            .map_err(|_| "文件偏移无效")?;
+        let mut bytes = Vec::new();
+        file.take(length)
+            .read_to_end(&mut bytes)
+            .await
+            .map_err(|_| "文件读取失败")?;
+        if bytes.len() as u64 != length {
+            return Err("文件读取不完整".into());
+        }
         Ok(json!({
             "path": path,
             "base64": BASE64_STANDARD.encode(&bytes),
@@ -145,7 +172,7 @@ impl ServerPluginHost {
             .into_dimensions()
             .map_err(|err| format!("file.inspect_image 读取尺寸失败 {path}: {err}"))?;
         Ok(
-            json!({ "path": path, "width": width, "height": height, "size": size, "mime_type": mime }),
+            json!({ "path": path, "width": width, "height": height, "size": size, "mime_type": mime, "mime": mime }),
         )
     }
 }

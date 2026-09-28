@@ -358,7 +358,7 @@ fn sanitize_filename(value: &str) -> String {
     }
 }
 
-fn mime_from_filename(filename: &str) -> &'static str {
+pub(crate) fn mime_from_filename(filename: &str) -> &'static str {
     match Path::new(filename)
         .extension()
         .and_then(|value| value.to_str())
@@ -377,7 +377,20 @@ fn mime_from_filename(filename: &str) -> &'static str {
         "wav" => "audio/wav",
         "flac" => "audio/flac",
         "ogg" | "opus" => "audio/ogg",
-        "mp4" | "m4a" => "audio/mp4",
+        "m4a" => "audio/mp4",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "webm" => "video/webm",
+        "csv" => "text/csv",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "py" | "js" | "jsx" | "ts" | "tsx" | "go" | "rs" | "java" | "c" | "cpp" | "h" | "cs"
+        | "php" | "rb" | "sh" | "sql" | "html" | "css" | "xml" | "yaml" | "yml" | "toml"
+        | "log" => "text/plain",
         _ => "application/octet-stream",
     }
 }

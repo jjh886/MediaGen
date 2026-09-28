@@ -149,8 +149,8 @@ pub(crate) fn validate_request(body: &Value, endpoint: &str) -> Result<(), Strin
     match endpoint {
         "speech" => {
             let input = body["input"].as_str().ok_or("input 必须是字符串")?;
-            if input.trim().is_empty() || input.chars().count() > 4096 {
-                return Err("input 长度必须为 1–4096 个字符".into());
+            if input.trim().is_empty() || input.chars().count() > 100000 {
+                return Err("input 长度必须为 1–100000 个字符".into());
             }
             if body["voice"]
                 .as_str()
@@ -213,7 +213,9 @@ pub(crate) fn chat_to_responses(body: &Value) -> Result<Value, String> {
                     match part["type"].as_str() {
                         Some("text") => Ok(json!({"type":if role == "assistant" {"output_text"} else {"input_text"},"text":part["text"]})),
                         Some("image_url") => Ok(json!({"type":"input_image","image_url":part["image_url"]["url"],"detail":part["image_url"].get("detail").cloned().unwrap_or(json!("auto"))})),
+                        Some("input_audio") => Ok(json!({"type":"input_audio","input_audio":part["input_audio"]})),
                         Some("file") => {
+                            if !part["file"].is_object() { return Err("file 必须是对象".into()); }
                             let mut file = part["file"].clone();
                             file["type"] = json!("input_file");
                             Ok(file)
@@ -396,6 +398,24 @@ pub(crate) fn validate_capabilities(body: &Value, capabilities: &Value) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn chat_attachments_preserve_audio_bytes_and_reject_non_object_files() {
+        let body = json!({"model":"test","messages":[{"role":"user","content":[
+            {"type":"input_audio","input_audio":{"format":"mp3","data":"YWJj"}},
+            {"type":"file","file":{"file_id":"file-owned"}}
+        ]}]});
+        let converted = chat_to_responses(&body).unwrap();
+        assert_eq!(
+            converted["input"][0]["content"][0],
+            json!({"type":"input_audio","input_audio":{"format":"mp3","data":"YWJj"}})
+        );
+        assert_eq!(converted["input"][0]["content"][1]["file_id"], "file-owned");
+        assert!(chat_to_responses(
+            &json!({"messages":[{"role":"user","content":[{"type":"file","file":"invalid"}]}]})
+        )
+        .is_err());
+    }
+
     #[test]
     fn rejects_invalid_scalar_types_and_metadata_without_silent_coercion() {
         for (field, value) in [

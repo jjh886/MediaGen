@@ -53,3 +53,11 @@ async fn cancelled_cpu_loop_does_not_keep_worker_alive() {
         .await
         .is_err());
 }
+
+#[tokio::test]
+async fn bounded_promise_jobs_reenter_host_and_reject_infinite_microtasks() {
+    let result = run_js_step("function main(){let value;Promise.resolve().then(()=>host.call('echo',{number:42})).then(result=>{value=result});host.drain_jobs();return value}".into(),json!({}),Host::default()).await.unwrap();
+    assert_eq!(result["number"], 42);
+    let error = run_js_step("function main(){function repeat(){Promise.resolve().then(repeat)}repeat();host.drain_jobs(20);return {}}".into(),json!({}),Host::default()).await.unwrap_err();
+    assert!(error.contains("异步回调超过"));
+}

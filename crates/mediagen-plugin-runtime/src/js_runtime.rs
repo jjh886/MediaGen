@@ -36,6 +36,12 @@ globalThis.host = {
     if (!result.success) throw new Error(result.error || "事件流失败");
     return result.data;
   },
+  drain_jobs(maxJobs = 1024) {
+    const limit = Math.min(4096, Math.max(1, Math.trunc(Number(maxJobs) || 1024)));
+    const executed = hostDrainJobs(limit);
+    if (executed >= limit) throw new Error("JavaScript 异步回调超过单次执行上限");
+    return executed;
+  },
   sleep(ms) {
     hostSleep(Number(ms) || 0);
   }
@@ -51,6 +57,10 @@ pub struct PluginStepResult {
 
 #[async_trait]
 pub trait PluginHost: Clone + Send + Sync + 'static {
+    fn visible_context(&self, context: Value) -> Value {
+        context
+    }
+
     async fn call(&self, action: &str, params: &Value) -> PluginStepResult;
     async fn stream(
         &self,
@@ -68,7 +78,7 @@ where
 {
     let cancelled = Arc::new(AtomicBool::new(false));
     let _guard = CancelOnDrop(cancelled.clone());
-    let context_json = context.to_string();
+    let context_json = host.visible_context(context).to_string();
     let handle = Handle::current();
     tokio::task::spawn_blocking(move || {
         run_js_blocking(script, context_json, host, handle, cancelled)
@@ -89,8 +99,9 @@ where
 {
     let runtime = Runtime::new().map_err(|err| format!("创建 JS runtime 失败: {err}"))?;
     runtime.set_memory_limit(256 * 1024 * 1024);
+    runtime.set_max_stack_size(2 * 1024 * 1024);
     let interrupted = cancelled.clone();
-    let deadline = Instant::now() + Duration::from_secs(3600);
+    let deadline = Instant::now() + Duration::from_secs(14400);
     runtime.set_interrupt_handler(Some(Box::new(move || {
         interrupted.load(Ordering::Relaxed) || Instant::now() > deadline
     })));
@@ -99,6 +110,18 @@ where
     context.with(|ctx| {
         ctx.globals()
             .set("__contextJson", context_json)
+            .map_err(js_err)?;
+        ctx.globals()
+            .set(
+                "hostDrainJobs",
+                Func::from(|ctx: rquickjs::Ctx<'_>, limit: u32| {
+                    let mut executed = 0;
+                    while executed < limit.min(4096) && ctx.execute_pending_job() {
+                        executed += 1;
+                    }
+                    executed
+                }),
+            )
             .map_err(js_err)?;
         let host_for_call = host.clone();
         let call_cancelled = cancelled.clone();

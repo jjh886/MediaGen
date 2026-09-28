@@ -49,6 +49,7 @@ pub(crate) fn build_image_flow_context(
         "max_images": input.max_images,
         "model_id": input.model_id,
         "model_display_name": input.model_display_name,
+        "model_capabilities": manifest.models.iter().find(|m|m.model_id == input.model_id).and_then(|m|m.extra.get("capabilities")),
         "platform_config": platform_config,
         "scripts_dir": scripts_dir.to_string_lossy(),
         "account_cookies": "",
@@ -58,7 +59,7 @@ pub(crate) fn build_image_flow_context(
         "ref_image_dataurls": input.ref_image_dataurls,
         "mask_image_url": input.mask_image_url,
         "mask_image_dataurl": input.mask_image_dataurl,
-        "workspace_dir": "",
+        "workspace_dir": std::path::Path::new(&account.profile_dir).join("workspaces").join(uuid::Uuid::new_v4().to_string()),
         "output_format": input.output_format,
         "output_compression": input.output_compression,
         "quality": input.quality,
@@ -95,6 +96,7 @@ pub(crate) fn build_video_flow_context(
         "video_aspect_ratio": input.aspect_ratio,
         "model_id": input.model_id,
         "model_display_name": input.model_display_name,
+        "model_capabilities": manifest.models.iter().find(|m|m.model_id == input.model_id).and_then(|m|m.extra.get("capabilities")),
         "platform_config": platform_config,
         "scripts_dir": scripts_dir.to_string_lossy(),
         "account_cookies": "",
@@ -103,6 +105,9 @@ pub(crate) fn build_video_flow_context(
         "ref_image_urls": input.ref_image_urls,
         "ref_image_dataurls": input.ref_image_dataurls,
         "generation_options": input.extra,
+        "ref_video_locals": input.ref_video_locals,
+        "ref_audio_locals": [],
+        "workspace_dir": std::path::Path::new(&account.profile_dir).join("workspaces").join(uuid::Uuid::new_v4().to_string()),
     }))
 }
 

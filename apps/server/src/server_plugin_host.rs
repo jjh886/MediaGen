@@ -31,10 +31,19 @@ mod http_request;
 #[path = "plugin_http_transport.rs"]
 mod http_transport;
 
+#[path = "plugin_binary.rs"]
+mod binary;
+#[path = "plugin_wasm.rs"]
+mod wasm;
+
+#[path = "plugin_policy.rs"]
+mod policy;
+
 const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct ServerPluginHost {
+    policy: Option<policy::Policy>,
     credential_cipher: Option<std::sync::Arc<crate::generation_queue::CredentialCipher>>,
     protected_files: Vec<PathBuf>,
     profile_dir: PathBuf,
@@ -111,6 +120,7 @@ impl ServerPluginHost {
         browser_fingerprint: Option<BrowserFingerprint>,
     ) -> Self {
         Self {
+            policy: None,
             credential_cipher: None,
             protected_files: Vec::new(),
             profile_dir: PathBuf::new(),
@@ -135,6 +145,7 @@ impl ServerPluginHost {
     }
 
     async fn execute(&self, action: &str, params: &Value) -> Result<Value, String> {
+        self.validate_policy(action, params)?;
         match action {
             "checkpoint" => self.checkpoint(params).await,
             "stream.emit" => {
@@ -170,8 +181,18 @@ impl ServerPluginHost {
             }
             "file.read_json" => self.read_json(params).await,
             "file.write_json" => self.write_json(params).await,
+            "file.write_base64" => self.write_base64(params).await,
+            "file.inspect_media" => self.inspect_media(params).await,
+            "crypto.digest_bytes" | "crypto.hmac_sha256" => binary::crypto(action, params),
+            "crypto.wasm_execute" => {
+                let params = params.clone();
+                tokio::task::spawn_blocking(move || wasm::execute(&params))
+                    .await
+                    .map_err(|_| "WASM 计算任务中断".to_string())?
+            }
             "file.read_base64" => self.read_base64(params).await,
             "file.inspect_image" => self.inspect_image(params).await,
+            "http.download" => self.download(params).await,
             "http.request" => self.http_request(params, false).await,
             "http.sse_request" => self.http_request(params, true).await,
             "crypto.random_base64url" => random_base64url(params),
@@ -237,6 +258,12 @@ impl ServerPluginHost {
 
 #[async_trait]
 impl PluginHost for ServerPluginHost {
+    fn visible_context(&self, context: Value) -> Value {
+        match &self.policy {
+            Some(policy) => policy.visible_context(context),
+            None => context,
+        }
+    }
     async fn stream(
         &self,
         action: &str,

@@ -115,7 +115,7 @@ fn update_no_account_notification(
     if enabled && missing && !previous_alert_sent {
         queue_notification(
             state,
-            "account-none-action-required",
+            &format!("account-none-action-required-{}", uuid::Uuid::new_v4()),
             "当前没有可用生成账号，任务会继续等待。请在控制台账号页面查看。",
         )?;
     }
@@ -170,10 +170,10 @@ fn resolve_account_alert(
 fn should_queue_account_action(
     enabled: bool,
     actionable: bool,
-    changed: bool,
+    _changed: bool,
     previous_alert_sent: bool,
 ) -> bool {
-    enabled && actionable && (changed || !previous_alert_sent)
+    enabled && actionable && !previous_alert_sent
 }
 
 fn should_queue_account_recovery(
@@ -196,9 +196,10 @@ fn queue_account_action_required(
     queue_notification(
         state,
         &format!(
-            "account-{}-{}",
+            "account-{}-{}-{}",
             account.id,
-            login_state_key(&account.login_state)
+            login_state_key(&account.login_state),
+            uuid::Uuid::new_v4()
         ),
         &format!(
             "账号需要处理\n账号：{}\n状态：{}",
@@ -211,7 +212,7 @@ fn queue_account_action_required(
 fn queue_account_recovered(state: &ServerState, account: &AccountRecord) -> Result<(), String> {
     queue_notification(
         state,
-        &format!("account-{}-recovered", account.id),
+        &format!("account-{}-recovered-{}", account.id, uuid::Uuid::new_v4()),
         &format!("账号已恢复可用\n账号：{}", account_name(account)),
     )
 }
@@ -286,6 +287,37 @@ fn truncate(value: &str, limit: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn account_notifications_deduplicate_until_recovery_and_survive_reload() {
+        let root = std::env::temp_dir().join(format!("notice-test-{}", uuid::Uuid::new_v4()));
+        let state = crate::test_fixtures::server_state(
+            root.clone(),
+            mediagen_plugin_runtime::PluginLoader::empty(),
+        );
+        let mut account =
+            crate::test_fixtures::account_record("account", "provider", "测试账号", "key");
+        account.login_state = "verification_required".into();
+        super::update_account_notification(&state, &account, true).unwrap();
+        super::update_account_notification(&state, &account, true).unwrap();
+        assert_eq!(state.store.weixin_messages.lock().unwrap().len(), 1);
+        let state = crate::test_fixtures::server_state(
+            root,
+            mediagen_plugin_runtime::PluginLoader::empty(),
+        );
+        super::update_account_notification(&state, &account, true).unwrap();
+        assert_eq!(state.store.weixin_messages.lock().unwrap().len(), 1);
+        account.login_state = "login_expired".into();
+        super::update_account_notification(&state, &account, true).unwrap();
+        assert_eq!(state.store.weixin_messages.lock().unwrap().len(), 1);
+        account.login_state = "available".into();
+        super::update_account_notification(&state, &account, true).unwrap();
+        account.login_state = "verification_required".into();
+        super::update_account_notification(&state, &account, true).unwrap();
+        let messages = state.store.weixin_messages.lock().unwrap();
+        assert_eq!(messages.len(), 3);
+        assert_ne!(messages[0].client_id, messages[2].client_id);
+    }
+
     #[test]
     fn task_notification_categories_are_independent() {
         assert!(super::should_notify_task("failed", true, false));

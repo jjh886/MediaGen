@@ -35,6 +35,21 @@ pub(crate) async fn create_verification_session(
         .create_session(request)
         .await
         .map_err(|error| (409, "verification_required", error.to_string()))?;
+    if let Some(detection) = manifest.extra.get("login_detection") {
+        if detection.get("context_file").is_some() {
+            let references = crate::flow_templates::collect_script_files(detection);
+            if !references.is_empty() {
+                // 插件根据持久化验证上下文呈现挑战；平台规则由脚本处理。
+                let _ = crate::account_login::run_login_script_value(
+                    state,
+                    &response.session,
+                    &references,
+                    true,
+                )
+                .await;
+            }
+        }
+    }
     state.store.add_audit_log(
         "account",
         "warn",

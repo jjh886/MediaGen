@@ -202,7 +202,36 @@ pub(crate) async fn run_login_script_value(
     script_files: &[String],
     await_promise: bool,
 ) -> Result<Value, String> {
-    let script = read_plugin_scripts(state, &session.platform, script_files)?;
+    let mut script = read_plugin_scripts(state, &session.platform, script_files)?;
+    if let Some(manifest) = state.plugin_loader.get_plugin(&session.platform) {
+        if let Some(name) = manifest
+            .extra
+            .get("login_detection")
+            .and_then(|v| v["context_file"].as_str())
+        {
+            if name.is_empty() || name.contains('/') || name.contains('\\') || name == ".." {
+                return Err("登录上下文文件名无效".into());
+            }
+            let path = std::path::Path::new(&session.profile_dir).join(name);
+            let value = if path.exists() {
+                use mediagen_plugin_runtime::PluginHost;
+                let host = ServerPluginHost::new_with_metadata(String::new(), &Default::default())
+                    .with_storage(
+                        state.credential_cipher.clone(),
+                        &session.profile_dir,
+                        manifest,
+                    );
+                let result = host.call("file.read_json", &json!({"path":path})).await;
+                if !result.success {
+                    return Err("登录上下文读取失败".into());
+                }
+                result.data
+            } else {
+                Value::Null
+            };
+            script = format!("globalThis.__pluginLoginContext = {value};\n{script}");
+        }
+    }
     state
         .browser_gateway
         .evaluate_script(&session.id, &script, await_promise)
@@ -290,4 +319,16 @@ fn first_non_empty(values: &[&str]) -> String {
         .find(|value| !value.is_empty())
         .unwrap_or_default()
         .to_string()
+}
+
+pub(crate) fn requires_login_verification(state: &ServerState, session: &BrowserSession) -> bool {
+    use mediagen_browser_gateway::BrowserSessionPurpose;
+    matches!(
+        session.purpose,
+        BrowserSessionPurpose::AddAccount | BrowserSessionPurpose::ReloginAccount
+    ) || (session.purpose == BrowserSessionPurpose::HumanVerification
+        && state
+            .plugin_loader
+            .get_plugin(&session.platform)
+            .is_some_and(|manifest| manifest.extra.contains_key("login_credential_capture")))
 }

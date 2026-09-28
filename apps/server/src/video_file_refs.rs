@@ -16,6 +16,17 @@ pub(crate) async fn resolve_openai_video_file_refs(
     for reference in &mut request.input_references {
         resolve_ref(file_root, reference, owner_hash).await?;
     }
+    if let Some(reference) = request.extra.get_mut("video_reference") {
+        if let Some(id) = reference["file_id"].as_str() {
+            let record = crate::file_api::read_record_for_owner(file_root, id, owner_hash)
+                .await
+                .map_err(|message| (400, "invalid_file_id", message))?;
+            let data = read_file_as_data_url(file_root, id, owner_hash)
+                .await
+                .map_err(|message| (400, "invalid_file_id", message))?;
+            *reference = serde_json::json!({"type":"input_file","filename":record.filename,"file_data":data});
+        }
+    }
     Ok(())
 }
 

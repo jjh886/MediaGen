@@ -28,6 +28,7 @@ impl ServerPluginHost {
         params: &Value,
         events: tokio::sync::mpsc::Sender<Value>,
     ) -> Result<Value, String> {
+        self.validate_policy("http.sse_request", params)?;
         let response = tokio::select! {
             _ = events.closed() => return Err("请求已取消".into()),
             response = self.send_http(params) => response?,
@@ -35,6 +36,12 @@ impl ServerPluginHost {
         let status = response.status;
         let ok = (200..300).contains(&status);
         let headers = response.headers.clone();
+        if params["include_http_metadata"] == true {
+            events
+                .send(json!({"type":"http_response","status":status,"ok":ok,"headers":headers}))
+                .await
+                .map_err(|_| "请求已取消")?;
+        }
         let json_response = headers.get("content-type").is_some_and(|value| {
             value
                 .split(';')
@@ -51,12 +58,14 @@ impl ServerPluginHost {
                     return Err("上游 JSON 响应不是有效对象".into());
                 }
                 events.send(body).await.map_err(|_| "请求已取消")?;
-                return Ok(json!({"status":status,"ok":true,"headers":headers}));
+                return Ok(json!({"status":status,"ok":true,"headers":headers,"body_text":text}));
             }
             return Ok(
                 json!({"status":status,"ok":false,"headers":headers,"body":body,"body_text":text}),
             );
         }
+        let mut collected = Vec::new();
+        let metadata = params["include_sse_metadata"] == true;
         let mut stream = response.body;
         let mut decoder = crate::sse_decoder::Decoder::new(MAX_FILE_BYTES as usize);
         loop {
@@ -65,25 +74,83 @@ impl ServerPluginHost {
                 chunk = stream.next() => chunk,
             };
             let Some(chunk) = chunk else { break };
-            for block in decoder.push(&chunk?)? {
-                forward_event(&events, &block).await?;
+            let chunk = chunk?;
+            if params["collect_body"] == true {
+                if collected.len() + chunk.len() > MAX_FILE_BYTES as usize {
+                    return Err("事件流正文超过大小限制".into());
+                }
+                collected.extend_from_slice(&chunk);
+            }
+            for block in decoder.push(&chunk)? {
+                forward_event(&events, &block, metadata).await?;
             }
         }
-        forward_event(&events, &decoder.finish()).await?;
-        Ok(json!({"status":status,"ok":true,"headers":headers}))
+        forward_event(&events, &decoder.finish(), metadata).await?;
+        Ok(
+            json!({"status":status,"ok":true,"headers":headers,"body_text":String::from_utf8_lossy(&collected)}),
+        )
     }
 }
 
 async fn forward_event(
     events: &tokio::sync::mpsc::Sender<Value>,
     bytes: &[u8],
+    metadata: bool,
 ) -> Result<(), String> {
     let block = std::str::from_utf8(bytes).map_err(|_| "事件流包含无效 UTF-8".to_string())?;
-    if let Some(value) = parse_sse_block(block) {
+    if let Some(value) = parse_event(block, metadata) {
         events
             .send(value)
             .await
             .map_err(|_| "请求已取消".to_string())?;
     }
     Ok(())
+}
+
+fn parse_event(block: &str, metadata: bool) -> Option<Value> {
+    if !metadata {
+        return parse_sse_block(block);
+    }
+    let mut event = "message";
+    let mut id = None;
+    let mut data = Vec::new();
+    for line in block.lines() {
+        if let Some(value) = line.strip_prefix("event:") {
+            event = value.trim();
+        }
+        if let Some(value) = line.strip_prefix("id:") {
+            id = Some(value.trim());
+        }
+        if let Some(value) = line.strip_prefix("data:") {
+            data.push(value.strip_prefix(' ').unwrap_or(value));
+        }
+    }
+    if data.is_empty() {
+        return None;
+    }
+    let text = data.join("\n");
+    let body = serde_json::from_str::<Value>(&text).unwrap_or(json!(text));
+    let mut value = json!({"event":event,"data":body});
+    if let Some(id) = id {
+        value["id"] = json!(id);
+    }
+    Some(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn named_events_preserve_provider_metadata_without_changing_legacy_events() {
+        let block = "event: ready\nid: 7\ndata: {\"response_message_id\":42}";
+        assert_eq!(
+            parse_event(block, true).unwrap(),
+            json!({"event":"ready","id":"7","data":{"response_message_id":42}})
+        );
+        assert_eq!(
+            parse_event(block, false).unwrap(),
+            json!({"response_message_id":42})
+        );
+        assert!(parse_event(": heartbeat", true).is_none());
+    }
 }

@@ -9,6 +9,30 @@ pub(super) struct TransportResponse {
 
 impl ServerPluginHost {
     pub(super) async fn send_http(&self, params: &Value) -> Result<TransportResponse, String> {
+        let mut prepared = params.clone();
+        if let Some(path) = params["body_file"].as_str() {
+            let file = self.read_base64(&json!({"path":path})).await?;
+            if params["body_file_size"]
+                .as_u64()
+                .is_some_and(|n| file["size"].as_u64() != Some(n))
+            {
+                return Err("上传文件大小不一致".into());
+            }
+            if params["body_format"] == "multipart_file" {
+                let field = params["body_file_field"].as_str().unwrap_or("file");
+                prepared["body_format"] = json!("multipart");
+                prepared["body"] = params["body"]
+                    .as_object()
+                    .cloned()
+                    .map(Value::Object)
+                    .unwrap_or(json!({}));
+                prepared["body"][field] = json!({"base64":file["base64"],"filename":params["body_file_name"].as_str().unwrap_or("upload"),"mime_type":params["body_file_mime"].as_str().unwrap_or("application/octet-stream")});
+            } else {
+                prepared["body_format"] = json!("base64");
+                prepared["body"] = file["base64"].clone();
+            }
+        }
+        let params = &prepared;
         let mutating = matches!(
             params["method"]
                 .as_str()
@@ -81,11 +105,7 @@ impl ServerPluginHost {
             } else if let Some(proxy) = proxy_url(params, &self.proxy_url) {
                 builder = builder.proxy(wreq::Proxy::all(&proxy).map_err(|_| "代理配置无效")?);
             }
-            builder = builder.redirect(if params["follow_redirects"] == false {
-                wreq::redirect::Policy::none()
-            } else {
-                wreq::redirect::Policy::limited(10)
-            });
+            builder = builder.redirect(self.profile_redirect_policy(params));
             let client = builder.build().map_err(|_| "TLS 指纹客户端初始化失败")?;
             let mut clients = self
                 .profile_clients

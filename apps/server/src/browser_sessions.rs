@@ -217,13 +217,14 @@ async fn prepare_login_completion(
     ),
     HttpResponse,
 > {
-    let profile = match session.purpose {
-        BrowserSessionPurpose::AddAccount | BrowserSessionPurpose::ReloginAccount => Some(
+    let profile = if account_login::requires_login_verification(state, session) {
+        Some(
             account_login::verify_browser_session_login(state, session)
                 .await
                 .map_err(login_conflict_response)?,
-        ),
-        _ => None,
+        )
+    } else {
+        None
     };
     let manifest = profile
         .as_ref()

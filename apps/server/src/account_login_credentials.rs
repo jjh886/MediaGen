@@ -50,7 +50,23 @@ pub async fn capture_if_configured(
         "cookies": cookies,
     });
     let protected = json!({"storage_format":"mediagen.encrypted.v1","ciphertext":state.credential_cipher.encrypt(&value.to_string())?});
-    write_private_json(&session.profile_dir, &config.file_name, &protected).await
+    write_private_json(&session.profile_dir, &config.file_name, &protected).await?;
+    if let Some(name) = manifest
+        .extra
+        .get("login_detection")
+        .and_then(|v| v["context_file"].as_str())
+    {
+        if !safe_file_name(name) {
+            return Err("登录上下文文件名无效".into());
+        }
+        let path = Path::new(&session.profile_dir).join(name);
+        match tokio::fs::remove_file(path).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("清理登录验证上下文失败".into()),
+        }
+    }
+    Ok(())
 }
 
 fn capture_config(

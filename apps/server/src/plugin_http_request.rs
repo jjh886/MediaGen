@@ -26,11 +26,7 @@ impl ServerPluginHost {
     }
 
     pub(crate) fn client_for(&self, params: &Value) -> Result<reqwest::Client, String> {
-        let redirects = if params["follow_redirects"] == false {
-            reqwest::redirect::Policy::none()
-        } else {
-            reqwest::redirect::Policy::limited(10)
-        };
+        let redirects = self.native_redirect_policy(params);
         if params["proxy"] == "direct"
             || params["use_proxy"] == false
             || params["use_account_proxy"] == false
@@ -43,7 +39,7 @@ impl ServerPluginHost {
                 .map_err(|_| "创建直连客户端失败".to_string());
         }
         let Some(proxy_url) = proxy_url(params, &self.proxy_url) else {
-            if params["follow_redirects"] == false {
+            if params["follow_redirects"] == false || self.policy.is_some() {
                 return reqwest::Client::builder()
                     .redirect(redirects)
                     .build()

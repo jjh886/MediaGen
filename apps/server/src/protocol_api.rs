@@ -137,7 +137,23 @@ pub(crate) async fn dispatch(
         .get("capabilities")
         .cloned()
         .unwrap_or(Value::Null);
-    if let Err(message) = crate::protocol_request::validate_capabilities(&payload, &capabilities) {
+
+    let parameter_payload = Value::Object(
+        payload
+            .as_object()
+            .ok_or(())
+            .map(|fields| {
+                fields
+                    .iter()
+                    .filter(|(key, _)| key.as_str() != "input")
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    );
+    if let Err(message) =
+        crate::protocol_request::validate_capabilities(&parameter_payload, &capabilities)
+    {
         return error(400, "unsupported_parameter", &message);
     }
 
@@ -165,6 +181,14 @@ pub(crate) async fn dispatch(
     );
     if let Err(message) = crate::protocol_files::resolve(&state, &key, &mut payload).await {
         return error(400, "invalid_file_id", &message);
+    }
+    if let Err(message) =
+        crate::protocol_attachments::prepare(&state, &key, &mut payload, &capabilities).await
+    {
+        return error(400, "invalid_attachment", &message);
+    }
+    if let Err(message) = crate::protocol_request::validate_capabilities(&payload, &capabilities) {
+        return error(400, "unsupported_parameter", &message);
     }
     let store_response = endpoint == "responses" && body["store"] != false;
     let previous_response_id = body["previous_response_id"].clone();
@@ -421,6 +445,12 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
             429,
             "rate_limit_exceeded",
             "上游额度或速率限制，请稍后重试".into(),
+        )
+    } else if message.contains("verification_required") || message.contains("needs_verification") {
+        (
+            409,
+            "verification_required",
+            "上游账号需要人工验证，请从控制台账号页面打开验证窗口".into(),
         )
     } else if message.contains("LOGIN_EXPIRED") {
         (

@@ -164,6 +164,8 @@ pub(crate) async fn run_plugin(
         .ok_or("插件目录不存在")?
         .join("scripts");
     let mut context = json!({"account":account,"account_id":account.id,"profile_dir":account.profile_dir,"request":request,"request_id":request_id,"task_id":request_id,"scripts_dir":scripts.to_string_lossy(),"platform_config":state.store.settings().platform_generation_config(&manifest.platform_id),"model_capabilities":capabilities});
+    let workspace = tempfile::tempdir().map_err(|_| "创建附件工作目录失败")?;
+    context["workspace_dir"] = json!(workspace.path());
     let host = ServerPluginHost::new_for_account(account)
         .with_storage(
             state.credential_cipher.clone(),
@@ -190,7 +192,7 @@ pub(crate) async fn run_plugin(
             let timeout = prepared.params["timeout_ms"]
                 .as_u64()
                 .unwrap_or(600_000)
-                .min(3_600_000);
+                .min(14_400_000);
             let result = tokio::time::timeout(
                 std::time::Duration::from_millis(timeout),
                 run_js_step(script, context.clone(), host.clone()),
