@@ -41,7 +41,7 @@ export default function AccountBrowserProfileFields({
 }: AccountBrowserProfileFieldsProps) {
   const [latestVersion, setLatestVersion] = useState('')
   const [installedVersion, setInstalledVersion] = useState('')
-  const [loadError, setLoadError] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const latest = useRef({ value, onChange, onInitialized })
   latest.current = { value, onChange, onInitialized }
 
@@ -52,7 +52,7 @@ export default function AccountBrowserProfileFields({
         if (active) {
           setLatestVersion(browser_version)
           setInstalledVersion(installed_browser_version)
-          setLoadError(false)
+          setLoadError('')
           if (!latest.current.value.version) {
             const initial = {
               ...latest.current.value,
@@ -65,8 +65,14 @@ export default function AccountBrowserProfileFields({
           }
         }
       })
-      .catch(() => {
-        if (active) setLoadError(true)
+      .catch((error: unknown) => {
+        if (active) {
+          setLoadError(
+            error instanceof Error && error.message.trim()
+              ? error.message
+              : '无法读取浏览器版本，请稍后重试。'
+          )
+        }
       })
     return () => {
       active = false
@@ -127,7 +133,11 @@ export default function AccountBrowserProfileFields({
             )}
           </span>
         ))}
-        {loadError && <span style={accountFieldHintStyle}>无法读取浏览器版本，请稍后重试。</span>}
+        {loadError && (
+          <span role="alert" style={accountFieldHintStyle}>
+            {loadError}
+          </span>
+        )}
       </div>
       <span style={accountFieldHintStyle}>
         系统和版本会用于浏览器 UA、客户端提示及插件请求。当前浏览器内核为 Chrome{' '}

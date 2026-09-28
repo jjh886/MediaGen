@@ -53,6 +53,20 @@ describe('AccountAddDialog', () => {
     })
   })
 
+  it('读取浏览器版本失败时显示缺少运行时的具体修复提示', async () => {
+    const message = '未检测到 CloakBrowser；请执行 node scripts/ensure-cloakbrowser-runtime.mjs'
+    mocks.fetchFingerprintOptions.mockRejectedValueOnce(new Error(message))
+    render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent(message)
+    expect(screen.queryByText('Chrome 154 · 最新稳定版')).not.toBeInTheDocument()
+  })
+
+  it('读取浏览器版本发生未知错误时保留通用提示', async () => {
+    mocks.fetchFingerprintOptions.mockRejectedValueOnce(null)
+    render(<AccountAddDialog open platform="codex" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('无法读取浏览器版本，请稍后重试。')
+  })
+
   it('显示插件返回的设备授权验证码提示', async () => {
     mocks.startAccountLoginSession.mockResolvedValue({
       id: 'device-session',
