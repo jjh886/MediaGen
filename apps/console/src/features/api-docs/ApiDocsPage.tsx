@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { BookOpen, Copy, Search } from 'lucide-react'
 import { KtButton, KtInput } from '@/shared/ui'
-import { documents } from './catalog'
+import { documentGroups, documents } from './catalog'
 import { errors, fullDocumentation } from './format'
 import ApiGuide from './ApiGuide'
 import ApiEndpoint from './ApiEndpoint'
@@ -58,7 +58,8 @@ export default function ApiDocsPage() {
           <code>Authorization: Bearer API_KEY</code>
         </div>
         <p>
-          先查询模型能力，再选择接口。图片返回 Base64，音频返回二进制。排队、Live 等扩展会明确标注。
+          先查询模型能力，再选择接口。图片返回 Base64，视频先返回任务 ID
+          再查询下载，音频返回二进制。豆包视频、附件及 Live 扩展均提供调用说明。
         </p>
       </section>
       <ApiGuide />
@@ -72,8 +73,8 @@ export default function ApiDocsPage() {
             placeholder="搜索接口路径或能力…"
           />
         </div>
-        <div className="api-docs__groups">
-          {['全部', ...new Set(documents.map((d) => d.group))].map((item) => (
+        <div className="api-docs__groups" role="group" aria-label="接口分类">
+          {['全部', ...documentGroups].map((item) => (
             <button key={item} aria-pressed={group === item} onClick={() => setGroup(item)}>
               {item}
             </button>
@@ -81,15 +82,31 @@ export default function ApiDocsPage() {
         </div>
       </div>
       <div className="api-docs__count">{visible.length} 个接口与调用场景</div>
-      {visible.map((doc, index) => (
-        <ApiEndpoint
-          key={`${doc.method}-${doc.path}-${doc.title}`}
-          doc={doc}
-          index={index}
-          forceOpen={Boolean(filter)}
-          onCopy={copy}
-        />
-      ))}
+      {documentGroups.map((name) => {
+        const entries = visible
+          .map((doc, index) => ({ doc, index }))
+          .filter(({ doc }) => doc.group === name)
+        if (!entries.length) return null
+        return (
+          <section key={name} aria-label={`${name}接口`} className="api-docs__group-section">
+            {group === '全部' && (
+              <header className="api-docs__section-heading">
+                <h2>{name}</h2>
+                <span>{entries.length} 项</span>
+              </header>
+            )}
+            {entries.map(({ doc, index }) => (
+              <ApiEndpoint
+                key={`${doc.method}-${doc.path}-${doc.title}`}
+                doc={doc}
+                index={index}
+                forceOpen={Boolean(filter)}
+                onCopy={copy}
+              />
+            ))}
+          </section>
+        )
+      })}
       {!visible.length && <p>没有匹配的接口，请换一个关键词。</p>}
       <section className="api-docs__errors">
         <h2>错误响应</h2>
@@ -106,7 +123,7 @@ export default function ApiDocsPage() {
           </thead>
           <tbody>
             {errors.map(([status, code, help]) => (
-              <tr key={status}>
+              <tr key={`${status}-${code}`}>
                 <td>{status}</td>
                 <td>
                   <code>{code}</code>

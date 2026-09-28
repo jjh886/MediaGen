@@ -32,6 +32,60 @@ describe('对外接口文档', () => {
     ).toBeInTheDocument()
   })
 
+  it('全部视图按指定顺序分组，搜索隐藏空分组，单分类只显示该组接口', () => {
+    render(<ApiDocsPage />)
+    const order = ['模型', '文本', '图片', '视频', '音频', '实时语音', '文件', '排队']
+    const filters = screen.getByRole('group', { name: '接口分类' })
+    expect(
+      within(filters)
+        .getAllByRole('button')
+        .map((button) => button.textContent)
+    ).toEqual(['全部', ...order])
+    const headings = () =>
+      screen
+        .queryAllByRole('heading', { level: 2 })
+        .map((heading) => heading.textContent)
+        .filter((name) => order.includes(name || ''))
+    expect(headings()).toEqual(order)
+    for (const name of order) {
+      const section = screen.getByRole('region', { name: `${name}接口` })
+      for (const doc of documents.filter((doc) => doc.group === name))
+        expect(within(section).getAllByText(doc.title).length).toBeGreaterThan(0)
+    }
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索接口' }), {
+      target: { value: '豆包' },
+    })
+    expect(headings()).toEqual(['视频'])
+    expect(screen.getByText('豆包文生视频')).toBeInTheDocument()
+    fireEvent.click(within(filters).getByRole('button', { name: '视频' }))
+    expect(headings()).toEqual([])
+    expect(screen.getByRole('region', { name: '视频接口' })).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'missing-route' } })
+    expect(screen.queryByRole('region', { name: '视频接口' })).not.toBeInTheDocument()
+  })
+
+  it('豆包视频示例模型与插件保持一致，参考视频字段进入复制全文', () => {
+    const manifest = JSON.parse(readFileSync('../../plugins/doubao-api/manifest.json', 'utf8')) as {
+      models: { model_id: string; task_kind: string }[]
+    }
+    const markdown = fullDocumentation()
+    for (const model of manifest.models.filter((model) => model.task_kind === 'video'))
+      expect(markdown).toContain(model.model_id)
+    expect(markdown).toContain('video_reference.file_id')
+    expect(markdown).toContain('video_reference.file_data')
+    expect(markdown).toContain('input_reference=@reference.png')
+    const scenes = documents.filter((doc) => doc.title.startsWith('豆包'))
+    expect(scenes).toHaveLength(3)
+    for (const doc of scenes) {
+      const model =
+        doc.body?.model || doc.form?.find((field) => field.startsWith('model='))?.slice(6)
+      expect(
+        manifest.models.some((entry) => entry.model_id === model && entry.task_kind === 'video')
+      ).toBe(true)
+      expect(doc.path).toBe('/v1/videos')
+    }
+  })
+
   it('覆盖全部注册的对外路由，不包含管理接口', () => {
     const source = ['main.rs', 'realtime_api.rs', 'generation_queue/api.rs']
       .map((file) => readFileSync(`../server/src/${file}`, 'utf8'))

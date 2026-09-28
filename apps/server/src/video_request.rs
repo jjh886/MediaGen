@@ -81,7 +81,7 @@ impl OpenAiVideoRequest {
         if seconds.parse::<u32>().is_err() {
             return request_error("seconds 必须是正整数或数字字符串");
         }
-        if self.size_text().split_once('x').is_none() {
+        if self.size_dimensions().is_none() {
             return request_error("size 必须使用 宽x高 格式，例如 1280x720");
         }
         Ok(())
@@ -155,17 +155,28 @@ impl OpenAiVideoRequest {
             .collect()
     }
 
-    pub fn aspect_ratio(&self) -> String {
+    fn size_dimensions(&self) -> Option<(u32, u32)> {
         let size = self.size_text();
-        let Some((width, height)) = size.split_once('x') else {
+        let (width, height) = size.split_once('x')?;
+        let width = width.parse::<u32>().ok().filter(|value| *value > 0)?;
+        let height = height.parse::<u32>().ok().filter(|value| *value > 0)?;
+        Some((width, height))
+    }
+
+    pub fn aspect_ratio(&self) -> String {
+        let Some((width, height)) = self.size_dimensions() else {
             return "9:16".to_string();
         };
-        match (width.parse::<u32>(), height.parse::<u32>()) {
-            (Ok(width), Ok(height)) if width == height => "1:1",
-            (Ok(width), Ok(height)) if width > height => "16:9",
-            _ => "9:16",
+        let (mut divisor, mut remainder) = (width, height);
+        while remainder != 0 {
+            (divisor, remainder) = (remainder, divisor % remainder);
         }
-        .to_string()
+        let ratio = (width / divisor, height / divisor);
+        if ratio == (7, 3) {
+            "21:9".to_string()
+        } else {
+            format!("{}:{}", ratio.0, ratio.1)
+        }
     }
 
     pub fn to_flow_request(
@@ -321,6 +332,28 @@ mod tests {
         assert!(request.validate().is_ok());
         assert_eq!(request.seconds_text().unwrap(), "8");
         assert_eq!(request.aspect_ratio(), "16:9");
+    }
+
+    #[test]
+    fn preserves_non_widescreen_ratios_and_rejects_invalid_dimensions() {
+        let mut request = OpenAiVideoRequest::empty();
+        request.model = "video-model".into();
+        request.prompt = "move".into();
+        for (size, ratio) in [
+            ("960x1280", "3:4"),
+            ("1280x960", "4:3"),
+            ("1680x720", "21:9"),
+            ("1024x1024", "1:1"),
+            ("720x1280", "9:16"),
+        ] {
+            request.size = Some(size.into());
+            assert!(request.validate().is_ok());
+            assert_eq!(request.aspect_ratio(), ratio);
+        }
+        for size in ["0x720", "1280x0", "ax720", "1280x720x1", "-1x720"] {
+            request.size = Some(size.into());
+            assert!(request.validate().is_err(), "{size}");
+        }
     }
 
     #[test]

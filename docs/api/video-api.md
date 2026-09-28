@@ -1,86 +1,142 @@
 # OpenAI 兼容视频接口
 
-MediaGen 已实现异步视频任务接口。调用方提交后立即获得 `video_*` 任务 ID，再查询状态并下载成品；平台协议仍由插件负责，Rust 不包含豆包或 Doubao Work 的接口常量。
+本文说明当前 MediaGen 已实现的接口。豆包（`doubao-api`）与 Grok 共用 `/v1/videos`，通过 `model` 选择插件；没有单独的豆包专用路由。控制台「接口文档 → 视频」提供可复制的调用示例。
+
+## 准备
+
+1. 在控制台登录对应平台账号，将账号池授权给调用方的 API Key。
+2. 使用 `GET /v1/models` 查询 `task_kind=video` 的模型。模型在目录中不代表账号一定有使用权限或剩余额度。
+3. 设置服务地址和密钥环境变量：
+
+```sh
+export BASE_URL="http://127.0.0.1:18080"
+export MEDIAGEN_API_KEY="你的 MediaGen API Key"
+```
+
+## 豆包模型
+
+| model                    | 名称              | 输入                 |
+| ------------------------ | ----------------- | -------------------- |
+| `doubao-seedance-2-5`    | Seedance 2.5      | 文本、图片           |
+| `doubao-seedance-2`      | Seedance 2.0      | 文本、图片           |
+| `doubao-seedance-2-fast` | Seedance 2.0 Fast | 文本、图片、参考视频 |
+| `doubao-seedance-2-mini` | Seedance 2.0 Mini | 文本、图片           |
+
+插件按当前账号的平台配置检查具体模型、时长及比例，不自动切换到其他模型。以上为豆包网页 API 插件，不需要安装 Doubao Work。
 
 ## 创建视频
 
-```http
-POST /v1/videos
-Authorization: Bearer <MediaGen API Key>
-Content-Type: multipart/form-data
+`POST /v1/videos` 支持 JSON 和 multipart/form-data，返回 HTTP 200 及异步任务对象。无需传 `async`、`sync` 或 `stream`；不提供视频 SSE 流。
+
+| 字段               | 类型           | 必填 | 说明                                                                                |
+| ------------------ | -------------- | ---- | ----------------------------------------------------------------------------------- |
+| `model`            | string         | 是   | 上表中的模型 ID，或模型目录中的其他视频模型                                         |
+| `prompt`           | string         | 是   | 最多 32000 字符                                                                     |
+| `seconds`          | integer/string | 否   | 豆包默认 10；插件总范围为 4–30 秒，具体模型的范围及步长仍由平台校验                 |
+| `size`             | string         | 否   | 豆包默认 `1280x720`，格式为正整数 `宽x高`，用于推导比例，不保证精确输出像素         |
+| `quality`          | string         | 否   | 默认 `standard`；当前豆包插件不使用此字段选择清晰度                                 |
+| `input_reference`  | object/文件    | 否   | 参考图：JSON `{file_id}`、`{image_url}`，或 multipart 图片文件                      |
+| `input_references` | array<object>  | 否   | 多图扩展，每项结构同 `input_reference`；multipart 使用重复字段 `input_references[]` |
+| `video_reference`  | object         | 否   | 仅 JSON，参考视频扩展；使用 `{file_id}` 或 `{filename, file_data}`                  |
+| `user`             | string         | 否   | 终端用户标识                                                                        |
+
+豆包比例可通过尺寸表达，例如 `1280x720` → `16:9`、`720x1280` → `9:16`、`1024x1024` → `1:1`、`960x1280` → `3:4`、`1280x960` → `4:3`、`1680x720` → `21:9`。当前具体模型还需支持所选比例；不支持时失败，不近似替换。
+
+### 文生视频
+
+```sh
+curl "$BASE_URL/v1/videos" \
+  -H "Authorization: Bearer $MEDIAGEN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "doubao-seedance-2-5",
+    "prompt": "云层缓慢流过山谷，镜头平稳向前推进",
+    "seconds": "10",
+    "size": "1280x720"
+  }'
 ```
 
-标准字段：
-
-- `model`：视频模型 ID，必填。
-- `prompt`：原始视频提示词，必填。
-- `input_reference`：可选参考图片文件、`file_id` 或 `image_url`。
-- `seconds`：视频秒数，可传数字或数字字符串。
-- `size`：`宽x高`，例如 `1280x720`。
-
-JSON 也可使用：
+响应包含以下字段，`id` 用于后续查询：
 
 ```json
 {
-  "model": "doubaowork-seedance-2.5",
-  "prompt": "一只纸折小船在清澈溪流中缓慢前行",
-  "seconds": "5",
-  "size": "1280x720"
-}
-```
-
-创建响应：
-
-```json
-{
-  "id": "video_...",
+  "id": "video_example",
   "object": "video",
-  "model": "doubaowork-seedance-2.5",
+  "model": "doubao-seedance-2-5",
   "status": "queued",
   "progress": 0,
-  "created_at": 1787810000,
-  "seconds": "5",
+  "seconds": "10",
   "size": "1280x720",
   "quality": "standard"
 }
 ```
 
-## 查询、列表与下载
+### 参考图生成视频
 
-```text
-GET    /v1/videos
-GET    /v1/videos/{video_id}
-GET    /v1/videos/{video_id}/content
-POST   /v1/videos/{video_id}/cancel
-DELETE /v1/videos/{video_id}
+参考图为 PNG、JPEG 或 WebP，单张不超过 10 MiB，合计最多 10 张，最终限制由具体模型决定。视频创建请求体上限 50 MiB。
+
+```sh
+curl "$BASE_URL/v1/videos" \
+  -H "Authorization: Bearer $MEDIAGEN_API_KEY" \
+  -F 'model=doubao-seedance-2-fast' \
+  -F 'prompt=让参考图中的人物自然转身，保持外貌一致' \
+  -F 'seconds=10' \
+  -F 'size=720x1280' \
+  -F 'input_reference=@reference.png'
 ```
 
-`GET /v1/videos` 支持 `after`、`limit` 和 `order=asc|desc`。任务状态为 `queued`、`in_progress`、`completed` 或 `failed`。
+JSON 可使用 `"input_reference":{"file_id":"上传返回的 ID"}`，或 `"input_reference":{"image_url":"data:image/png;base64,..."}`；也支持远程图片 URL。
 
-下载接口的 `variant` 默认为 `video`；插件返回封面时也支持 `variant=thumbnail`。视频字节由服务端流式转发，不写入任务 JSON。
+### 参考视频生成视频
 
-任务按调用 API Key 隔离。另一个 API Key 无法查询、下载、取消或删除不属于自己的视频。
+使用 `doubao-seedance-2-fast`，最多 1 个 MP4/MOV。先上传文件（最多 50 MiB）：
 
-## 当前插件模型
-
-- `doubao-video`：复刻 `reference/doubao2api` 的 `content_type=2020/2021` 与 `skill_type=17` 视频链路。
-- `doubaowork-seedance-2.5`：通过本机 Doubao Work App 的 CDP 和原生页面提交，固定使用 `Seedance 2.5`。
-- `doubaowork-seedream-5.0-pro`：通过同一 App 的图片技能提交，固定使用 `Seedream 5.0 Pro`。
-
-Doubao Work 插件不会接受模型降级。账号缺少 Seedance 2.5 或 Seedream 5.0 Pro 权益时，任务会明确失败，不会把 Seedance 2.0 Fast 或 Seedream 4.5 当作成功结果。
-
-## Doubao Work 本机要求
-
-插件会连接 `http://[::1]:9222`。若 Doubao Work 尚未运行，插件会尝试执行官方安装包：
-
-```text
-/Applications/DoubaoWork.app/Contents/MacOS/DoubaoWork
-  --remote-debugging-port=9222
-  --remote-allow-origins=*
+```sh
+curl "$BASE_URL/v1/files" \
+  -H "Authorization: Bearer $MEDIAGEN_API_KEY" \
+  -F 'purpose=assistants' \
+  -F 'file=@reference.mp4'
 ```
 
-如果 App 已经以普通模式运行，Chromium 不会在运行中补开 CDP。请先正常退出 Doubao Work，再重试 API 请求，让插件以调试模式启动它。
+将上传返回的 `id` 填入 `video_reference.file_id`：
 
-首次使用工作任务或新工具时，Doubao Work 可能显示权限选择。权限必须由用户本人在 App 中确认；插件只等待结果，不会代替用户扩大权限。
+```sh
+curl "$BASE_URL/v1/videos" \
+  -H "Authorization: Bearer $MEDIAGEN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "doubao-seedance-2-fast",
+    "prompt": "参考视频中的运动方式，生成一段海边漫步镜头",
+    "seconds": "10",
+    "size": "1280x720",
+    "video_reference": {"file_id": "file_example"}
+  }'
+```
 
-官方接口参考：<https://developers.openai.com/api/reference/typescript/resources/videos/methods/create>
+也可传 `video_reference: {"filename":"reference.mp4","file_data":"data:video/mp4;base64,..."}`。内联 Base64 的编码开销计入 50 MiB 请求体限制，较大文件应先上传再引用。参考片时长上限由账号所选模型动态校验。
+
+当前不支持直接 multipart 上传参考视频、参考视频远程 URL、服务器本地路径或音频参考。聊天中分析视频应使用 `/v1/responses` 的 `input_file` 或 `/v1/chat/completions` 的 `file`，与此处的视频生成不同。
+
+## 查询、下载和管理
+
+| 方法   | 路径                            | 说明                                                                                        |
+| ------ | ------------------------------- | ------------------------------------------------------------------------------------------- |
+| GET    | `/v1/videos`                    | 当前 Key 的视频列表；`after` 游标、`limit=1..100`（默认 20）、`order=asc/desc`（默认 desc） |
+| GET    | `/v1/videos/{video_id}`         | 查询状态与失败信息                                                                          |
+| GET    | `/v1/videos/{video_id}/content` | 下载视频；有封面时支持 `?variant=thumbnail`                                                 |
+| POST   | `/v1/videos/{video_id}/cancel`  | 取消未结束任务（MediaGen 扩展）；已结束返回 409                                             |
+| DELETE | `/v1/videos/{video_id}`         | 删除已结束任务；执行中需先取消                                                              |
+
+状态为 `queued`、`in_progress`、`completed` 或 `failed`。取消也映射为 `failed`，错误码为 `video_cancelled`。创建成功仅表示任务被接受，平台权限、验证或生成失败可能在后续任务的 `error` 中返回。
+
+```sh
+export VIDEO_ID="创建返回的 video_id"
+curl "$BASE_URL/v1/videos/$VIDEO_ID" \
+  -H "Authorization: Bearer $MEDIAGEN_API_KEY"
+# 确认 status=completed 后下载
+curl "$BASE_URL/v1/videos/$VIDEO_ID/content" \
+  -H "Authorization: Bearer $MEDIAGEN_API_KEY" \
+  --output result.mp4
+```
+
+未完成时下载返回 409。下载接口流式转发视频字节，任务 JSON 不包含视频 Base64。文件与任务均按 API Key 隔离，所有步骤须使用同一 Key。遇到账号验证，需在控制台完成验证；微信通知需预先绑定和配置。

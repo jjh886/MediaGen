@@ -93,11 +93,7 @@ pub(crate) async fn test_proxy_connection(target: &str, proxy_url: &str) -> Resu
                     }
                 }
             }
-            return Err(format!(
-                "代理测试失败（未改用直连）: {}；{}",
-                error.without_url(),
-                detail
-            ));
+            return Err(format!("代理测试失败: {}；{}", error.without_url(), detail));
         }
     };
     let status = response.status().as_u16();

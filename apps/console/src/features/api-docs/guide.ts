@@ -59,6 +59,49 @@ export const guideSections: GuideSection[] = [
     ],
   },
   {
+    id: 'video',
+    title: '豆包视频',
+    description: '文生视频、参考图和参考视频共用 /v1/videos，完成后下载 MP4。',
+    blocks: [
+      {
+        kind: 'table',
+        title: '豆包视频模型与参考输入',
+        headings: ['模型 ID', '显示名称', '输入'],
+        rows: [
+          ['doubao-seedance-2-5', 'Seedance 2.5', '文本、图片'],
+          ['doubao-seedance-2', 'Seedance 2.0', '文本、图片'],
+          ['doubao-seedance-2-fast', 'Seedance 2.0 Fast', '文本、图片、参考视频'],
+          ['doubao-seedance-2-mini', 'Seedance 2.0 Mini', '文本、图片'],
+        ],
+      },
+      {
+        kind: 'steps',
+        items: [
+          {
+            title: '准备账号和素材',
+            text: '在控制台登录豆包，授权 API Key 使用账号池。参考视频先通过 `POST /v1/files` 上传；参考图也可在创建时用 multipart 上传。',
+          },
+          {
+            title: '创建视频',
+            text: '调用 `POST /v1/videos`，指定具体模型和 prompt。默认 10 秒、1280x720；不要添加 async、sync 或 stream。HTTP 200 返回 `video_*` 任务 ID。',
+          },
+          {
+            title: '等待任务完成',
+            text: '使用同一 Key 轮询 `GET /v1/videos/{video_id}`。queued / in_progress 继续等待，failed 查看 error；如需账号验证，在控制台完成验证。',
+          },
+          {
+            title: '下载成品',
+            text: 'completed 后调用 `GET /v1/videos/{video_id}/content` 并保存为 .mp4；有封面时可用 `?variant=thumbnail` 下载。',
+          },
+        ],
+      },
+      {
+        kind: 'note',
+        text: '模型权限、时长与参考素材限制会由插件按当前账号校验，不自动降级。微信提醒需事先在控制台完成绑定和通知配置，接口请求本身不会建立绑定。',
+      },
+    ],
+  },
+  {
     id: 'queue',
     title: '图片排队',
     description: '先提交任务，再查询结果。排队只适用于图片生成，不能同时开启 stream=true。',

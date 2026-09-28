@@ -59,7 +59,7 @@ const input = fields([
     'string',
     '内容块必填',
     '—',
-    'input_text、input_image、input_file 等，需模型支持。',
+    'input_text、input_image、input_file、input_audio；视频使用 input_file。',
   ],
   ['input[].content[].text', 'string', '文本块必填', '—', '输入文本。'],
   [
@@ -84,6 +84,8 @@ const input = fields([
     '文件 Base64 / Data URL；模型须支持文件输入。',
   ],
   ['input[].content[].filename', 'string', '内联文件时建议', '未设置', '文件名及扩展名。'],
+  ['input[].content[].input_audio.data', 'string', '音频块必填', '—', '音频原始字节的 Base64。'],
+  ['input[].content[].input_audio.format', 'string', '音频块必填', '—', 'wav 或 mp3。'],
   [
     'input[].type',
     'string',
@@ -182,6 +184,35 @@ export const chatRequest = [
       'auto',
       '图片细节等级，按模型能力校验。',
     ],
+    [
+      'messages[].content[].file.file_id',
+      'string',
+      '文件来源二选一',
+      '—',
+      '同一 API Key 上传的文件 ID；文档或聊天视频使用 file 内容块。',
+    ],
+    [
+      'messages[].content[].file.file_data',
+      'string',
+      '文件来源二选一',
+      '—',
+      '文件 Base64 或 Data URL。',
+    ],
+    [
+      'messages[].content[].file.filename',
+      'string',
+      '裸 Base64 时必填',
+      '未设置',
+      '包含扩展名的原始文件名，例如 clip.mp4。',
+    ],
+    [
+      'messages[].content[].input_audio.data',
+      'string',
+      '音频块必填',
+      '—',
+      '音频原始字节的 Base64。',
+    ],
+    ['messages[].content[].input_audio.format', 'string', '音频块必填', '—', 'wav 或 mp3。'],
     [
       'messages[].tool_calls',
       'array<object>',
