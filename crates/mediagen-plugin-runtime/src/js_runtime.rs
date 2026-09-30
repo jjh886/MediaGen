@@ -151,24 +151,33 @@ where
                           raw: String,
                           callback: Function<'_>|
                           -> rquickjs::Result<String> {
-                        let params: Value =
+                        let mut params: Value =
                             serde_json::from_str(&raw).map_err(|_| rquickjs::Error::Unknown)?;
+                        let idle_interval = match params.as_object_mut().and_then(|p| p.remove("idle_interval_ms")) {
+                            None => None,
+                            Some(value) => match value.as_u64().filter(|ms| (100..=60_000).contains(ms)) {
+                                Some(ms) => Some(Duration::from_millis(ms)),
+                                None => return Ok(json!({"success":false,"data":null,"error":"idle_interval_ms 必须是 100 至 60000 的整数"}).to_string()),
+                            },
+                        };
                         let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
                         let host = stream_host.clone();
                         let job = stream_handle
                             .spawn(async move { host.stream(&action, &params, sender).await });
+                        let mut last_callback = Instant::now();
                         loop {
                             if stream_cancelled.load(Ordering::Relaxed) {
                                 job.abort();
                                 return Err(rquickjs::Error::Unknown);
                             }
                             let next = stream_handle.block_on(tokio::time::timeout(
-                                Duration::from_millis(200),
+                                idle_interval.unwrap_or(Duration::from_millis(200)).min(Duration::from_millis(200)),
                                 receiver.recv(),
                             ));
                             let event = match next {
                                 Ok(Some(event)) => event,
                                 Ok(None) => break,
+                                Err(_) if idle_interval.is_some_and(|interval| last_callback.elapsed() >= interval) => json!({"type":"http_idle"}),
                                 Err(_) => continue,
                             };
 
@@ -176,6 +185,7 @@ where
                                 job.abort();
                                 return Err(error);
                             }
+                            last_callback = Instant::now();
                         }
                         let result = stream_handle
                             .block_on(job)
