@@ -117,7 +117,7 @@ function chatgptApiProcessReference(auth, fileId, reference) {
       body: {
         file_id: fileId,
         use_case: reference.use_case || 'multimodal',
-        index_for_retrieval: false,
+        index_for_retrieval: reference.use_case === 'my_files',
         file_name: reference.name,
         mime_type: reference.mime_type,
         library_persistence_mode: 'opportunistic',
@@ -168,7 +168,11 @@ function chatgptApiUploadTextAttachments(ctx, auth, input) {
       mime_type: attachment.mime_type,
       size: file.size,
       ...(image ? { width: dimensions.width, height: dimensions.height } : {}),
-      use_case: image ? 'multimodal' : 'ace_upload',
+      use_case: image
+        ? 'multimodal'
+        : /^(audio|video)\//.test(attachment.mime_type)
+          ? 'ace_upload'
+          : 'my_files',
     })
   })
 }

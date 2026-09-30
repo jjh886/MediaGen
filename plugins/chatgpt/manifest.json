@@ -660,6 +660,13 @@
   ],
   "failure_strategy": [
     {
+      "contains_any": ["verification_required"],
+      "category": "verification_required",
+      "retry_action": "fail",
+      "account_state": "verification_required",
+      "usage_consumed": false
+    },
+    {
       "contains_any": [
         "missing_input",
         "invalid_input",
@@ -752,6 +759,7 @@
           "script_files": [
             "@shared/api_text_attachments.js",
             "@shared/api_text_responses.js",
+            "@shared/api_session.js",
             "auth.js",
             "network_profile.js",
             "startup.js",
@@ -773,6 +781,7 @@
         {
           "action": "plugin.run_js",
           "script_files": [
+            "@shared/api_session.js",
             "auth.js",
             "network_profile.js",
             "startup.js",
@@ -790,6 +799,7 @@
           "_comment": "把通用本地文本 request 转换为 ChatGPT 平台协议；不包含剧本提示词或业务格式逻辑",
           "action": "plugin.run_js",
           "script_files": [
+            "@shared/api_session.js",
             "auth.js",
             "network_profile.js",
             "startup.js",
@@ -825,6 +835,7 @@
           "script_files": [
             "@shared/api_text_attachments.js",
             "@shared/api_text_responses.js",
+            "@shared/api_session.js",
             "auth.js",
             "network_profile.js",
             "startup.js",
@@ -832,6 +843,7 @@
             "sentinel.js",
             "conversation.js",
             "conversation_results.js",
+            "text_conversation.js",
             "audio_speech.js",
             "generate_audio.js"
           ],
@@ -879,7 +891,7 @@
     "enabled": false
   },
   "http_profile": "chrome_149",
-  "version": "1.6.0",
+  "version": "1.6.2",
   "schema_version": 1,
   "task_recovery": {
     "media_types": ["text", "image"],

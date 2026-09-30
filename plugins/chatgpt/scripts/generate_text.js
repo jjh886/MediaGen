@@ -4,6 +4,8 @@ function main(ctx) {
   if (saved.phase === 'completed' && saved.result?.response) return saved.result
   if (!saved.phase) chatgptApiCheckpoint({ phase: 'ready' })
   const auth = chatgptApiRefreshSession(chatgptApiReadAuth(ctx))
+  const bootstrap =
+    !saved.conversation_id && saved.phase !== 'submitting' ? chatgptApiBootstrap(auth, false) : null
   if (
     !saved.conversation_id &&
     saved.phase !== 'submitting' &&
@@ -26,7 +28,7 @@ function main(ctx) {
     })
   }
   if (!saved.conversation_id && saved.phase !== 'submitting')
-    chatgptApiTextReasoning(ctx, auth, request)
+    chatgptApiTextReasoning(ctx, auth, request, bootstrap['/backend-api/models'])
   const response = chatgptApiGenerateTextConversation(auth, request)
   return {
     success: true,
@@ -129,13 +131,12 @@ function chatgptApiGenerateTextConversation(auth, request) {
       () => chatgptApiFetchTextConversation(auth, conversationId, 3000).title || ''
     )
     const response = apiTextCompleteResponse(writer)
-    // 先保存正文再清理远端会话，清理失败不能丢失已生成结果。
+    // 自由文本会话保留在平台侧，便于核对结果、标题和后续恢复。
     chatgptApiCheckpoint({
       phase: 'completed',
       conversation_id: conversationId,
       result: { success: true, status: 'done', source: 'chatgpt-api', response },
     })
-    chatgptApiHideConversation(auth, conversationId)
     return response
   } catch (error) {
     apiTextFailResponse(writer, error)

@@ -42,11 +42,9 @@ function chatgptApiSentinelHeaders(auth) {
 
   return chatgptApiCompactObject({
     'openai-sentinel-chat-requirements-token': finalize.token,
-    'openai-sentinel-chat-requirements-prepare-token': prepare.prepare_token,
     'openai-sentinel-proof-token': proof,
     'openai-sentinel-so-token': sessionObserverToken,
     'openai-sentinel-turnstile-token': turnstile,
-    'oai-telemetry': '[1,null]',
   })
 }
 

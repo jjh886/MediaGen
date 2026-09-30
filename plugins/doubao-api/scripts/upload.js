@@ -250,7 +250,7 @@ function doubaoUploadReferences(ctx, session, options) {
   const dataUrls = ctx.ref_image_dataurls || []
   const count = Math.max(paths.length, dataUrls.length)
   if (count > 10) throw new Error('invalid_input: 豆包最多支持 10 张参考图')
-  const messageId = apiTextUuid()
+  const messageId = doubaoMessageId()
   const references = []
   for (let index = 0; index < count; index++) {
     let file
@@ -287,7 +287,7 @@ function doubaoUploadTextAttachments(ctx, session, request) {
   const files = request.input.flatMap((item) => item.attachments || [])
   if (files.some((attachment) => attachment.mime_type.startsWith('video/')))
     throw new Error('invalid_input: 当前豆包网页对话不支持视频文件附件')
-  const messageId = apiTextUuid()
+  const messageId = doubaoMessageId()
   const prepared = files.map((attachment, index) => {
     const file = apiTextMaterializeAttachment(ctx, attachment, index)
     if (file.mime_type.startsWith('image/'))

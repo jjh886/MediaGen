@@ -1,3 +1,39 @@
+let doubaoUuidNode
+
+function doubaoRandomBytes(length) {
+  const value = host.call('crypto.random_base64url', { bytes: length }).value
+  if (typeof value !== 'string') throw new Error('invalid_response: 随机字节回执无效')
+  const text = value.replace(/-/g, '+').replace(/_/g, '/')
+  return host.call('crypto.base64_decode_latin1', {
+    text: text.padEnd(Math.ceil(text.length / 4) * 4, '='),
+  }).value
+}
+
+function doubaoLocalConversationId() {
+  const bytes = doubaoRandomBytes(16)
+  if (typeof bytes !== 'string' || bytes.length !== 16)
+    throw new Error('invalid_response: 会话随机字节无效')
+  return (
+    'local_' +
+    bytes
+      .split('')
+      .map((char) => char.charCodeAt(0))
+      .join('')
+      .slice(0, 16)
+  )
+}
+
+function doubaoMessageId() {
+  if (!doubaoUuidNode) {
+    const bytes = doubaoRandomBytes(6)
+    if (typeof bytes !== 'string' || bytes.length !== 6)
+      throw new Error('invalid_response: UUID 节点随机字节无效')
+    const node = String.fromCharCode(bytes.charCodeAt(0) | 1) + bytes.slice(1)
+    doubaoUuidNode = host.call('crypto.base64_encode_latin1', { text: node }).value
+  }
+  return host.call('crypto.uuid_v1', { node_base64: doubaoUuidNode }).value
+}
+
 function doubaoPayload(prompt, kind, options = {}) {
   const id = apiTextUuid()
   const media = kind === 'image' || kind === 'video'
@@ -21,7 +57,7 @@ function doubaoPayload(prompt, kind, options = {}) {
         : prompt
   const payload = {
     client_meta: {
-      local_conversation_id: options.conversationId || 'local_' + id.replace(/-/g, ''),
+      local_conversation_id: options.conversationId || doubaoLocalConversationId(),
       conversation_id: '',
       bot_id: '7338286299411103781',
       last_section_id: '',
@@ -34,7 +70,7 @@ function doubaoPayload(prompt, kind, options = {}) {
     },
     messages: [
       {
-        local_message_id: apiTextUuid(),
+        local_message_id: doubaoMessageId(),
         message_status: 0,
         content_block: [
           {
@@ -280,6 +316,7 @@ function doubaoSubmit(session, payload, onText) {
         include_sse_metadata: true,
         include_http_metadata: true,
         collect_body: true,
+        idle_interval_ms: 1000,
       },
       (event) => {
         if (event.type === 'http_response') {
@@ -288,6 +325,8 @@ function doubaoSubmit(session, payload, onText) {
           return
         }
         session.securityRuntime?.tick()
+        doubaoHeartbeatTick(session)
+        if (event.type === 'http_idle') return null
         doubaoConsume(state, event, onText, session)
       }
     ),
@@ -313,7 +352,8 @@ function doubaoConfirmationPayload(conversation, kind) {
     throw new Error('invalid_response: 豆包原会话缺少继续生成所需信息')
   const payload = doubaoPayload(
     '确认，按上述参数直接生成' + (kind === 'image' ? '图片' : '视频') + '。',
-    'text'
+    'text',
+    { conversationId: String(conversation.conversation_id) }
   )
   delete payload.client_meta.local_conversation_id
   Object.assign(payload.client_meta, {

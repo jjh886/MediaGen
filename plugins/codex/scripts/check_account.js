@@ -6,11 +6,11 @@ function main(ctx) {
     return codexHealthFromError(error)
   }
 
-  let result = codexFetchAccountProfile(auth)
+  let result = codexFetchAccountProfile(auth, ctx)
   if (!codexHttpSucceeded(result) && codexHttpStatus(result) === 401) {
     try {
       auth = codexRefreshAuth(ctx, auth, '账号检查返回 401')
-      result = codexFetchAccountProfile(auth)
+      result = codexFetchAccountProfile(auth, ctx)
     } catch (error) {
       return codexHealthFromError(error)
     }
@@ -21,8 +21,13 @@ function main(ctx) {
   const usage = host.tryCall('http.request', {
     method: 'GET',
     url: 'https://chatgpt.com/backend-api/wham/usage',
-    headers: codexUpstreamHeaders(codexAccessToken(auth), codexAccountId(auth), 'application/json'),
-    fingerprint: 'none',
+    headers: codexUpstreamHeaders(
+      codexAccessToken(auth),
+      codexAccountId(auth),
+      'application/json',
+      ctx
+    ),
+    proxy: 'system',
     timeout_ms: 20000,
   })
   if (!codexHttpSucceeded(usage))

@@ -7,6 +7,8 @@ function doubaoRequestOrigin(path) {
 
 function doubaoQuery(session, path) {
   if (path.startsWith('/passport/')) {
+    if (typeof DOUBAO_PASSPORT_PATHS !== 'undefined' && DOUBAO_PASSPORT_PATHS.includes(path))
+      return doubaoPassportQuery(session, path)
     const account = session.auth.account_query
     if (!account?.account_sdk_source || !account.sdk_version)
       throw new Error('LOGIN_EXPIRED: 豆包账号协议参数缺失，请重新登录')
@@ -34,6 +36,10 @@ function doubaoHeaders(session, path = '/') {
       referer: DOUBAO_ORIGIN + '/',
       'sec-fetch-site': 'same-site',
     })
+    if (session.passportRequest?.path === path) {
+      delete headers['content-type']
+      Object.assign(headers, session.passportRequest.headers)
+    }
     return headers
   }
   const headers = { ...apiSessionHeaders(session, DOUBAO_ORIGIN, path), 'agw-js-conv': 'str' }
@@ -45,7 +51,11 @@ function doubaoHeaders(session, path = '/') {
 
 function doubaoRequest(session, path, body, method, timeoutMs = 60000) {
   const request = doubaoSignedRequest(session, path, body, method || 'POST')
-  if (path.startsWith('/passport/')) doubaoCorsPreflight(session, request, ['content-type'], true)
+  if (path.startsWith('/passport/')) {
+    const names = Object.keys(request.headers).filter((name) => name.startsWith('x-tt-'))
+    if (request.headers['content-type'] === 'application/json') names.push('content-type')
+    doubaoCorsPreflight(session, request, names, true)
+  }
   const result = apiSessionRequireOk(
     host.call('http.request', {
       ...request,

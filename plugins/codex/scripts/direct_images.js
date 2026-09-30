@@ -1,16 +1,9 @@
 // Codex 原生 Images 协议；模型、端点和回退条件全部由插件维护。
-const CODEX_DIRECT_IMAGE_MODELS = [
-  'gpt-image-1.5',
-  'gpt-image-2',
-  'gpt-image-2.5-flare',
-  'gpt-image-2.5-sunburst',
-  'gpt-image-2.5-flare-2026-09-08',
-  'gpt-image-2.5-sunburst-2026-09-08',
-]
+const CODEX_DIRECT_IMAGE_MODELS = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2']
 
 function codexImageModel(ctx) {
-  const model = String(ctx.model_id || 'gpt-image-2').trim()
-  if (model === 'codex') return 'gpt-image-2'
+  const model = String(ctx.model_id || 'gpt-image-2.5-flare').trim()
+  if (model === 'codex') return 'gpt-image-2.5-flare'
   if (!CODEX_DIRECT_IMAGE_MODELS.includes(model)) {
     throw new Error('unsupported_model: Codex 不支持图片模型 ' + model)
   }

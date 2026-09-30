@@ -1,6 +1,6 @@
 // 只复现会影响账号、模型和生图能力判断的启动请求。侧边栏、通知、埋点和静态资源不参与
 // 生成协议，照搬它们既浪费带宽，也会制造并非真实用户操作的遥测数据。
-function chatgptApiBootstrap(auth) {
+function chatgptApiBootstrap(auth, includeImages = true) {
   const offset = Number(chatgptApiFingerprint(auth).timezone_offset_min || 0)
   const requests = [
     ['/backend-api/me', '/backend-api/me'],
@@ -14,7 +14,7 @@ function chatgptApiBootstrap(auth) {
       '/backend-api/models?iim=false&is_gizmo=false&supports_model_picker_upgrade_presets=true',
       '/backend-api/models',
     ],
-    ['/backend-api/images/bootstrap', '/backend-api/images/bootstrap'],
+    ...(includeImages ? [['/backend-api/images/bootstrap', '/backend-api/images/bootstrap']] : []),
   ]
   const responses = {}
   for (const [path, route] of requests) {

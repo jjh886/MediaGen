@@ -3,7 +3,12 @@ function main(ctx) {
   const result = host.call('http.request', {
     method: 'GET',
     url: 'https://chatgpt.com/backend-api/codex/models?client_version=' + CODEX_UPSTREAM_VERSION,
-    headers: codexUpstreamHeaders(codexAccessToken(auth), codexAccountId(auth), 'application/json'),
+    headers: codexUpstreamHeaders(
+      codexAccessToken(auth),
+      codexAccountId(auth),
+      'application/json',
+      ctx
+    ),
     fingerprint: 'none',
     timeout_ms: 30000,
   })
@@ -11,7 +16,7 @@ function main(ctx) {
     throw new Error('模型目录获取失败: HTTP ' + result.status)
   return {
     models: result.body.models
-      .filter((item) => typeof item?.slug === 'string' && item.slug.trim())
+      .filter((item) => typeof item?.slug === 'string' && codexSupportedTextModel(item.slug))
       .map((item) => ({
         model_id: item.slug,
         display_name: item.display_name || item.slug,
@@ -54,16 +59,12 @@ function main(ctx) {
           reasoning: {
             efforts: (item.supported_reasoning_levels || [])
               .map((level) => level.effort)
-              .filter(codexSupportedEffort),
-            default_effort: codexSupportedEffort(item.default_reasoning_level)
+              .filter((effort) => codexSupportedEffort(effort, item.slug)),
+            default_effort: codexSupportedEffort(item.default_reasoning_level, item.slug)
               ? item.default_reasoning_level
               : undefined,
           },
         },
       })),
   }
-}
-
-function codexSupportedEffort(effort) {
-  return ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(effort)
 }

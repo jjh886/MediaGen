@@ -59,10 +59,13 @@ function codexRefreshAuthLocked(ctx, auth, reason) {
     url: CODEX_TOKEN_URL,
     proxy: 'system',
     body_format: 'form',
+    headers: codexAuthHeaders(ctx),
+    retry: { max_attempts: 1 },
     body: {
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
       client_id: CODEX_CLIENT_ID,
+      scope: 'openid profile email',
     },
     timeout_ms: 30000,
   })
@@ -82,13 +85,13 @@ function codexRefreshAuthLocked(ctx, auth, reason) {
   return next
 }
 
-function codexFetchAccountProfile(auth) {
-  const headers = {
-    authorization: 'Bearer ' + codexAccessToken(auth),
-    accept: 'application/json',
-  }
-  const accountId = codexAccountId(auth)
-  if (accountId) headers['chatgpt-account-id'] = accountId
+function codexFetchAccountProfile(auth, ctx) {
+  const headers = codexUpstreamHeaders(
+    codexAccessToken(auth),
+    codexAccountId(auth),
+    'application/json',
+    ctx
+  )
   return host.tryCall('http.request', {
     method: 'GET',
     url: CODEX_ACCOUNT_CHECK_URL,
@@ -154,12 +157,18 @@ function codexBuildAuthFile(token, previousAuth) {
       refresh_token: refreshToken,
       account_id: accountId,
     },
+    expires_at:
+      Number(token.expires_in) > 0
+        ? Math.floor(Date.now() / 1000) + Number(token.expires_in)
+        : null,
     last_refresh: new Date().toISOString(),
   }
 }
 
 function codexAccessTokenExpiresSoon(auth) {
-  const exp = Number(codexPath(codexDecodeJwtPayload(codexAccessToken(auth)), ['exp']))
+  const exp =
+    Number(codexPath(codexDecodeJwtPayload(codexAccessToken(auth)), ['exp'])) ||
+    Number(auth.expires_at)
   if (!Number.isFinite(exp) || exp <= 0) return false
   return exp <= Math.floor(Date.now() / 1000) + CODEX_TOKEN_REFRESH_SKEW_SECONDS
 }
@@ -314,20 +323,49 @@ function codexFirstNonEmpty(values) {
   return ''
 }
 const CODEX_UPSTREAM_VERSION = '0.160.0'
-const CODEX_UPSTREAM_USER_AGENT =
-  'codex-tui/' + CODEX_UPSTREAM_VERSION + ' (Ubuntu 22.4.0; x86_64) xterm-256color'
+// 浏览器版本是 Chrome 版本，不能冒充 Codex 协议版本；系统身份跟随账号配置。
+function codexAuthHeaders(ctx) {
+  const os = String(ctx?.browser_os || ctx?.account?.browser_os || '')
+    .trim()
+    .toLowerCase()
+  const systems = {
+    windows: '(Windows 10.0.0; x86_64) WindowsTerminal',
+    macos: '(Mac OS 10.15.7; x86_64) xterm-256color',
+    linux: '(Linux 6.0.0; x86_64) xterm-256color',
+  }
+  const normalized = { win: 'windows', win32: 'windows', mac: 'macos', darwin: 'macos' }[os] || os
+  if (os && !Object.hasOwn(systems, normalized)) {
+    throw new Error('invalid_input: Codex 不支持此模拟系统')
+  }
+  const suffix = systems[normalized]
+  return {
+    originator: 'codex-tui',
+    'user-agent': 'codex-tui/' + CODEX_UPSTREAM_VERSION + (suffix ? ' ' + suffix : ''),
+  }
+}
 
-function codexUpstreamHeaders(accessToken, accountId, accept) {
+function codexUpstreamHeaders(accessToken, accountId, accept, ctx) {
   const headers = {
     authorization: 'Bearer ' + accessToken,
     accept: accept || 'text/event-stream',
     'content-type': 'application/json',
     'openai-beta': 'responses=experimental',
-    originator: 'codex-tui',
+    ...codexAuthHeaders(ctx),
     version: CODEX_UPSTREAM_VERSION,
-    'user-agent': CODEX_UPSTREAM_USER_AGENT,
     'session-id': globalThis.__context?.request_id || globalThis.__context?.task_id || '',
   }
   if (accountId) headers['chatgpt-account-id'] = accountId
   return headers
+}
+
+function codexSupportedTextModel(model) {
+  return /^gpt-(?:6\.1-sol|6-(?:astra|sol|luna)|5\.6-(?:sol|terra|luna))$/.test(model)
+}
+
+function codexSupportedEffort(effort, model) {
+  const efforts =
+    model === 'gpt-6.1-sol'
+      ? ['low', 'medium', 'high', 'xhigh', 'max']
+      : ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+  return efforts.includes(effort)
 }

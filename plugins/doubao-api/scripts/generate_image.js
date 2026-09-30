@@ -9,6 +9,7 @@ function main(ctx) {
     throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原图片请求提交状态待核对')
   const session = apiSessionRead(ctx)
   doubaoRequireVerified(session)
+  doubaoStartHeartbeats(session)
   const options = doubaoMediaOptions(ctx, session, 'image', saved.media_options)
   const images = []
   const histories = {}

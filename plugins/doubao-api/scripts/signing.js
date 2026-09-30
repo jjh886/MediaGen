@@ -5,7 +5,7 @@ function doubaoSignedRequest(session, path, body, method = 'POST', extraHeaders 
   }
   if (!session.securitySdk) {
     if (
-      !/^https:\/\/lf-flow-web-cdn\.doubao\.com\/obj\/flow-doubao\/doubao\/chat\/static\/js\/async\/bdms-sdk\.[a-z0-9]+\.js$/.test(
+      !/^https:\/\/lf-flow-web-cdn\.doubao\.com\/obj\/flow-doubao\/(?:doubao\/chat\/static\/js\/async\/bdms-sdk\.[a-z0-9]+\.js|rc-client-security\/web\/stable\/[a-zA-Z0-9._-]+\/bdms\.js)$/.test(
         security.sdk_url
       )
     ) {
@@ -29,7 +29,12 @@ function doubaoSignedRequest(session, path, body, method = 'POST', extraHeaders 
   const headers = doubaoHeaders(session, path.split('?')[0])
   if (path.startsWith('/im/')) headers['content-type'] = 'application/json; encoding=utf-8'
   Object.assign(headers, extraHeaders)
-  const payload = body === undefined ? undefined : JSON.stringify(body)
+  const payload =
+    body === undefined
+      ? method === 'POST' && path.startsWith('/passport/')
+        ? ''
+        : undefined
+      : JSON.stringify(body)
   if (!session.securityRuntime) {
     Object.defineProperty(session, 'securityRuntime', {
       value: doubaoSecurityRuntime({
@@ -139,6 +144,7 @@ function doubaoRefreshSecurity(session, result, path = '/') {
     changed = true
   }
   if (changed) host.call('file.write_json', { path: session.auth_path, value: session })
+  if (typeof doubaoPassportRefresh === 'function') doubaoPassportRefresh(session, result)
 }
 
 function doubaoPersistSecurityStorage(session) {

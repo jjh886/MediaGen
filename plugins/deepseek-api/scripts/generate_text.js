@@ -7,6 +7,7 @@ function main(ctx) {
   }
   deepseekValidateAttachments(request)
   const session = apiSessionRead(ctx)
+  deepseekInitializeSession(session)
   const resume = Boolean(saved.response_message_id)
   const attachments = resume
     ? []
@@ -82,8 +83,15 @@ function main(ctx) {
           message_id: state.responseId,
           ...(continuing ? { fallback_to_resume: true } : {}),
         }
-        host.sleep(1000)
+        host.sleep(deepseekSetting(session, 'sse_auto_resume_timeout', 3000))
       }
+      const timeoutKey = targetPath.endsWith('/continue')
+        ? 'continue_request_timeout_ms'
+        : targetPath.endsWith('/resume_stream')
+          ? 'resume_request_timeout_ms'
+          : 'completion_request_timeout_ms'
+      const timeout = deepseekSetting(session, timeoutKey, 60000)
+      deepseekReportSettings(session)
       const response = apiSessionRequireOk(
         host.stream(
           'http.sse_request',
@@ -96,11 +104,18 @@ function main(ctx) {
             },
             body,
             proxy: 'system',
-            timeout_ms: 10800000,
+            timeout_ms: timeout,
+            idle_interval_ms: 1000,
             retry: { max_attempts: 1 },
             include_sse_metadata: true,
           },
-          (event) => deepseekConsume(state, writer, event, checkpoint)
+          (event) => {
+            deepseekSessionTick(session)
+            if (event.type === 'http_idle') {
+              return null
+            }
+            return deepseekConsume(state, writer, event, checkpoint)
+          }
         ),
         'DeepSeek 文本生成失败'
       )

@@ -1,6 +1,9 @@
 const CODEX_RESPONSES_ENDPOINT = 'https://chatgpt.com/backend-api/codex/responses'
 const CODEX_TEXT_DEFAULT_MODEL = 'gpt-6-luna'
 const CODEX_UNSUPPORTED_RESPONSE_FIELDS = [
+  'chat_template_kwargs',
+  'stop_sequences',
+  'truncation',
   'frequency_penalty',
   'max_completion_tokens',
   'max_output_tokens',
@@ -28,6 +31,17 @@ function codexNormalizeResponsesRequest(value, platformConfig) {
   payload.model = aliases.includes(requestedModel.toLowerCase())
     ? String(platformConfig?.model || CODEX_TEXT_DEFAULT_MODEL).trim()
     : requestedModel || String(platformConfig?.model || CODEX_TEXT_DEFAULT_MODEL).trim()
+  if (!codexSupportedTextModel(payload.model)) {
+    throw new Error('unsupported_model: Codex 不支持文本模型 ' + payload.model)
+  }
+  if (payload.service_tier !== undefined) {
+    const tier = String(payload.service_tier).trim().toLowerCase()
+    const normalizedTier = tier === 'fast' ? 'priority' : tier
+    if (!['auto', 'default', 'priority', 'flex', 'scale', 'ultrafast'].includes(normalizedTier)) {
+      throw new Error('invalid_input: Codex 不支持该 service_tier')
+    }
+    payload.service_tier = normalizedTier
+  }
   payload.input = codexNormalizeResponsesInput(payload.input)
   codexPromoteSystemInstructions(payload)
   codexNormalizeFunctionTools(payload)
@@ -59,10 +73,12 @@ function codexApplyReasoning(ctx, auth, payload) {
   const response = host.tryCall('http.request', {
     method: 'GET',
     url: 'https://chatgpt.com/backend-api/codex/models?client_version=' + CODEX_UPSTREAM_VERSION,
-    headers: {
-      authorization: 'Bearer ' + codexAccessToken(auth),
-      'chatgpt-account-id': codexAccountId(auth),
-    },
+    headers: codexUpstreamHeaders(
+      codexAccessToken(auth),
+      codexAccountId(auth),
+      'application/json',
+      ctx
+    ),
     proxy: 'system',
     timeout_ms: 15000,
   })
@@ -78,23 +94,25 @@ function codexApplyReasoning(ctx, auth, payload) {
     }
   }
   // 模型目录与生成接口档位不完全一致；Responses 接口实测拒绝 ultra。
-  const transportEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
   if (capability) {
     capability = {
       ...capability,
-      efforts: capability.efforts.filter((effort) => transportEfforts.includes(effort)),
+      efforts: (capability.efforts || []).filter((effort) =>
+        codexSupportedEffort(effort, payload.model)
+      ),
     }
     if (!capability.efforts.includes(capability.default_effort)) {
       capability.default_effort = undefined
     }
   }
-  const requested = payload.reasoning?.effort
+  const requested = codexReasoningEffort(payload.reasoning?.effort)
   if (requested && !capability?.efforts?.includes(requested)) {
     throw new Error('invalid_input: ' + payload.model + ' 不支持思考深度 ' + requested)
   }
   const effort = requested || capability?.default_effort
   if (effort) payload.reasoning = { ...payload.reasoning, effort }
   else if (payload.reasoning) delete payload.reasoning.effort
+  codexEnsureReasoningEncryptedContent(payload)
 }
 
 function codexNormalizeResponsesInput(value) {
@@ -207,9 +225,9 @@ function codexEnsureReasoningEncryptedContent(payload) {
   }
 }
 
-function codexExecuteResponses(auth, payload) {
+function codexExecuteResponses(auth, payload, ctx) {
   const accountId = codexAccountId(auth)
-  const headers = codexUpstreamHeaders(codexAccessToken(auth), accountId, 'text/event-stream')
+  const headers = codexUpstreamHeaders(codexAccessToken(auth), accountId, 'text/event-stream', ctx)
   let completed = null
   const completedItems = new Map()
   let terminalError = ''
@@ -257,7 +275,7 @@ function codexExecuteResponses(auth, payload) {
     }
   )
   const status = Number(result?.status || 0)
-  if (!result?.ok && !terminalError) {
+  if (!result?.ok && !completed && !terminalError) {
     terminalError = codexResponsesHttpError(result)
   }
   if (completed && typeof completed === 'object') {

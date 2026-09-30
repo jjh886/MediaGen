@@ -171,7 +171,7 @@ function requestImageWithAuthRetry(ctx, auth, payload) {
   try {
     return {
       auth,
-      result: requestImageWithRetry(codexAccessToken(auth), codexAccountId(auth), payload),
+      result: requestImageWithRetry(codexAccessToken(auth), codexAccountId(auth), payload, ctx),
     }
   } catch (error) {
     if (!codexErrorNeedsTokenRefresh(error)) throw error
@@ -183,7 +183,8 @@ function requestImageWithAuthRetry(ctx, auth, payload) {
       result: requestImageWithRetry(
         codexAccessToken(refreshed),
         codexAccountId(refreshed),
-        payload
+        payload,
+        ctx
       ),
     }
   }
@@ -193,19 +194,19 @@ function codexImageCheckpoint(value) {
   return host.checkpoint(value) || {}
 }
 
-function requestImageWithRetry(accessToken, accountId, payload) {
+function requestImageWithRetry(accessToken, accountId, payload, ctx) {
   const saved = codexImageCheckpoint()
   if (saved.pending_image?.image && !saved.pending_image.error) return saved.pending_image
   if (saved.phase === 'submitting')
     throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原生成提交状态待核对')
   codexImageCheckpoint({ ...saved, phase: 'submitting' })
-  const result = requestImage(accessToken, accountId, payload)
+  const result = requestImage(accessToken, accountId, payload, ctx)
   if (result.error || !result.image) throw new Error(resultError(result))
   return result
 }
 
-function requestImage(accessToken, accountId, payload) {
-  const headers = codexUpstreamHeaders(accessToken, accountId, 'text/event-stream')
+function requestImage(accessToken, accountId, payload, ctx) {
+  const headers = codexUpstreamHeaders(accessToken, accountId, 'text/event-stream', ctx)
   const direct = codexDirectImageRequest(payload)
   if (direct) {
     const native = requestImageStream(headers, direct.url, direct.body)

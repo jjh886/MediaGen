@@ -43,9 +43,10 @@ function chatgptApiFirstText(values) {
 function chatgptApiAccountCheckError(error) {
   const message = String(error?.message || error || 'ChatGPT 登录检查失败')
   const expired = message.startsWith('LOGIN_EXPIRED:')
+  const verification = message.startsWith('verification_required:')
   return {
     logged_in: expired ? false : null,
-    status: expired ? 'login_expired' : 'inconclusive',
-    reason: message.replace(/^(AUTH_INCONCLUSIVE|LOGIN_EXPIRED):\s*/, ''),
+    status: verification ? 'verification_required' : expired ? 'login_expired' : 'inconclusive',
+    reason: message.replace(/^(AUTH_INCONCLUSIVE|LOGIN_EXPIRED|verification_required):\s*/, ''),
   }
 }

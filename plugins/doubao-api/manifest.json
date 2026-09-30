@@ -95,7 +95,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "2.0.0",
+  "version": "2.1.0",
   "platform_id": "doubao-api",
   "display_name": "豆包",
   "sort_order": 50,
@@ -118,7 +118,9 @@
       "crypto.base64_decode_latin1",
       "crypto.base64_encode_utf8",
       "crypto.digest_bytes",
-      "crypto.hmac_sha256"
+      "crypto.hmac_sha256",
+      "crypto.random_base64url",
+      "crypto.uuid_v1"
     ],
     "network_hosts": [
       "doubao.com",
@@ -344,6 +346,7 @@
             "signing_transport.js",
             "signing_environment.js",
             "signing.js",
+            "passport.js",
             "lifecycle.js",
             "conversation.js",
             "history.js",
@@ -367,6 +370,7 @@
             "signing_transport.js",
             "signing_environment.js",
             "signing.js",
+            "passport.js",
             "lifecycle.js",
             "conversation.js",
             "history.js",
@@ -391,6 +395,7 @@
             "signing_transport.js",
             "signing_environment.js",
             "signing.js",
+            "passport.js",
             "lifecycle.js",
             "conversation.js",
             "history.js",

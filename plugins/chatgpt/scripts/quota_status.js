@@ -18,7 +18,7 @@ function chatgptApiQuotaMessageFromBootstrap(auth) {
       chatgptApiBootstrap(auth)?.['/backend-api/images/bootstrap']
     )
   } catch (error) {
-    // 配额接口允许临时失败，但明确的 401 必须交给账号检查标记为登录过期。
+    // 配额接口允许临时失败；登录失效和安全验证必须交给账号恢复流程。
     chatgptApiRethrowLoginExpired(error)
     return ''
   }
@@ -26,7 +26,7 @@ function chatgptApiQuotaMessageFromBootstrap(auth) {
 
 function chatgptApiRethrowLoginExpired(error) {
   const message = String(error?.message || error || '')
-  if (message.startsWith('LOGIN_EXPIRED:')) throw error
+  if (/^(LOGIN_EXPIRED|verification_required):/.test(message)) throw error
 }
 
 function chatgptApiQuotaMessageFromImagesPage(auth) {
@@ -39,7 +39,7 @@ function chatgptApiQuotaMessageFromImagesPage(auth) {
       headers: {
         ...chatgptApiBrowserHeaders(auth, 'none'),
         accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        cookie: chatgptApiCookieHeader(auth),
+        cookie: chatgptApiCookieHeader(auth, '/images'),
         'sec-fetch-dest': 'document',
         'sec-fetch-mode': 'navigate',
         'sec-fetch-site': 'none',
@@ -47,8 +47,11 @@ function chatgptApiQuotaMessageFromImagesPage(auth) {
       },
       timeout_ms: 60000,
     })
+    chatgptApiReceiveCookies(auth, response, '/images')
+    chatgptApiRequireOk(response, '检查 ChatGPT 图片额度')
     return response?.ok ? chatgptApiQuotaMessageFromText(String(response.body_text || '')) : ''
-  } catch (_) {
+  } catch (error) {
+    chatgptApiRethrowLoginExpired(error)
     return ''
   }
 }

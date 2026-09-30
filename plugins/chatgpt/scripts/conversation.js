@@ -220,6 +220,9 @@ function chatgptApiInitializeConversation(auth) {
         conversation_id: null,
         timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
         conversation_origin: null,
+        gizmo_id: null,
+        system_hints: null,
+        timezone: fingerprint.timezone || 'UTC',
       },
     }),
     '初始化 ChatGPT 会话'
@@ -231,7 +234,7 @@ function chatgptApiConversationPreparePayload(
   model,
   references,
   source,
-  thinkingEffort,
+  _thinkingEffort,
   prompt
 ) {
   const fingerprint = chatgptApiFingerprint(auth)
@@ -239,15 +242,14 @@ function chatgptApiConversationPreparePayload(
   const contextChange = source === 'context_change'
   const payload = chatgptApiCompactObject({
     action: 'next',
-    fork_from_shared_post: false,
+    is_do_not_remember: false,
     parent_message_id: 'client-created-root',
     model,
-    client_prepare_state: contextChange ? 'sent' : 'success',
+    client_prepare_state: 'sent',
     client_prepare_dispatch: contextChange ? 'immediate' : 'debounced',
     client_prepare_source: source || 'composer_editor_state',
     timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
     timezone: fingerprint.timezone || 'UTC',
-    conversation_mode: { kind: 'primary_assistant' },
     system_hints: ['picture_v2'],
     partial_query: {
       id: apiTextUuid(),
@@ -257,14 +259,6 @@ function chatgptApiConversationPreparePayload(
     attachment_mime_types: chatgptApiUnique(
       attachments.map((reference) => reference.mime_type).filter(Boolean)
     ),
-    supports_buffering: true,
-    supported_encodings: ['v1'],
-    client_contextual_info: {
-      app_name: 'chatgpt.com',
-      has_web_push_capabilities: true,
-      web_push_notification_permission: 'default',
-    },
-    thinking_effort: chatgptApiThinkingEffort(thinkingEffort),
     local_function_names: ['local.continue_in_work'],
   })
   if (!payload.attachment_mime_types.length) delete payload.attachment_mime_types
@@ -288,45 +282,44 @@ function chatgptApiConversationPayload(
     aspectRatio +
     '.'
   return chatgptApiCompactObject({
+    turn_attribution: { turn_trigger: 'composer' },
     action: 'next',
+    is_do_not_remember: false,
     messages: [
       {
         id: apiTextUuid(),
-        author: { role: 'user' },
+        author: { role: 'user', name: null, metadata: {} },
+        channel: null,
         create_time: Date.now() / 1000,
         content: chatgptApiMessageContent(attachments, imagePrompt),
         metadata: chatgptApiMessageMetadata(attachments),
+        end_turn: null,
+        recipient: 'all',
+        status: 'finished_successfully',
+        update_time: null,
+        weight: 1,
       },
     ],
     parent_message_id: 'client-created-root',
     model,
-    client_prepare_state: 'sent',
+    client_prepare_state: 'success',
     timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
     timezone: fingerprint.timezone || 'UTC',
-    conversation_mode: { kind: 'primary_assistant' },
-    enable_message_followups: true,
     system_hints: ['picture_v2'],
-    supports_buffering: true,
     supported_encodings: ['v1'],
-    client_contextual_info: {
-      is_dark_mode: false,
-      time_since_loaded: Math.max(
-        0,
-        Math.floor((Date.now() - Number(auth.runtime_started_at || Date.now())) / 1000)
-      ),
-      page_height: Number(fingerprint.page_height || 768),
-      page_width: Number(fingerprint.page_width || 1366),
-      pixel_ratio: Number(fingerprint.pixel_ratio || 1),
-      screen_height: Number(fingerprint.screen_height || 768),
-      screen_width: Number(fingerprint.screen_width || 1366),
-      app_name: 'chatgpt.com',
-      has_web_push_capabilities: true,
-      web_push_notification_permission: 'default',
-    },
-    paragen_cot_summary_display_override: 'allow',
-    force_parallel_switch: 'auto',
+    client_contextual_info: chatgptApiTextClientContext(auth),
     thinking_effort: chatgptApiThinkingEffort(thinkingEffort),
     local_function_names: ['local.continue_in_work'],
+  })
+}
+
+function chatgptApiTextClientContext(auth) {
+  const fingerprint = chatgptApiFingerprint(auth)
+  return chatgptApiCompactObject({
+    app_name: 'chatgpt.com',
+    app_surface: fingerprint.app_surface,
+    has_web_push_capabilities: true,
+    web_push_notification_permission: 'default',
   })
 }
 
@@ -368,12 +361,7 @@ function chatgptApiAttachmentMetadata(reference) {
 
 function chatgptApiMessageMetadata(references) {
   const metadata = {
-    developer_mode_connector_ids: [],
-    selected_sources: [],
-    selected_github_repos: [],
-    selected_all_github_repos: false,
     system_hints: ['picture_v2'],
-    serialization_metadata: { custom_symbol_offsets: [] },
   }
   if (references.length) metadata.attachments = references.map(chatgptApiAttachmentMetadata)
   return metadata
@@ -407,15 +395,16 @@ function chatgptApiResolveReasoning(model, requested, models, fallback) {
   return effort || capability?.default_effort || undefined
 }
 
-function chatgptApiTextReasoning(ctx, auth, request) {
-  let response
+function chatgptApiTextReasoning(ctx, auth, request, modelCatalog) {
+  let response = modelCatalog ? { body: modelCatalog } : undefined
   try {
-    response = chatgptApiRequest(auth, 'GET', '/backend-api/models', {
+    response ||= chatgptApiRequest(auth, 'GET', '/backend-api/models', {
       target_path: '/backend-api/models',
       target_route: '/backend-api/models',
       timeout_ms: 15000,
     })
   } catch (error) {
+    if (/^(?:verification_required|LOGIN_EXPIRED):/.test(String(error?.message || ''))) throw error
     if (!ctx.model_capabilities?.reasoning) throw error
   }
   const selection = chatgptApiModelSelection(

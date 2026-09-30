@@ -282,7 +282,8 @@ function doubaoSecurityRuntime(input) {
   })
   document.location = scope.location
   ;(0, eval)(input.sdk)
-  const modules = scope.__LOADABLE_LOADED_CHUNKS__[0][1]
+  // 新版直接注册 bdms；旧版资源通过异步模块注册。使用实际采集的资源对应的入口。
+  const modules = scope.__LOADABLE_LOADED_CHUNKS__?.[0]?.[1]
   const cache = {}
   function requireModule(id) {
     if (cache[id]) return cache[id].exports
@@ -292,7 +293,12 @@ function doubaoSecurityRuntime(input) {
     modules[id](module, module.exports, requireModule)
     return module.exports
   }
-  requireModule('ISb')
+  if (!scope.bdms?.init) {
+    if (!modules) throw new Error('invalid_response: 豆包安全 SDK 未注册初始化入口')
+    requireModule('ISb')
+  }
+  if (typeof scope.bdms?.init !== 'function')
+    throw new Error('invalid_response: 豆包安全 SDK 初始化入口无效')
   scope.bdms.init(input.config)
   return {
     storage,

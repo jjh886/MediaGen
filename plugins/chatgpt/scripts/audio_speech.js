@@ -76,138 +76,33 @@ function chatgptApiSpeechFormat(value) {
   return { requested_format: requested, actual_format: actual }
 }
 
+function chatgptApiSpeechPrompt(input) {
+  return '请逐字复述以下文本，只输出原文，不添加引号、解释或其他内容：\n\n' + input
+}
+
 function chatgptApiPrepareSpeechConversation(auth, input, model, sentinelHeaders) {
-  const turnTraceId = apiTextUuid()
-  let conduit = ''
-  for (const state of ['none', 'sent', 'success']) {
-    const response = chatgptApiRequireOk(
-      chatgptApiRequest(auth, 'POST', '/backend-api/f/conversation/prepare', {
-        target_path: '/backend-api/f/conversation/prepare',
-        target_route: '/backend-api/f/conversation/prepare',
-        headers: chatgptApiCompactObject({
-          ...sentinelHeaders,
-          'content-type': 'application/json',
-          'x-conduit-token': conduit,
-          'x-oai-turn-trace-id': turnTraceId,
-        }),
-        body: chatgptApiSpeechPreparePayload(auth, input, model, state),
-        retry: { max_attempts: 1 },
-        timeout_ms: 60000,
-      }),
-      '准备 ChatGPT TTS 会话（' + state + '）'
-    ).body
-    if (!response || (response.status && response.status !== 'ok')) {
-      throw new Error('temporary_unavailable: ChatGPT TTS 会话 prepare 响应无效')
-    }
-    conduit = typeof response.conduit_token === 'string' ? response.conduit_token : ''
-  }
-  return {
-    model,
-    turn_trace_id: turnTraceId,
-    conduit,
-    parent_message_id: 'client-created-root',
-    message_id: apiTextUuid(),
-  }
-}
-
-function chatgptApiSpeechPreparePayload(auth, input, model, state) {
-  const fingerprint = chatgptApiFingerprint(auth)
-  const payload = {
-    action: 'next',
-    parent_message_id: 'client-created-root',
-    model,
-    client_prepare_state: state,
-    client_prepare_dispatch: 'debounced',
-    client_prepare_source: 'composer_editor_state',
-    timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
-    timezone: fingerprint.timezone || 'UTC',
-    conversation_mode: { kind: 'primary_assistant' },
-    system_hints: [],
-    supports_buffering: true,
-    supported_encodings: ['v1'],
-    client_contextual_info: chatgptApiSpeechClientContext(auth),
-    local_function_names: ['local.continue_in_work'],
-  }
-  if (state !== 'none') {
-    payload.partial_query = {
-      id: apiTextUuid(),
-      author: { role: 'user' },
-      content: { content_type: 'text', parts: [Array.from(input).slice(0, 5).join('') || 'h'] },
-    }
-  }
-  return payload
-}
-
-function chatgptApiSpeechClientContext(auth) {
-  const fingerprint = chatgptApiFingerprint(auth)
-  return {
-    app_name: 'chatgpt.com',
-    is_dark_mode: false,
-    time_since_loaded: Math.max(
-      0,
-      Math.round((Date.now() - Number(auth.runtime_started_at || Date.now())) / 1000)
-    ),
-    page_height: Number(fingerprint.page_height || 768),
-    page_width: Number(fingerprint.page_width || 1366),
-    pixel_ratio: Number(fingerprint.pixel_ratio || 1),
-    screen_height: Number(fingerprint.screen_height || 768),
-    screen_width: Number(fingerprint.screen_width || 1366),
-  }
+  const prepared = chatgptApiPrepareTextConversation(
+    auth,
+    chatgptApiSpeechPrompt(input),
+    { parent_message_id: 'client-created-root' },
+    { model },
+    sentinelHeaders
+  )
+  return { ...prepared, message_id: prepared.user_message_id }
 }
 
 function chatgptApiSendSpeechMessage(auth, input, prepared, sentinelHeaders) {
-  const fingerprint = chatgptApiFingerprint(auth)
-  return chatgptApiRequireOk(
-    chatgptApiRequest(auth, 'POST', '/backend-api/f/conversation', {
-      target_path: '/backend-api/f/conversation',
-      target_route: '/backend-api/f/conversation',
-      headers: chatgptApiCompactObject({
-        ...sentinelHeaders,
-        accept: 'text/event-stream',
-        'content-type': 'application/json',
-        'oai-echo-logs': chatgptApiEchoLogs(auth),
-        'x-conduit-token': prepared.conduit,
-        'x-oai-turn-trace-id': prepared.turn_trace_id,
-      }),
-      body: {
-        action: 'next',
-        messages: [
-          {
-            id: prepared.message_id,
-            author: { role: 'assistant' },
-            create_time: Date.now() / 1000,
-            content: { content_type: 'text', parts: [input] },
-            metadata: chatgptApiSpeechMessageMetadata(),
-          },
-        ],
-        parent_message_id: prepared.parent_message_id,
-        model: prepared.model,
-        client_prepare_state: 'success',
-        timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
-        timezone: fingerprint.timezone || 'UTC',
-        conversation_mode: { kind: 'primary_assistant' },
-        history_and_training_disabled: false,
-        system_hints: [],
-        paragen_cot_summary_display_override: 'allow',
-        force_parallel_switch: 'auto',
-        thinking_effort: 'standard',
-      },
-      sse: true,
-      retry: { max_attempts: 1 },
-      timeout_ms: 3 * 60 * 60 * 1000,
-    }),
-    '发送 ChatGPT TTS 消息'
+  const events = []
+  const result = chatgptApiStreamTextConversation(
+    auth,
+    chatgptApiSpeechPrompt(input),
+    prepared,
+    sentinelHeaders,
+    [],
+    (event) => events.push(event)
   )
-}
-
-function chatgptApiSpeechMessageMetadata() {
-  return {
-    developer_mode_connector_ids: [],
-    selected_sources: [],
-    selected_github_repos: [],
-    selected_all_github_repos: false,
-    serialization_metadata: { custom_symbol_offsets: [] },
-  }
+  chatgptApiRequireOk(result, '发送 ChatGPT TTS 消息')
+  return { ...result, events }
 }
 
 function chatgptApiSpeechMessageIds(events, input) {
@@ -225,12 +120,12 @@ function chatgptApiApplySpeechEvent(state, event, input) {
   if (!event || typeof event !== 'object') return
   state.conversation_id =
     state.conversation_id || String(event.conversation_id || event.v?.conversation_id || '')
+  if (Array.isArray(event.v)) {
+    for (const operation of event.v) chatgptApiApplySpeechPatch(state, operation, input)
+    return
+  }
   if (typeof event.p === 'string') {
-    if (event.p === '' && event.o === 'patch' && Array.isArray(event.v)) {
-      for (const operation of event.v) chatgptApiApplySpeechPatch(state, operation, input)
-    } else {
-      chatgptApiApplySpeechPatch(state, event, input)
-    }
+    chatgptApiApplySpeechPatch(state, event, input)
     return
   }
   const value = event.v && typeof event.v === 'object' ? event.v : event

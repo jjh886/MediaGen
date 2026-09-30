@@ -7,6 +7,7 @@ function main(ctx) {
   }
   const session = apiSessionRead(ctx)
   doubaoRequireVerified(session)
+  doubaoStartHeartbeats(session)
   const writer = apiTextCreateResponseWriter(request)
   apiTextStartResponse(writer)
   try {

@@ -6,6 +6,7 @@ function main(ctx) {
     throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原视频请求提交状态待核对')
   const session = apiSessionRead(ctx)
   doubaoRequireVerified(session)
+  doubaoStartHeartbeats(session)
   const options = doubaoMediaOptions(ctx, session, 'video', saved.media_options)
   let conversationId = saved.conversation_id
   if (!conversationId) {

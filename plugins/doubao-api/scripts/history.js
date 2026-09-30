@@ -87,6 +87,7 @@ function doubaoWaitForResult(session, conversationId, kind) {
     )
     if (rejected) throw new Error('platform_rejected: 豆包素材生成失败')
     host.sleep(5000)
+    doubaoHeartbeatTick(session)
   }
   throw new Error('generation_timeout: 豆包原任务仍未完成，请稍后恢复')
 }

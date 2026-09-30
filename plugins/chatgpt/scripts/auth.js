@@ -83,10 +83,11 @@ function chatgptApiNavigateHome(auth, cookie) {
     },
     timeout_ms: 60000,
   })
+  chatgptApiRememberCookies(auth, result, '/')
+  chatgptApiRequireNoChallenge(result, '打开 ChatGPT 首页')
   if (!result.ok) {
     throw new Error('AUTH_INCONCLUSIVE: 打开 ChatGPT 首页失败：' + chatgptApiHttpSummary(result))
   }
-  chatgptApiRememberCookies(auth, result)
   // 页面发布版本会变化，生成前从真实首页刷新构建号，避免长期复用登录时的旧值。
   const html = String(result.body_text || '')
   const fingerprint = chatgptApiFingerprint(auth)
@@ -100,6 +101,7 @@ function chatgptApiHtmlAttribute(html, name) {
 }
 
 function chatgptApiValidateSession(result) {
+  chatgptApiRequireNoChallenge(result, '检查 ChatGPT 登录会话')
   const status = Number(result.status)
   if (status === 401) {
     throw new Error('LOGIN_EXPIRED: ChatGPT 登录已失效，请重新登录。')
@@ -291,6 +293,7 @@ function chatgptApiStreamWithResume(auth, request, onEvent) {
       }
       return null
     })
+    chatgptApiRememberCookies(auth, result, next.url.slice(CHATGPT_API_ORIGIN.length).split('?')[0])
     if (!result.ok || !handoff || completed) return result
     if (!conversationId || !token) {
       throw new Error('PROVIDER_SUBMISSION_UNKNOWN: ChatGPT 转交结果缺少恢复凭据，请恢复原任务')
@@ -321,6 +324,7 @@ function chatgptApiResumeRequest(auth, conversationId, token, timeoutMs) {
 }
 
 function chatgptApiRequireOk(result, operation) {
+  chatgptApiRequireNoChallenge(result, operation)
   if (result?.ok) return result
   const status = Number(result?.status || 0)
   if (status === 401) {

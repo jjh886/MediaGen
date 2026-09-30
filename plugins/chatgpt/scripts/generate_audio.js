@@ -1,5 +1,10 @@
 function main(ctx) {
   const request = ctx.request
+  if (!request || typeof request !== 'object' || Array.isArray(request))
+    throw new Error('invalid_input: 语音请求必须是对象')
+  if (typeof request.input !== 'string' || !request.input.trim())
+    throw new Error('missing_input: 语音请求缺少 input')
+  if (request.input.length > 100000) throw new Error('invalid_input: 语音输入超过长度限制')
   if (request.speed !== undefined && request.speed !== 1)
     throw new Error('invalid_input: 当前语音模型仅支持 speed=1')
   if (request.instructions) throw new Error('invalid_input: 当前语音模型不支持 instructions')

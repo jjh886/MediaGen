@@ -10,6 +10,18 @@ function chatgptApiTlsProfile(auth) {
   return 'chrome_' + (supported.includes(version) ? version : 149)
 }
 
+function chatgptApiRequireNoChallenge(result, operation) {
+  const challenge =
+    Object.entries(result?.headers || {}).some(
+      ([name, value]) => name.toLowerCase() === 'cf-mitigated' && value === 'challenge'
+    ) ||
+    /(?:window\._cf_chl_opt|\/cdn-cgi\/challenge-platform\/)/.test(String(result?.body_text || ''))
+  if (challenge)
+    throw new Error(
+      'verification_required: ' + operation + ' 需要完成 ChatGPT 安全验证，请打开账号验证窗口后继续'
+    )
+}
+
 // 将传输 UA 和 Client Hints 与实际可用的 TLS 画像绑定，保留账号设备和硬件身份。
 function chatgptApiAlignFingerprint(auth) {
   const fp = auth.auth.fingerprint || (auth.auth.fingerprint = {})

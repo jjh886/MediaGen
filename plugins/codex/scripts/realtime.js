@@ -26,7 +26,8 @@ function main(ctx) {
   const headers = codexUpstreamHeaders(
     codexAccessToken(auth),
     codexAccountId(auth),
-    'application/sdp'
+    'application/sdp',
+    ctx
   )
   headers['content-type'] = 'application/json'
   delete headers['openai-beta']

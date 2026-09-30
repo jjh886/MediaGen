@@ -22,33 +22,28 @@ function chatgptApiPrepareTextConversation(
   prompt,
   thread,
   options,
-  sentinelHeaders,
+  _sentinelHeaders,
   attachments = []
 ) {
   const turnTraceId = apiTextUuid()
-  let conduit = ''
-  for (const state of ['none', 'sent', 'success']) {
-    const response = chatgptApiRequireOk(
-      chatgptApiRequest(auth, 'POST', '/backend-api/f/conversation/prepare', {
-        target_path: '/backend-api/f/conversation/prepare',
-        target_route: '/backend-api/f/conversation/prepare',
-        headers: chatgptApiCompactObject({
-          ...sentinelHeaders,
-          'content-type': 'application/json',
-          'x-conduit-token': conduit,
-          'x-oai-turn-trace-id': turnTraceId,
-        }),
-        body: chatgptApiTextPreparePayload(auth, prompt, thread, options, state, attachments),
-        retry: { max_attempts: 1 },
-        timeout_ms: 60000,
+  const response = chatgptApiRequireOk(
+    chatgptApiRequest(auth, 'POST', '/backend-api/f/conversation/prepare', {
+      target_path: '/backend-api/f/conversation/prepare',
+      target_route: '/backend-api/f/conversation/prepare',
+      headers: chatgptApiCompactObject({
+        'content-type': 'application/json',
+        'x-oai-turn-trace-id': turnTraceId,
       }),
-      '准备 ChatGPT 文本会话（' + state + '）'
-    ).body
-    if (!response || (response.status && response.status !== 'ok')) {
-      throw new Error('temporary_unavailable: ChatGPT 文本会话 prepare 响应无效')
-    }
-    conduit = typeof response.conduit_token === 'string' ? response.conduit_token : ''
+      body: chatgptApiTextPreparePayload(auth, prompt, thread, options, 'sent', attachments),
+      retry: { max_attempts: 1 },
+      timeout_ms: 60000,
+    }),
+    '准备 ChatGPT 文本会话'
+  ).body
+  if (!response || (response.status && response.status !== 'ok')) {
+    throw new Error('temporary_unavailable: ChatGPT 文本会话 prepare 响应无效')
   }
+  const conduit = typeof response.conduit_token === 'string' ? response.conduit_token : ''
   return {
     ...thread,
     ...options,
@@ -62,6 +57,7 @@ function chatgptApiTextPreparePayload(auth, prompt, thread, options, state, atta
   const fingerprint = chatgptApiFingerprint(auth)
   const payload = chatgptApiCompactObject({
     action: 'next',
+    is_do_not_remember: false,
     parent_message_id: thread.parent_message_id,
     conversation_id: thread.conversation_id,
     model: options.model,
@@ -70,11 +66,6 @@ function chatgptApiTextPreparePayload(auth, prompt, thread, options, state, atta
     client_prepare_source: 'composer_editor_state',
     timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
     timezone: fingerprint.timezone || 'UTC',
-    conversation_mode: { kind: 'primary_assistant' },
-    system_hints: options.system_hints || [],
-    supports_buffering: true,
-    supported_encodings: ['v1'],
-    client_contextual_info: chatgptApiTextClientContext(auth),
     local_function_names: ['local.continue_in_work'],
   })
   if (attachments.length) {
@@ -84,27 +75,10 @@ function chatgptApiTextPreparePayload(auth, prompt, thread, options, state, atta
     payload.partial_query = {
       id: apiTextUuid(),
       author: { role: 'user' },
-      content: { content_type: 'text', parts: [Array.from(prompt).slice(0, 5).join('') || 'h'] },
+      content: { content_type: 'text', parts: [prompt] },
     }
   }
   return payload
-}
-
-function chatgptApiTextClientContext(auth) {
-  const fingerprint = chatgptApiFingerprint(auth)
-  return {
-    app_name: 'chatgpt.com',
-    is_dark_mode: false,
-    time_since_loaded: Math.max(
-      0,
-      Math.round((Date.now() - Number(auth.runtime_started_at || Date.now())) / 1000)
-    ),
-    page_height: Number(fingerprint.page_height || 768),
-    page_width: Number(fingerprint.page_width || 1366),
-    pixel_ratio: Number(fingerprint.pixel_ratio || 1),
-    screen_height: Number(fingerprint.screen_height || 768),
-    screen_width: Number(fingerprint.screen_width || 1366),
-  }
 }
 
 function chatgptApiStreamTextConversation(
@@ -212,17 +186,25 @@ function chatgptApiTextConversationPayload(auth, prompt, prepared, attachments =
     }))
   }
   return chatgptApiCompactObject({
+    turn_attribution: { turn_trigger: 'composer' },
     action: 'next',
+    is_do_not_remember: false,
     messages: [
       {
         id: prepared.user_message_id,
         author: { role: 'user' },
+        channel: null,
         create_time: Date.now() / 1000,
         content: chatgptApiMessageContent(
           attachments.filter((item) => item.mime_type.startsWith('image/')),
           prompt
         ),
         metadata,
+        end_turn: null,
+        recipient: 'all',
+        status: 'finished_successfully',
+        update_time: null,
+        weight: 1,
       },
     ],
     parent_message_id: prepared.parent_message_id,
@@ -231,23 +213,15 @@ function chatgptApiTextConversationPayload(auth, prompt, prepared, attachments =
     client_prepare_state: 'success',
     timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
     timezone: fingerprint.timezone || 'UTC',
-    conversation_mode: { kind: 'primary_assistant' },
-    history_and_training_disabled: true,
-    system_hints: prepared.system_hints || [],
-    paragen_cot_summary_display_override: 'allow',
-    force_parallel_switch: 'auto',
+    supported_encodings: ['v1'],
+    client_contextual_info: chatgptApiTextClientContext(auth),
+    local_function_names: ['local.continue_in_work'],
     thinking_effort: prepared.thinking_effort,
   })
 }
 
 function chatgptApiTextMessageMetadata() {
-  return {
-    developer_mode_connector_ids: [],
-    selected_sources: [],
-    selected_github_repos: [],
-    selected_all_github_repos: false,
-    serialization_metadata: { custom_symbol_offsets: [] },
-  }
+  return {}
 }
 
 function chatgptApiParseTextEvents(events) {

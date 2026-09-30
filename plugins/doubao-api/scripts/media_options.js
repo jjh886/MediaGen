@@ -21,7 +21,7 @@ function doubaoMediaOptions(ctx, session, kind, saved) {
       throw new Error('invalid_input: 恢复任务的具体模型与原任务不一致')
     return saved
   }
-  const conversationId = 'local_' + apiTextUuid().replace(/-/g, '')
+  const conversationId = doubaoLocalConversationId()
   const items = doubaoConversationActions(session, conversationId)
   const entry = items.find((item) => Number(item.instruction_type) === (kind === 'image' ? 4 : 18))
   const conf = session.actionBar?.conf?.item_list?.[entry?.item_id]
