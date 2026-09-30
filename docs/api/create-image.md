@@ -8,9 +8,9 @@ MediaGen 的图片生成接口按 OpenAI Image API 的响应结构返回结果�
 
 - `model: string`
 
-  必填。使用 `/v1/models` 返回的模型 ID。为了兼容标准 OpenAI 应用，MediaGen 也接受
-  `gpt-image-2`、`gpt-image-1.5`、`gpt-image-1`、`gpt-image-1-mini` 和
-  `chatgpt-image-latest` 这些别名。
+  必填。使用 `/v1/models` 返回的模型 ID 或插件声明的别名。Codex 支持
+  `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`、`gpt-image-2`，
+  `codex` 别名指向 `gpt-image-2.5-flare`；其他平台的别名以模型目录为准。
 
 - `prompt: string`
 

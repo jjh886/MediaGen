@@ -79,3 +79,15 @@ data: [DONE]
 标题读取最多尝试 3 次，每次网络请求超时 3 秒，遇到默认或空标题时等待 500 毫秒再试；异常直接停止标题读取。标题无效或读取失败不会让正文任务失败，而是省略插件标题字段。`store=true` 的 Responses 会保留标题，查询须使用同一 API Key；`store=false` 无法事后查询。
 
 `conversation_id` 属于平台会话信息，不能替代 MediaGen 的 `resp_*` 响应 ID；续接仍使用 `previous_response_id`。当前没有独立的重命名或查询平台标题接口。
+
+## 插件协议与模型同步
+
+Codex 文本模型包括 `gpt-6.1-sol`、`gpt-6-astra`、`gpt-6-sol`、`gpt-6-luna`、`gpt-5.6-sol`、`gpt-5.6-terra` 和 `gpt-5.6-luna`。`gpt-6.1-sol` 的 `reasoning.effort` 支持 `low/medium/high/xhigh/max`，默认 `low`；其他型号优先按账号模型目录校验。目录不再列出插件不支持的上游型号。
+
+Codex 图片模型为 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`、`gpt-image-2`，`codex` 别名指向 `gpt-image-2.5-flare`。此前的 `gpt-image-1.5` 和日期后缀型号不再由 Codex 插件提供。模型 `capabilities.pricing` 同步源插件的参考价格，不表示当前账号的实际收费。
+
+Codex 文本请求的 `service_tier` 支持 `auto/default/priority/flex/scale/ultrafast`，兼容 `fast` 并转成 `priority`；其他值返回参数错误，账号是否具有对应服务等级仍由上游判定。
+
+`POST /v1/audio/speech` 的 `chatgpt-speech` 使用文本会话，确认回复与输入逐字相同后生成音频；不匹配时失败，避免朗读模型自行增加的内容。只支持 `speed=1`，不支持 `instructions`。MP3、Opus、AAC 使用平台原生输出，WAV、PCM、FLAC 真实转码后返回对应格式的二进制。
+
+豆包在文本、图片和视频任务中自动执行账号续期与流式空闲保活。旧凭据若缺少续期协议会返回 `LOGIN_EXPIRED`，需要在账号页面重新登录以采集；仅完成验证码不一定包含这些新凭据。DeepSeek 会同步设备、客户端配置和辅助校验令牌，并按平台配置处理超时及保活。人工验证和登录失效继续走现有账号状态与微信通知流程，通知须已绑定并开启。
