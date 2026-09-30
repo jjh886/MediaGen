@@ -4,13 +4,22 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { expect, it, vi } from 'vitest'
 
-const source = readFileSync(
-  path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    '../../../plugins/chatgpt/scripts/auth.js'
-  ),
-  'utf8'
-)
+const source =
+  readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../plugins/chatgpt/scripts/network_profile.js'
+    ),
+    'utf8'
+  ) +
+  '\n' +
+  readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../plugins/chatgpt/scripts/auth.js'
+    ),
+    'utf8'
+  )
 
 it('接续 Conduit 原会话并立即保存恢复凭据，不重复提交用户消息', () => {
   let saved = { phase: 'submitting', model: 'gpt-6-astra-wm' }
@@ -74,7 +83,10 @@ it('接续失败保留上游状态，不再次发送生成请求', () => {
     host: { stream },
   })
   vm.runInContext(source, context)
-  const result = vm.runInContext(`chatgptApiStreamWithResume({}, {}, () => {})`, context)
+  const result = vm.runInContext(
+    `chatgptApiStreamWithResume({}, {url:'https://chatgpt.com/backend-api/f/conversation'}, () => {})`,
+    context
+  )
   expect(result.status).toBe(429)
   expect(stream).toHaveBeenCalledTimes(1)
 })
@@ -90,7 +102,10 @@ it('缺失恢复凭据时明确报错，不能把转交当作成功', () => {
     },
   })
   vm.runInContext(source, context)
-  expect(() => vm.runInContext(`chatgptApiStreamWithResume({}, {}, () => {})`, context)).toThrow(
-    'PROVIDER_SUBMISSION_UNKNOWN'
-  )
+  expect(() =>
+    vm.runInContext(
+      `chatgptApiStreamWithResume({}, {url:'https://chatgpt.com/backend-api/f/conversation'}, () => {})`,
+      context
+    )
+  ).toThrow('PROVIDER_SUBMISSION_UNKNOWN')
 })

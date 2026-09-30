@@ -59,7 +59,7 @@ describe('豆包已生成视频的下载等待', () => {
 describe('豆包媒体参数', () => {
   const run = scripts(['doubao-api/scripts/media_options.js'])
   run(
-    `apiTextUuid=()=> 'test-id'; doubaoConversationActions=(session,id)=>{
+    `apiTextUuid=()=> 'test-id'; doubaoLocalConversationId=()=> 'local_testid'; doubaoConversationActions=(session,id)=>{
     session.actionBar={conf:{item_list:configuration}};
     return [{item_id:'image',instruction_type:4},{item_id:'video',instruction_type:18}]
   }`,
@@ -208,7 +208,7 @@ describe('豆包原会话自动确认', () => {
       checkpoint: (value) => (value ? (checkpoint = value) : checkpoint),
     })
     run(
-      `apiTextUuid=()=> 'confirmation';doubaoImRequest=()=>({downlink_body:{get_conv_info_downlink_body:{
+      `apiTextUuid=()=> 'confirmation';doubaoMessageId=()=> 'message';doubaoImRequest=()=>({downlink_body:{get_conv_info_downlink_body:{
       conversation_info:{conversation_id:'123',last_section_id:'456',latest_index:8}
     }}});doubaoSubmit=submit;`,
       { submit: (_session, payload) => submitted.push(payload) }
@@ -230,7 +230,7 @@ describe('豆包原会话自动确认', () => {
       checkpoint: (value) => (value ? (checkpoint = value) : checkpoint),
     })
     run(
-      `apiTextUuid=()=> 'new-id'; doubaoImRequest=()=>({downlink_body:{get_conv_info_downlink_body:{
+      `apiTextUuid=()=> 'new-id';doubaoMessageId=()=> 'message'; doubaoImRequest=()=>({downlink_body:{get_conv_info_downlink_body:{
       conversation_info:{conversation_id:'123',last_section_id:'456',latest_index:5}
     }}});doubaoSubmit=submit;`,
       { submit: (_session, payload) => submitted.push(payload) }
@@ -268,7 +268,9 @@ describe('豆包原会话自动确认', () => {
 
   it('文字先完成时仍等待后续视频卡片，不在第六次回读时误报失败', () => {
     let reads = 0
-    const run = scripts(['doubao-api/scripts/history.js'], { sleep: () => {} })
+    const run = scripts(['doubao-api/scripts/passport.js', 'doubao-api/scripts/history.js'], {
+      sleep: () => {},
+    })
     run(`doubaoHistory=read;doubaoConfirmMediaIfRequested=()=>{}`, {
       read: () => {
         reads++
@@ -296,7 +298,7 @@ describe('豆包原会话自动确认', () => {
 
   it('平台已明确排队时等待超过五分钟的生成，不把排队当作无结果', () => {
     let elapsed = 0
-    const run = scripts(['doubao-api/scripts/history.js'], {
+    const run = scripts(['doubao-api/scripts/passport.js', 'doubao-api/scripts/history.js'], {
       sleep: () => {
         elapsed += 60_000
       },

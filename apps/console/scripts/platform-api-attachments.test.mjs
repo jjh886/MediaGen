@@ -84,7 +84,7 @@ describe('ChatGPT 聊天音频转写', () => {
     run(`apiTextNormalizeTextRequest=request=>request;
       chatgptApiCheckpoint=()=>({phase:'ready',attachments:[]});
       chatgptApiReadAuth=()=>({});chatgptApiRefreshSession=auth=>auth;
-      chatgptApiTextReasoning=()=>{};chatgptApiRequireOk=result=>result;
+      chatgptApiBootstrap=()=>({});chatgptApiTextReasoning=()=>{};chatgptApiRequireOk=result=>result;
       chatgptApiRequest=()=>({body:{text:'427'}});
       chatgptApiGenerateTextConversation=(_auth,request)=>({text:request.input[0].text});
       chatgptApiUploadTextAttachments=()=>{throw new Error('不应重复上传文件')}`)
@@ -200,6 +200,7 @@ describe('API 插件共同附件协议', () => {
 describe('豆包网页附件与生成协议', () => {
   it('视频比例同时进入正文和能力参数，附件预处理与发送共用消息身份', () => {
     const run = scripts([...shared, 'doubao-api/scripts/conversation.js'])
+    run("doubaoLocalConversationId=()=> 'local_1234567890123456';doubaoMessageId=()=> 'message'")
     const payload = run(`doubaoPayload('杯子', 'video', {
       model:'seedance_v2.0_mini',ratio:'1:1',duration:5,references:[{block_type:10052}],reference_message_id:'attachment-message'
     })`)
@@ -283,7 +284,7 @@ describe('DeepSeek 多附件解析', () => {
       }
     )
     run(
-      `apiSessionRead=()=>({}); deepseekUploadAttachments=upload;
+      `apiSessionRead=()=>({}); deepseekInitializeSession=()=>{}; deepseekUploadAttachments=upload;
       deepseekPow=pow; deepseekRequest=create`,
       {
         upload: () => {

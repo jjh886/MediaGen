@@ -78,6 +78,7 @@ describe('平台会话标题', () => {
         apiTextResponsesMedia: () => [],
         apiSessionRead: () => ({}),
         doubaoRequireVerified: () => {},
+        doubaoStartHeartbeats: () => {},
         doubaoWaitForResult: () => '正文',
         doubaoMarkConversationRead: () => {},
         doubaoImRequest: (...args) => {
@@ -91,6 +92,7 @@ describe('平台会话标题', () => {
           }
         },
         deepseekValidateAttachments: () => {},
+        deepseekInitializeSession: () => {},
         deepseekStreamState: () => ({}),
         deepseekSnapshot: (state, writer) => {
           state.finished = true

@@ -402,7 +402,7 @@ describe('豆包多图的持久恢复', () => {
       host
     )
     run(
-      `apiSessionRead=()=>({auth:{}}); doubaoRequest=()=>({}); doubaoUploadReferences=()=>[];
+      `apiSessionRead=()=>({auth:{}}); doubaoStartHeartbeats=()=>{}; doubaoRequest=()=>({}); doubaoUploadReferences=()=>[];
       doubaoMediaOptions=()=>({model:'Seedream 4.5',ratio:'auto'});
       doubaoReferenceBlocks=()=>[]; doubaoPayload=(prompt)=>({prompt});
       doubaoSubmit=submit; doubaoCreations=()=>[]; doubaoWaitForResult=history;

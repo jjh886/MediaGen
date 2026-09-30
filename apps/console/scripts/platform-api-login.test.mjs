@@ -223,6 +223,8 @@ describe('豆包登录检测与凭据采集一致', () => {
     'https://accounts.doubao.com/passport/account/info/v2/?aid=497858',
     'https://www.doubao.com/chat/?web_id=web&web_tab_id=tab',
     'https://www.doubao.com/bdms-sdk.test123.js',
+    'https://accounts.doubao.com/passport/token/beat/web/?passport_jssdk_version=3.1.6&account_sdk_source_info=fp',
+    'https://accounts.doubao.com/passport/doubao/security_token_beat/?passport_jssdk_version=4.4.6&account_sdk_source_info=fp',
   ]
   const capture = readFileSync(
     path.resolve(scriptDirectory, '../../../plugins/doubao-api/scripts/capture_auth.js'),
@@ -235,7 +237,7 @@ describe('豆包登录检测与凭据采集一致', () => {
   function browser(user, ok = true, initialized = true) {
     const run = scripts(['doubao-api/scripts/config.js'])
     run(
-      `performance={getEntriesByType:()=>resources.map(name=>({name}))};
+      `window=globalThis;window.__LOADABLE_LOADED_CHUNKS__=[[0,{config:function(){return {getPassportSDKConfig:function(){},appKey:'2094abfcccefaeaffd24c622475fba10'}}}]];performance={getEntriesByType:()=>resources.map(name=>({name}))};
       document={cookie:'s_v_web_id=fingerprint'};
       localStorage={getItem:key=>key==='xmst' ? security : null};
       sessionStorage={getItem:()=>null}; apiLoginFingerprint=async()=>({});fetch=request`,
@@ -273,5 +275,42 @@ describe('豆包登录检测与凭据采集一致', () => {
     await expect(browser({ user_id_str: 'known' }, true, false)(capture)).rejects.toThrow(
       '豆包安全会话尚未初始化'
     )
+  })
+})
+
+describe('豆包新版登录协议采集', () => {
+  it('采集实际加载的新 SDK 和账号续期模板，移除旧签名并读取公开 SDK 配置', async () => {
+    const run = scripts(['doubao-api/scripts/config.js'])
+    const base = 'https://accounts.doubao.com'
+    const resources = [
+      base + '/passport/account/info/v2/?account_sdk_source=web&sdk_version=2.2.10',
+      base +
+        '/passport/token/beat/web/?passport_jssdk_version=3.1.6&account_sdk_source_info=fp&sign=old&qs=old&a_bogus=old&msToken=old&ts=old&scene=boot',
+      base +
+        '/passport/doubao/security_token_beat/?passport_jssdk_version=4.4.6&account_sdk_source_info=fp&sign=old',
+      'https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/rc-client-security/web/stable/1.0.1.20-alpha.08/bdms.js',
+      'https://www.doubao.com/alice/test?web_id=web&web_tab_id=tab',
+    ]
+    run(
+      `window=globalThis;window.__LOADABLE_LOADED_CHUNKS__=[[0,{config:function(){
+      return {getPassportSDKConfig:function(){},appKey:'2094abfcccefaeaffd24c622475fba10'};
+    }}]];performance={getEntriesByType:()=>resources.map(name=>({name}))};
+    document={cookie:'s_v_web_id=profile'};
+    localStorage={getItem:key=>key==='xmst'?'token':null};
+    sessionStorage={getItem:()=>null};apiLoginFingerprint=async()=>({language:'zh-CN'});
+    fetch=async()=>({ok:true,json:async()=>({data:{user_id:'test-user'}})})`,
+      { resources, URL }
+    )
+    const source = readFileSync(
+      path.resolve(scriptDirectory, '../../../plugins/doubao-api/scripts/capture_auth.js'),
+      'utf8'
+    )
+    const auth = JSON.parse(await run(source))
+    expect(auth.security.sdk_url).toBe(resources[3])
+    expect(auth.passport_app_key).toBe('2094abfcccefaeaffd24c622475fba10')
+    const template = auth.passport_requests['/passport/token/beat/web/']
+    expect(template).toEqual({ passport_jssdk_version: '3.1.6', account_sdk_source_info: 'fp' })
+    expect(auth.fingerprint.language).toBe('zh-CN')
+    expect(auth.user.user_id).toBe('test-user')
   })
 })

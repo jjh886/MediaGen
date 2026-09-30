@@ -50,6 +50,9 @@ beforeEach(() => {
   }
   Object.assign(context, {
     chatgptApiReadAuth: () => ({}),
+    chatgptApiBootstrap: () => ({
+      '/backend-api/models': { models: [{ slug: 'gpt-5-6-instant' }] },
+    }),
     chatgptApiRequest: () => ({ body: { models: [{ slug: 'gpt-5-6-instant' }] } }),
     chatgptApiRefreshSession: refresh,
     chatgptApiInitializeConversation: vi.fn(() => ({ default_model_slug: 'auto' })),
@@ -69,17 +72,16 @@ const run = () =>
   vm.runInContext(`main({ request: { input: '提取资产', model: 'gpt-5-6-instant' } })`, context)
 
 describe('ChatGPT 文本提交与恢复', () => {
-  it('清理远端会话前获取标题，标题和正文一起持久化并可恢复', () => {
+  it('标题和正文一起持久化并可恢复，保留平台会话', () => {
     checkpoint = { phase: 'accepted', conversation_id: 'original' }
     context.chatgptApiFetchTextConversation = vi.fn(() => ({ title: '杯子广告' }))
-    context.chatgptApiHideConversation.mockImplementation(() => {
-      expect(checkpoint.result.response.metadata).toEqual({
-        conversation_id: 'original',
-        conversation_title: '杯子广告',
-      })
-    })
     const result = run()
     expect(result.response.output_text).toBe('原会话的完整结果')
+    expect(checkpoint.result.response.metadata).toEqual({
+      conversation_id: 'original',
+      conversation_title: '杯子广告',
+    })
+    expect(context.chatgptApiHideConversation).not.toHaveBeenCalled()
     expect(context.chatgptApiFetchTextConversation).toHaveBeenCalledWith({}, 'original', 3000)
     expect(run()).toEqual(result)
     expect(context.chatgptApiFetchTextConversation).toHaveBeenCalledTimes(1)
@@ -156,17 +158,18 @@ describe('ChatGPT 文本提交与恢复', () => {
     expect(checkpoint.conversation_id).toBe('event-original')
   })
 
-  it('清理远端会话失败后仍可直接交付已保存结果，不再认证和请求平台', () => {
+  it('已完成结果不再认证和请求平台，也不发送隐藏会话请求', () => {
     checkpoint = { phase: 'accepted', conversation_id: 'original', model: 'auto' }
     context.chatgptApiHideConversation.mockImplementationOnce(() => {
       throw new Error('cleanup failed')
     })
-    expect(run).toThrow('cleanup failed')
     const result = run()
+    expect(run()).toEqual(result)
     expect(result.response.output_text).toBe('原会话的完整结果')
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(poll).toHaveBeenCalledTimes(1)
     expect(stream).not.toHaveBeenCalled()
+    expect(context.chatgptApiHideConversation).not.toHaveBeenCalled()
   })
 
   it('保存提交凭据失败时不发送平台请求', () => {
