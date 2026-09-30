@@ -1,5 +1,12 @@
 use super::*;
 
+pub(super) fn uuid_v1(params: &Value) -> Result<Value, String> {
+    let node: [u8; 6] = decode(params, "node_base64", 6)?
+        .try_into()
+        .map_err(|_| "UUID 节点标识必须为 6 字节")?;
+    Ok(json!({"value": uuid::Uuid::now_v1(&node).to_string()}))
+}
+
 fn decode(value: &Value, field: &str, limit: usize) -> Result<Vec<u8>, String> {
     let encoded = value[field].as_str().ok_or("缺少二进制参数")?;
     if encoded.len() > limit.div_ceil(3) * 4 {
@@ -122,6 +129,24 @@ impl ServerPluginHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn time_uuid_preserves_node_version_and_uniqueness() {
+        let params = json!({"node_base64":BASE64_STANDARD.encode([1,2,3,4,5,6])});
+        let first = uuid_v1(&params).unwrap();
+        let second = uuid_v1(&params).unwrap();
+        let id = uuid::Uuid::parse_str(first["value"].as_str().unwrap()).unwrap();
+        assert_eq!(id.get_version_num(), 1);
+        assert_eq!(&id.as_bytes()[10..], &[1, 2, 3, 4, 5, 6]);
+        assert_ne!(first, second);
+        for input in [
+            json!({}),
+            json!({"node_base64":"!"}),
+            json!({"node_base64":"AQID"}),
+            json!({"node_base64":"AQIDBAUGBw=="}),
+        ] {
+            assert!(uuid_v1(&input).is_err());
+        }
+    }
     #[test]
     fn checksum_vectors_and_limits() {
         let crc = crypto(

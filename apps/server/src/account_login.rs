@@ -42,7 +42,10 @@ pub(crate) enum LoginDetectionConfig {
         await_promise: bool,
     },
     PluginScript {
+        #[serde(default)]
         script_file: String,
+        #[serde(default)]
+        script_files: Vec<String>,
     },
     CdpCookies {
         cookie_names: Vec<String>,
@@ -67,8 +70,12 @@ pub async fn verify_browser_session_login(
             let references = configured_script_files(script_file, script_files)?;
             run_login_script_with_retry(state, session, &references, await_promise).await?
         }
-        LoginDetectionConfig::PluginScript { script_file } => {
-            run_login_plugin_script(state, session, &script_file).await?
+        LoginDetectionConfig::PluginScript {
+            script_file,
+            script_files,
+        } => {
+            let references = configured_script_files(script_file, script_files)?;
+            run_login_plugin_script(state, session, &references).await?
         }
         LoginDetectionConfig::CdpCookies { cookie_names } => {
             return Err(format!(
@@ -84,10 +91,14 @@ pub async fn verify_browser_session_login(
 async fn run_login_plugin_script(
     state: &ServerState,
     session: &BrowserSession,
-    script_file: &str,
+    script_files: &[String],
 ) -> Result<AccountLoginProfile, String> {
-    let script = read_plugin_scripts(state, &session.platform, &[script_file.to_string()])?;
-    let context = plugin_login_context(state, session, script_file)?;
+    let script = read_plugin_scripts(state, &session.platform, script_files)?;
+    let context = plugin_login_context(
+        state,
+        session,
+        script_files.last().map(String::as_str).unwrap_or_default(),
+    )?;
     let host = ServerPluginHost::new_with_metadata(
         proxy_url_from_metadata(&session.metadata),
         &session.metadata,
@@ -113,6 +124,8 @@ fn plugin_login_context(
         "platform": session.platform,
         "profile_dir": session.profile_dir,
         "account_id": session.account_id,
+        "browser_os": session.metadata.get("browser_os"),
+        "browser_version": session.metadata.get("browser_version"),
     });
     let Some(meta) = oauth_login::oauth_meta(&session.metadata) else {
         return Ok(context);
@@ -331,4 +344,74 @@ pub(crate) fn requires_login_verification(state: &ServerState, session: &Browser
             .plugin_loader
             .get_plugin(&session.platform)
             .is_some_and(|manifest| manifest.extra.contains_key("login_credential_capture")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mediagen_browser_gateway::BrowserSessionCreateRequest;
+    use mediagen_plugin_runtime::PluginLoader;
+
+    #[tokio::test]
+    async fn plugin_login_composes_scripts_and_passes_browser_identity() {
+        let root = std::env::temp_dir().join(format!("login-scripts-{}", uuid::Uuid::new_v4()));
+        let scripts = root.join("plugins/example/scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        std::fs::write(
+            scripts.join("helper.js"),
+            "function identity(ctx){return ctx.browser_os + ':' + ctx.browser_version}",
+        )
+        .unwrap();
+        std::fs::write(
+            scripts.join("login.js"),
+            "function main(ctx){return {loggedIn:true,userId:'user',username:identity(ctx)}}",
+        )
+        .unwrap();
+        let manifest = json!({"platform_id":"example","display_name":"Example","adapter_mode":"api","models":[],"flows":{},"login_detection":{"method":"plugin_script","script_file":"unused.js","script_files":["helper.js","login.js"]}});
+        std::fs::write(
+            root.join("plugins/example/manifest.json"),
+            manifest.to_string(),
+        )
+        .unwrap();
+        let loader = PluginLoader::load_from(&root.join("plugins")).unwrap();
+        let state = crate::test_fixtures::server_state(root.clone(), loader);
+        let session = state
+            .browser_gateway
+            .create_session(BrowserSessionCreateRequest {
+                platform: "example".into(),
+                profile_dir: Some(root.join("profile").to_string_lossy().into()),
+                metadata: HashMap::from([
+                    ("browser_os".into(), json!("windows")),
+                    ("browser_version".into(), json!("149")),
+                ]),
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .session;
+        let profile = verify_browser_session_login(&state, &session)
+            .await
+            .unwrap();
+        assert_eq!(profile.username, "windows:149");
+        assert!(profile.logged_in);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn plugin_login_retains_single_script_compatibility_and_rejects_empty_references() {
+        let LoginDetectionConfig::PluginScript {
+            script_file,
+            script_files,
+        } = serde_json::from_value(json!({"method":"plugin_script","script_file":"login.js"}))
+            .unwrap()
+        else {
+            panic!("wrong login configuration")
+        };
+        assert_eq!(
+            configured_script_files(script_file, script_files).unwrap(),
+            ["login.js"]
+        );
+        assert!(configured_script_files(String::new(), vec![]).is_err());
+        assert!(configured_script_files("login.js".into(), vec![" ".into()]).is_err());
+    }
 }

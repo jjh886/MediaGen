@@ -197,6 +197,7 @@ impl ServerPluginHost {
             "http.sse_request" => self.http_request(params, true).await,
             "crypto.random_base64url" => random_base64url(params),
             "crypto.random_uuid" => Ok(json!({"value": uuid::Uuid::new_v4().to_string()})),
+            "crypto.uuid_v1" => binary::uuid_v1(params),
             "crypto.sha256_hex" => Ok(
                 json!({"value": format!("{:x}", Sha256::digest(required_str(params, "text")?.as_bytes()))}),
             ),

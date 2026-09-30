@@ -1,30 +1,14 @@
 use crate::{store::AccountRecord, ServerState};
 use actix_web::{web, HttpRequest, HttpResponse};
 use mediagen_core::{ModelDef, PluginManifest};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc, Mutex};
+use std::collections::BTreeMap;
 
-#[derive(Default, Clone)]
-pub(crate) struct Catalog(
-    pub Arc<Mutex<HashMap<String, CachedModels>>>,
-    Arc<tokio::sync::Mutex<()>>,
-);
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct CachedModels {
-    models: Vec<ModelDef>,
-    refreshed_at: i64,
-}
-impl Catalog {
-    pub(crate) fn load(path: &std::path::Path) -> Self {
-        let cache = std::fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
-        Self(Arc::new(Mutex::new(cache)), Default::default())
-    }
-}
+#[path = "model_catalog_cache.rs"]
+mod cache;
+use cache::CachedModels;
+pub(crate) use cache::Catalog;
 
 #[derive(Deserialize)]
 pub(crate) struct Query {
@@ -227,6 +211,12 @@ pub(crate) async fn refresh_account(
             account.id,
             CachedModels {
                 models,
+                platform_id: manifest.platform_id.clone(),
+                plugin_version: manifest
+                    .extra
+                    .get("version")
+                    .cloned()
+                    .unwrap_or(Value::Null),
                 refreshed_at: chrono::Utc::now().timestamp(),
             },
         );

@@ -219,6 +219,8 @@ fn build_state(config: &ServerConfig) -> Result<ServerState, String> {
         eprintln!("[mediagen-server] 插件加载失败: {err}");
         PluginLoader::empty()
     });
+    let model_catalog = model_api::Catalog::load(&config.data_dir.join("model-catalog.json"));
+    model_catalog.retain_current_plugins(&plugin_loader);
     let credential_cipher = CredentialCipher::new(&config.data_dir)?;
     let generation_queue_enabled = true;
     Ok(ServerState {
@@ -232,7 +234,7 @@ fn build_state(config: &ServerConfig) -> Result<ServerState, String> {
         store: Arc::new(AppStore::load(config.data_dir.join("mediagen.sqlite"))),
         // 固定回调端口只在插件声明的 OAuth 登录流程期间按需监听。
         oauth_logins: OAuthLoginStore::new(config.oauth_callback_bind.clone()),
-        model_catalog: model_api::Catalog::load(&config.data_dir.join("model-catalog.json")),
+        model_catalog,
         realtime: realtime_api::Sessions::default(),
         file_root: config.data_dir.join("openai-files"),
         image_task_queue: Arc::new(ImageTaskQueue::default()),
