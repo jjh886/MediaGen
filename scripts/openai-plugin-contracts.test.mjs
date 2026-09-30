@@ -237,7 +237,7 @@ test('不支持的浏览器版本同时调整 UA、Client Hints 和 TLS', () => 
 })
 
 test('指定不存在的 Codex 工具必须失败，不能静默变更选择', () => {
-  const ctx = context('codex', ['text_responses.js'])
+  const ctx = context('codex', ['auth.js', 'text_responses.js'])
   assert.throws(
     () =>
       ctx.codexNormalizeFunctionChoice({
@@ -249,7 +249,7 @@ test('指定不存在的 Codex 工具必须失败，不能静默变更选择', (
 })
 
 test('Codex 模型发现过滤传输层不支持的思考深度', () => {
-  const ctx = context('codex', ['list_models.js'])
+  const ctx = context('codex', ['auth.js', 'list_models.js'])
   assert.equal(ctx.codexSupportedEffort('ultra'), false)
   assert.equal(ctx.codexSupportedEffort('high'), true)
 })
@@ -373,11 +373,11 @@ test('ChatGPT 保活更新令牌时保留账号的会话指纹', () => {
 
 test('Codex 新模型原样路由，图片主控选择不改写图片模型', () => {
   const manifest = JSON.parse(readFileSync('plugins/codex/manifest.json', 'utf8'))
-  const text = context('codex', ['text_responses.js'])
+  const text = context('codex', ['auth.js', 'text_responses.js'])
   const image = context('codex', ['generate_image.js'])
   for (const id of ['gpt-6-sol', 'gpt-6-luna']) {
     const model = manifest.models.find((item) => item.model_id === id)
-    assert.ok(model.capabilities.reasoning.efforts.includes('none'))
+    assert.ok(model.capabilities.reasoning.efforts.includes('low'))
     const result = text.codexNormalizeResponsesRequest(
       { model: id, input: '你好', reasoning: { effort: 'none' } },
       {}
