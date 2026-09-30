@@ -7,7 +7,11 @@ export const textDocs: ApiExample[] = [
     title: '获取模型与输入能力',
     description:
       '一次获取模型、接口、输入类型、参数约束与账号能力。不要把目录中的能力理解为账号一定有剩余额度。',
-    notes: ['refresh=true：主动刷新账号模型目录；account_id：仅查询有访问权限的账号。'],
+    notes: [
+      'refresh=true：主动刷新账号模型目录；account_id：仅查询有访问权限的账号。',
+      'Codex 文本型号：gpt-6.1-sol、gpt-6-astra/sol/luna、gpt-5.6-sol/terra/luna。gpt-6.1-sol 的思考深度为 low/medium/high/xhigh/max；其他型号以账号目录为准。',
+      'Codex 图片型号：gpt-image-2.5-flare、gpt-image-2.5-sunburst、gpt-image-2；codex 别名指向 flare。目录中的 pricing 为源插件参考价格，不表示实际账单。',
+    ],
     response: {
       object: 'list',
       data: [

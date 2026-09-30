@@ -33,7 +33,13 @@ const tuning = fields([
     '由模型决定',
     '缓存保留策略，仅支持此字段的模型可用。',
   ],
-  ['service_tier', 'string', '否', '由模型决定', '上游服务等级，仅支持此字段的模型可用。'],
+  [
+    'service_tier',
+    'string',
+    '否',
+    '由模型决定',
+    '上游服务等级。Codex 支持 auto/default/priority/flex/scale/ultrafast，fast 归一为 priority；实际可用性由账号决定。',
+  ],
   ['safety_identifier', 'string', '否', '未设置', '稳定的终端用户标识；须符合模型能力。'],
   ['user', 'string', '否', '未设置', '调用方用户标识。'],
   [

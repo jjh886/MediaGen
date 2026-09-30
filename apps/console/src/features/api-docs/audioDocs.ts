@@ -9,6 +9,7 @@ export const audioDocs: ApiExample[] = [
     notes: [
       'model、input、voice 必填；支持的声音以模型目录及插件为准。',
       'response_format：mp3/wav/pcm/flac/aac/opus，依模型能力；PCM 为单声道 24kHz 16bit。',
+      'chatgpt-speech 仅支持 speed=1，不支持 instructions；先确认平台回复逐字匹配输入再合成，WAV/PCM/FLAC 经真实转码返回。',
       'speed、instructions：依模型能力；stream_format 当前仅 audio，不支持 SSE。',
     ],
     body: {
