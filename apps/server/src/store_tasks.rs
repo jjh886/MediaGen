@@ -40,6 +40,23 @@ impl AppStore {
         self.save();
     }
 
+    /// 同步协议排队后在原任务上开始执行，不能插入重复占用记录。
+    pub(crate) fn dispatch_protocol_task(&self, task: TaskRecord) -> bool {
+        {
+            let mut tasks = self.tasks.lock().unwrap_or_else(|err| err.into_inner());
+            if let Some(existing) = tasks.iter_mut().find(|existing| existing.id == task.id) {
+                if existing.status != "queued" {
+                    return false;
+                }
+                *existing = task;
+            } else {
+                tasks.push(task);
+            }
+        }
+        self.save();
+        true
+    }
+
     pub fn add_task_event(&self, task_id: &str, level: &str, message: String) {
         self.task_events
             .lock()

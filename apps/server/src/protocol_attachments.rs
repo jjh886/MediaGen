@@ -177,7 +177,8 @@ async fn prepare_one(
     if info.data["has_video"] != true {
         return Err("附件没有视频画面".into());
     }
-    let mut output = if supports(caps, "video") && bytes.len() <= 16 * 1024 * 1024 {
+    let native_video = supports(caps, "video") && bytes.len() <= 16 * 1024 * 1024;
+    let mut output = if native_video {
         vec![part.clone()]
     } else {
         if !supports(caps, "image") {
@@ -208,7 +209,8 @@ async fn prepare_one(
         }
         parts
     };
-    if info.data["has_audio"] == true {
+    // 原生视频已经包含全片声音，不另加转写附件改变模型的输入语义。
+    if !native_video && info.data["has_audio"] == true {
         let audio = crate::media_input::ffmpeg_file(
             &path,
             &[
@@ -296,11 +298,16 @@ mod tests {
                 "lavfi",
                 "-i",
                 "testsrc2=size=128x96:rate=4",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:sample_rate=16000",
                 "-t",
                 "2",
                 "-c:v",
                 "mpeg4",
-                "-an",
+                "-c:a",
+                "aac",
             ])
             .arg(&path)
             .output()
@@ -328,7 +335,7 @@ mod tests {
         let sampled = prepare_one(
             &state,
             "key-a",
-            &json!({"input_modalities":["text","image","file"]}),
+            &json!({"input_modalities":["text","image","audio","file"]}),
             &part,
             "video/mp4",
             &bytes,
@@ -342,6 +349,7 @@ mod tests {
         assert_eq!(frames.len(), 2);
         assert_ne!(frames[0]["image_url"], frames[1]["image_url"]);
         assert!(sampled[0]["text"].as_str().unwrap().contains("均匀采样"));
+        assert!(sampled.iter().any(|part| part["type"] == "input_audio"));
         for frame in frames {
             let encoded = frame["image_url"]
                 .as_str()

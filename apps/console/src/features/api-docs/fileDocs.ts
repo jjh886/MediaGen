@@ -80,6 +80,8 @@ export const fileDocs: ApiExample[] = [
       '默认 10 秒、1280x720；插件总范围为 4–30 秒，具体模型的时长、步长和比例由平台实时校验，不会自动换模型或近似时长。',
       'size 用于推导比例，不保证输出精确像素；quality 不控制豆包清晰度，保留默认 standard。',
       '保存返回的 id，轮询 GET /v1/videos/{video_id}；completed 后调用 /content 下载，failed 时读取 error。视频不支持 stream=true。',
+      '平台生成完成后，插件最多再等 5 分钟取得原视频下载地址，每 5 秒重查并执行账号心跳；此期间任务可能仍为 in_progress。',
+      '平台明确返回额度耗尽时报告 quota_exhausted；订阅限制报告 platform_rejected。请读取任务 error，限制提示不属于生成结果。',
     ],
     body: {
       model: 'doubao-seedance-2-5',

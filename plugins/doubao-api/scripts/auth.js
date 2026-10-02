@@ -153,3 +153,26 @@ function doubaoCheckError(data, session) {
   if (/频繁|rate.?limit/i.test(message)) throw new Error('rate_limit_exceeded: 豆包请求过于频繁')
   throw new Error('platform_rejected: 豆包错误码 ' + code)
 }
+
+function doubaoCheckCommerce(content) {
+  if (content?.ext?.not_in_chat_context !== 'commerce_intake_block') return
+  let snapshot
+  try {
+    const raw = content.ext.inner_paywall_cta_param
+    if (typeof raw !== 'string' || raw.length > 16384) throw new Error('无效订阅状态')
+    const data = JSON.parse(raw)
+    snapshot = typeof data.snapshot === 'string' ? JSON.parse(data.snapshot) : data.snapshot
+  } catch (_) {
+    throw new Error('invalid_response: 豆包功能限制响应无效')
+  }
+  if (snapshot?.unavailable_reason?.type === 2) {
+    const reset = Number(snapshot.unavailable_reason.reset_at)
+    const seconds =
+      Number.isFinite(reset) && reset > Date.now() ? Math.ceil((reset - Date.now()) / 1000) : 0
+    throw new Error(
+      'quota_exhausted: 豆包账号额度已耗尽' +
+        (seconds ? '，retry after ' + seconds + ' seconds' : '')
+    )
+  }
+  throw new Error('platform_rejected: 豆包当前功能受订阅限制')
+}

@@ -7,12 +7,16 @@ describe('豆包已生成视频的下载等待', () => {
     const waits = []
     const requests = []
     let round = 0
-    const run = scripts(['doubao-api/scripts/history.js'], {
-      call: (action, params) => {
-        expect(action).toBe('time.sleep')
-        waits.push(params.milliseconds)
-      },
-    })
+    const run = scripts(
+      [
+        'doubao-api/scripts/auth.js',
+        'doubao-api/scripts/passport.js',
+        'doubao-api/scripts/history.js',
+      ],
+      {
+        sleep: (milliseconds) => waits.push(milliseconds),
+      }
+    )
     run('doubaoRequest=request', {
       request: (_session, path, body) => {
         requests.push({ path, body })
@@ -30,27 +34,45 @@ describe('豆包已生成视频的下载等待', () => {
       },
     })
     expect(run("doubaoVideoDownload({}, 'original')")).toBe('https://media.example/v.mp4')
-    expect(waits).toEqual([2000, 4000, 6000])
+    expect(waits).toEqual([5000, 5000, 5000])
     expect(requests.filter(({ path }) => path.endsWith('/get_download_info'))).toHaveLength(2)
   })
 
   it('持续未就绪时有上限地退出，不把失败当成功', () => {
     const waits = []
-    const run = scripts(['doubao-api/scripts/history.js'], {
-      call: (_action, params) => waits.push(params.milliseconds),
-    })
-    run('doubaoRequest=()=>({children:[]})')
+    let elapsed = 0
+    const run = scripts(
+      [
+        'doubao-api/scripts/auth.js',
+        'doubao-api/scripts/passport.js',
+        'doubao-api/scripts/history.js',
+      ],
+      {
+        sleep: (milliseconds) => {
+          waits.push(milliseconds)
+          elapsed += milliseconds
+        },
+      }
+    )
+    run('Date.now=clock;doubaoRequest=()=>({children:[]})', { clock: () => elapsed })
     expect(() => run("doubaoVideoDownload({}, 'original')")).toThrow('download_pending:')
-    expect(waits).toHaveLength(11)
-    expect(Math.max(...waits)).toBe(10000)
+    expect(waits).toHaveLength(60)
+    expect(elapsed).toBe(5 * 60 * 1000)
   })
 
   it('人工验证等非下载延迟错误立即返回', () => {
-    const run = scripts(['doubao-api/scripts/history.js'], {
-      call: () => {
-        throw new Error('不应等待')
-      },
-    })
+    const run = scripts(
+      [
+        'doubao-api/scripts/auth.js',
+        'doubao-api/scripts/passport.js',
+        'doubao-api/scripts/history.js',
+      ],
+      {
+        sleep: () => {
+          throw new Error('不应等待')
+        },
+      }
+    )
     run("doubaoRequest=()=>{throw new Error('verification_required: 请验证')}")
     expect(() => run("doubaoVideoDownload({}, 'original')")).toThrow('verification_required:')
   })
@@ -188,7 +210,11 @@ describe('豆包原会话自动确认', () => {
   it.each(['请充值后确认生成', '请确认授权并接受使用规范后生成', '请输入验证码，确认后开始生成'])(
     '额外授权确认不作为普通参数确认自动发送：%s',
     (reply) => {
-      const run = scripts(['doubao-api/scripts/history.js'])
+      const run = scripts([
+        'doubao-api/scripts/auth.js',
+        'doubao-api/scripts/passport.js',
+        'doubao-api/scripts/history.js',
+      ])
       expect(() =>
         run(
           `doubaoConfirmMediaIfRequested({}, '123', 'video', [{
@@ -268,9 +294,16 @@ describe('豆包原会话自动确认', () => {
 
   it('文字先完成时仍等待后续视频卡片，不在第六次回读时误报失败', () => {
     let reads = 0
-    const run = scripts(['doubao-api/scripts/passport.js', 'doubao-api/scripts/history.js'], {
-      sleep: () => {},
-    })
+    const run = scripts(
+      [
+        'doubao-api/scripts/auth.js',
+        'doubao-api/scripts/passport.js',
+        'doubao-api/scripts/history.js',
+      ],
+      {
+        sleep: () => {},
+      }
+    )
     run(`doubaoHistory=read;doubaoConfirmMediaIfRequested=()=>{}`, {
       read: () => {
         reads++
@@ -298,11 +331,18 @@ describe('豆包原会话自动确认', () => {
 
   it('平台已明确排队时等待超过五分钟的生成，不把排队当作无结果', () => {
     let elapsed = 0
-    const run = scripts(['doubao-api/scripts/passport.js', 'doubao-api/scripts/history.js'], {
-      sleep: () => {
-        elapsed += 60_000
-      },
-    })
+    const run = scripts(
+      [
+        'doubao-api/scripts/auth.js',
+        'doubao-api/scripts/passport.js',
+        'doubao-api/scripts/history.js',
+      ],
+      {
+        sleep: () => {
+          elapsed += 60_000
+        },
+      }
+    )
     run(
       `Date.now=clock;doubaoConfirmMediaIfRequested=()=>{};doubaoHistory=()=>[{
       user_type:2,ext:{is_finish:'1'},content_block:clock()<8*60_000

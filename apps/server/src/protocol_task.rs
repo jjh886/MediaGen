@@ -1,3 +1,4 @@
+pub(crate) use crate::protocol_queue::reserve_affinity_wait;
 use crate::store::AppStore;
 use crate::{server_plugin_host::ServerPluginHost, store::AccountRecord, ServerState};
 use actix_web::web;
@@ -114,21 +115,26 @@ pub(crate) fn reserve_affinity(
             .ok_or("没有可用账号")?;
         let account = state.store.account_with_required_runtime_proxy(account)?;
         state.store.mark_account_dispatched(&account.id);
-        state.store.insert_task(crate::store::TaskRecord {
-            id: id.into(),
-            platform: manifest.platform_id.clone(),
-            task_kind: kind.into(),
-            model_id: model_id.into(),
-            prompt: String::new(),
-            account_id: Some(account.id.clone()),
-            status: "processing".into(),
-            result_url: None,
-            storage_key: None,
-            error_message: None,
-            result_data: None,
-            created_at: chrono::Utc::now().to_rfc3339(),
-            completed_at: None,
-        });
+        if !state
+            .store
+            .dispatch_protocol_task(crate::store::TaskRecord {
+                id: id.into(),
+                platform: manifest.platform_id.clone(),
+                task_kind: kind.into(),
+                model_id: model_id.into(),
+                prompt: String::new(),
+                account_id: Some(account.id.clone()),
+                status: "processing".into(),
+                result_url: None,
+                storage_key: None,
+                error_message: None,
+                result_data: None,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                completed_at: None,
+            })
+        {
+            return Err("请求已在执行，请等待原请求结果".into());
+        }
         Ok::<_, String>(account)
     })?;
     Ok((account, Lease::new(state.store.clone(), id.into())))

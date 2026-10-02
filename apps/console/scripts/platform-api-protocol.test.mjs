@@ -517,7 +517,7 @@ describe('豆包媒体终态', () => {
     ['image', { image: { status: 4 } }, 'platform_rejected'],
     ['video', { video: { status: 4 } }, 'platform_rejected'],
   ])('识别 %s 失败状态而不持续轮询', (kind, creation, error) => {
-    const run = scripts(['doubao-api/scripts/history.js'], {
+    const run = scripts(['doubao-api/scripts/auth.js', 'doubao-api/scripts/history.js'], {
       sleep: () => {
         throw Error('不应等待')
       },

@@ -31,6 +31,14 @@ function doubaoWaitForResult(session, conversationId, kind) {
   while (Date.now() < deadline) {
     const messages = doubaoHistory(session, conversationId)
     const assistant = messages.filter((message) => Number(message.user_type) !== 1)
+    const latest = assistant.reduce(
+      (previous, message) =>
+        !previous || Number(message.index_in_conv) > Number(previous.index_in_conv)
+          ? message
+          : previous,
+      null
+    )
+    doubaoCheckCommerce(latest)
     const creations = assistant.flatMap((message) =>
       (message.content_block || []).flatMap(
         (block) => block.content?.creation_block?.creations || []
@@ -55,10 +63,11 @@ function doubaoWaitForResult(session, conversationId, kind) {
       const blocks = Object.fromEntries(
         (final?.content_block || []).map((block) => [block.block_id, block])
       )
-      const text = (final?.content_block || [])
-        .filter((block) => doubaoIsAnswerBlock(block, blocks))
-        .map((block) => block.content?.text_block?.text || '')
-        .join('')
+      const text =
+        (final?.content_block || [])
+          .filter((block) => doubaoIsAnswerBlock(block, blocks))
+          .map((block) => block.content?.text_block?.text || '')
+          .join('') || doubaoLegacyText(final)
       if (text.trim()) return text
     }
     if (
@@ -148,19 +157,20 @@ function doubaoConfirmMediaIfRequested(session, conversationId, kind, messages) 
 }
 
 function doubaoVideoDownload(session, vid) {
-  // 生成完成与创作目录可下载存在延迟，只重查原视频，不能重新提交生成。
-  for (let attempt = 0; ; attempt++) {
+  const deadline = Date.now() + 5 * 60 * 1000
+  while (true) {
     try {
-      return doubaoVideoDownloadOnce(session, vid)
+      return doubaoFindVideoDownload(session, vid)
     } catch (error) {
-      if (!String(error?.message || error).startsWith('download_pending:') || attempt >= 11)
+      if (!String(error?.message || '').startsWith('download_pending:') || Date.now() >= deadline)
         throw error
-      host.call('time.sleep', { milliseconds: Math.min(2000 * (attempt + 1), 10000) })
     }
+    host.sleep(5000)
+    doubaoHeartbeatTick(session)
   }
 }
 
-function doubaoVideoDownloadOnce(session, vid) {
+function doubaoFindVideoDownload(session, vid) {
   const home = doubaoRequest(session, '/samantha/aispace/homepage', {})
   const folder = home.children?.find((node) => node.name === '我的创作')
   if (!folder?.id) throw new Error('download_pending: 豆包创作目录尚未就绪')

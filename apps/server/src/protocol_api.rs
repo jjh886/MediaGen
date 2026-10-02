@@ -195,7 +195,7 @@ pub(crate) async fn dispatch(
     let metadata = body.get("metadata").cloned().unwrap_or(json!({}));
     let request_id = crate::request_identity::id(&request);
     let task_id = request_id.clone();
-    let (mut account, lease) = match crate::protocol_task::reserve_affinity(
+    let (mut account, lease) = match crate::protocol_task::reserve_affinity_wait(
         &state,
         &manifest,
         &model_id,
@@ -208,9 +208,23 @@ pub(crate) async fn dispatch(
         &task_id,
         Some(&payload),
         preferred.as_deref(),
-    ) {
+    )
+    .await
+    {
         Ok(value) => value,
-        Err(_) => return error(429, "account_unavailable", "没有可用账号或账号代理不可用"),
+        Err(message) => {
+            let code = if message.contains("等待") {
+                "account_queue_timeout"
+            } else {
+                "account_unavailable"
+            };
+            let mut response = error(429, code, &message);
+            response.headers_mut().insert(
+                actix_web::http::header::RETRY_AFTER,
+                actix_web::http::header::HeaderValue::from_static("30"),
+            );
+            return response;
+        }
     };
     let streaming = body["stream"] == true && endpoint != "speech";
     if endpoint != "speech" {

@@ -208,7 +208,30 @@ function doubaoStreamState() {
     finished: false,
     conversationId: '',
     messageIds: [],
+    legacyMessageId: '',
+    legacyText: '',
   }
+}
+
+function doubaoLegacyText(content) {
+  if (Number(content?.content_type) !== 1 || typeof content.content !== 'string') return ''
+  let value
+  try {
+    value = JSON.parse(content.content)
+  } catch (_) {
+    throw new Error('invalid_response: 豆包正文不是有效 JSON')
+  }
+  return typeof value?.text === 'string' ? value.text : ''
+}
+
+function doubaoConsumeLegacyText(state, text, append, onText) {
+  const previous = state.legacyText
+  if (!append && !text.startsWith(previous))
+    throw new Error('generation_incomplete: 豆包已输出文本被改写，请恢复原会话')
+  const delta = append ? text : text.slice(previous.length)
+  state.legacyText = append ? previous + text : text
+  state.text += delta
+  if (delta && onText) onText(delta)
 }
 
 function doubaoIsAnswerBlock(block, blocks) {
@@ -281,12 +304,29 @@ function doubaoConsume(state, event, onText, session) {
     }
   }
   if (event.event === 'STREAM_MSG_NOTIFY') {
+    doubaoCheckCommerce(data.content)
     if (data.meta?.message_id) state.messageIds.push(data.meta.message_id)
+    if (Number(data.meta?.user_type) === 2 && Number(data.content?.content_type) === 1) {
+      state.legacyMessageId = data.meta.message_id
+      state.legacyText = ''
+      doubaoConsumeLegacyText(state, doubaoLegacyText(data.content), false, onText)
+    }
     acceptBlocks(data.content?.content_block)
   }
   if (event.event === 'STREAM_CHUNK') {
     for (const patch of data.patch_op || []) {
       if (patch.patch_object === 1) acceptBlocks(patch.patch_value?.content_block)
+      if (
+        patch.patch_object === 102 &&
+        data.message_id === state.legacyMessageId &&
+        [1, 2].includes(patch.patch_type)
+      )
+        doubaoConsumeLegacyText(
+          state,
+          doubaoLegacyText({ content_type: 1, content: patch.patch_value?.content }),
+          patch.patch_type === 1,
+          onText
+        )
     }
   }
   if (event.event === 'SSE_REPLY_END' && data.end_type >= 2) state.finished = true
