@@ -227,6 +227,11 @@ pub(crate) fn chat_to_responses(body: &Value) -> Result<Value, String> {
             };
             input.push(json!({"type":"message","role":role,"content":content}));
         }
+        if role == "assistant" && message["media"].is_array() {
+            input.extend(crate::protocol_output::continuation(
+                &json!({"output":message["media"]}),
+            ));
+        }
         if let Some(calls) = message["tool_calls"].as_array() {
             for call in calls {
                 if call["type"] != "function" {
@@ -289,6 +294,7 @@ pub(crate) fn chat_response(response: &Value, model: &str) -> Value {
         }
     }
     let mut message = json!({"role":"assistant","content":if text.is_empty() {Value::Null} else {json!(text)},"refusal":if refusal.is_empty() {Value::Null} else {json!(refusal)}});
+    crate::protocol_output::enrich_chat(&mut message, response);
     if !calls.is_empty() {
         message["tool_calls"] = json!(calls);
     }

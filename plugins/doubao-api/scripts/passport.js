@@ -9,7 +9,9 @@ function doubaoPassportQuery(session, path) {
     typeof appKey !== 'string' ||
     !/^[a-f0-9]{32}$/.test(appKey)
   )
-    throw new Error('LOGIN_EXPIRED: 请重新登录以采集豆包账号续期协议')
+    throw new Error(
+      'AUTH_PROTOCOL_INCOMPLETE: 豆包账号登录资料需要更新。请在账号设置中点击重新登录，采集新版接口协议后重试。'
+    )
   const params = { ...template }
   for (const name of [
     'sign',

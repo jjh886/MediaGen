@@ -1,4 +1,4 @@
-const CHATGPT_API_TEXT_POLL_MS = 2000
+const CHATGPT_API_TEXT_POLL_MS = CHATGPT_API_FALLBACK_POLL_MS
 const CHATGPT_API_TEXT_TIMEOUT_MS = 20 * 60 * 1000
 
 function chatgptApiTextOptions(init, request) {
@@ -43,6 +43,14 @@ function chatgptApiPrepareTextConversation(
   if (!response || (response.status && response.status !== 'ok')) {
     throw new Error('temporary_unavailable: ChatGPT 文本会话 prepare 响应无效')
   }
+  chatgptApiRequireOk(
+    chatgptApiRequest(auth, 'GET', '/backend-api/system_hints', {
+      target_path: '/backend-api/system_hints',
+      target_route: '/backend-api/system_hints',
+      timeout_ms: 30000,
+    }),
+    '读取 ChatGPT 会话能力'
+  )
   const conduit = typeof response.conduit_token === 'string' ? response.conduit_token : ''
   return {
     ...thread,
@@ -67,6 +75,8 @@ function chatgptApiTextPreparePayload(auth, prompt, thread, options, state, atta
     timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
     timezone: fingerprint.timezone || 'UTC',
     local_function_names: ['local.continue_in_work'],
+    client_contextual_info: chatgptApiTextClientContext(auth),
+    supported_encodings: ['v1'],
   })
   if (attachments.length) {
     payload.attachment_mime_types = [...new Set(attachments.map((item) => item.mime_type))]
@@ -110,6 +120,7 @@ function chatgptApiStreamTextConversation(
       proxy: 'system',
       headers,
       body: chatgptApiTextConversationPayload(auth, prompt, prepared, attachments),
+      stop_condition: "type == 'message_stream_complete'",
       retry: { max_attempts: 1 },
       timeout_ms: 3 * 60 * 60 * 1000,
     },
@@ -135,6 +146,8 @@ function chatgptApiCreateTextStreamState() {
 }
 
 function chatgptApiConsumeTextStreamEvent(state, writer, event, onConversation) {
+  chatgptApiConsumeRichTextEvent(state, writer, event)
+  if (state.rich_message?.metadata?.is_visually_hidden_from_conversation) return
   const previousMessageId = state.message_id
   chatgptApiApplyTextEvent(state, event)
   if (state.conversation_id && onConversation) onConversation(state.conversation_id)
@@ -192,7 +205,7 @@ function chatgptApiTextConversationPayload(auth, prompt, prepared, attachments =
     messages: [
       {
         id: prepared.user_message_id,
-        author: { role: 'user' },
+        author: { metadata: {}, name: null, role: 'user' },
         channel: null,
         create_time: Date.now() / 1000,
         content: chatgptApiMessageContent(
@@ -210,7 +223,8 @@ function chatgptApiTextConversationPayload(auth, prompt, prepared, attachments =
     parent_message_id: prepared.parent_message_id,
     conversation_id: prepared.conversation_id,
     model: prepared.model,
-    client_prepare_state: 'success',
+    client_prepare_state: 'sent',
+    genui_state_snapshots: [],
     timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
     timezone: fingerprint.timezone || 'UTC',
     supported_encodings: ['v1'],
@@ -245,6 +259,10 @@ function chatgptApiApplyTextEvent(state, event) {
   if (!event || typeof event !== 'object') return
   state.conversation_id =
     state.conversation_id || String(event.conversation_id || event.v?.conversation_id || '')
+  if (event.p === '' && event.v?.message) {
+    chatgptApiApplyFullTextMessage(state, event.v)
+    return
+  }
   if (Array.isArray(event.choices)) {
     chatgptApiApplyTextChunk(state, event)
     return
@@ -372,15 +390,42 @@ function chatgptApiTextParts(parts) {
 
 function chatgptApiWaitForText(auth, conversationId, baselineParentId) {
   const started = Date.now()
-  let delay = CHATGPT_API_TEXT_POLL_MS
+  const checkpoint = host.checkpoint() || {}
+  const sameConversation = checkpoint.conversation_id === conversationId
+  let delay = sameConversation
+    ? chatgptApiClampPollDelay(checkpoint.poll_retry_ms || CHATGPT_API_TEXT_POLL_MS, 3600000)
+    : CHATGPT_API_TEXT_POLL_MS
+  let nextPollAt = sameConversation ? Number(checkpoint.poll_next_at_ms || 0) : 0
   while (Date.now() - started < CHATGPT_API_TEXT_TIMEOUT_MS) {
-    const conversation = chatgptApiFetchTextConversation(auth, conversationId)
+    if (nextPollAt > Date.now()) {
+      host.call('time.sleep', {
+        milliseconds: Math.min(
+          nextPollAt - Date.now(),
+          CHATGPT_API_TEXT_TIMEOUT_MS - (Date.now() - started)
+        ),
+      })
+      if (Date.now() - started >= CHATGPT_API_TEXT_TIMEOUT_MS) break
+    }
+    const response = chatgptApiTextConversationResponse(auth, conversationId)
+    if (chatgptApiPollRateLimited(response)) {
+      delay = chatgptApiPollRetryDelayMs(response, delay)
+      nextPollAt = Date.now() + delay
+      if (sameConversation) {
+        host.checkpoint({ ...host.checkpoint(), poll_retry_ms: delay, poll_next_at_ms: nextPollAt })
+      }
+      continue
+    }
+    const conversation = chatgptApiRequireOk(response, '轮询 ChatGPT 文本结果').body || {}
+    delay = CHATGPT_API_TEXT_POLL_MS
+    nextPollAt = 0
+    if (sameConversation) {
+      host.checkpoint({ ...host.checkpoint(), poll_retry_ms: delay, poll_next_at_ms: 0 })
+    }
     const error = chatgptApiTextConversationError(conversation)
     if (error) throw new Error(error)
     const result = chatgptApiFinalTextFromConversation(conversation, baselineParentId)
     if (result) return result
-    host.call('time.sleep', { milliseconds: conversation.__retry_after_ms || delay })
-    delay = Math.min(delay * 2, 15000)
+    host.call('time.sleep', { milliseconds: delay })
   }
   throw new Error('generation_timeout: ChatGPT 文本生成超过 20 分钟')
 }
@@ -395,21 +440,21 @@ function chatgptApiTextConversationError(conversation) {
 }
 
 function chatgptApiFetchTextConversation(auth, conversationId, timeoutMs = 60000) {
-  const path = '/backend-api/conversation/' + encodeURIComponent(conversationId)
-  const response = chatgptApiRequest(auth, 'GET', path, {
+  const response = chatgptApiRequireOk(
+    chatgptApiTextConversationResponse(auth, conversationId, timeoutMs),
+    '轮询 ChatGPT 文本结果'
+  )
+  return response.body || {}
+}
+
+function chatgptApiTextConversationResponse(auth, conversationId, timeoutMs = 60000) {
+  const path = '/backend-api/conversations/' + encodeURIComponent(conversationId)
+  return chatgptApiRequest(auth, 'GET', path, {
     target_path: path,
-    target_route: '/backend-api/conversation/{conversation_id}',
+    target_route: '/backend-api/conversations/{conversation_id}',
     timeout_ms: timeoutMs,
     retry: { max_attempts: 1 },
   })
-  if (response.status === 429) {
-    const retry = Number(response.headers?.['retry-after'])
-    return {
-      __retry_after_ms: Math.min(120, Math.max(15, Number.isFinite(retry) ? retry : 30)) * 1000,
-    }
-  }
-  chatgptApiRequireOk(response, '轮询 ChatGPT 文本结果')
-  return response.body || {}
 }
 
 function chatgptApiFinalTextFromConversation(conversation, baselineParentId) {

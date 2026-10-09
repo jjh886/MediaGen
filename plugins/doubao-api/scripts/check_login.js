@@ -36,10 +36,13 @@
     })
     const body = await response.json()
     const user = body.data
-    if (!response.ok || !(user?.user_id_str || user?.user_id))
-      return JSON.stringify({ loggedIn: false })
+    const loggedIn = response.ok && Boolean(user?.user_id_str || user?.user_id)
+    if (loggedIn)
+      doubaoBrowserPassportCapture(
+        performance.getEntriesByType('resource').map((entry) => entry.name)
+      )
     return JSON.stringify({
-      loggedIn: true,
+      loggedIn,
       userId: String(user?.user_id_str || user?.user_id || ''),
       username: user?.screen_name || user?.name || user?.mobile || user?.email || '',
       email: user?.mobile || user?.email || '',

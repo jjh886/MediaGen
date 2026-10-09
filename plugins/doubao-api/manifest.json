@@ -30,7 +30,8 @@
         "unsupported_speed",
         "unsupported_instructions",
         "unsupported_voice",
-        "unsupported_format"
+        "unsupported_format",
+        "AUTH_PROTOCOL_INCOMPLETE"
       ],
       "category": "invalid_request",
       "retry_action": "fail",
@@ -95,7 +96,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "2.1.0",
+  "version": "2.2.1",
   "platform_id": "doubao-api",
   "display_name": "豆包",
   "sort_order": 50,
@@ -206,7 +207,7 @@
           "log"
         ],
         "input_modalities": ["text", "image", "audio", "file"],
-        "output_modalities": ["text"],
+        "output_modalities": ["text", "image", "video"],
         "streaming": true
       }
     },
@@ -351,6 +352,8 @@
             "conversation.js",
             "history.js",
             "upload.js",
+            "@shared/api_text_media.js",
+            "text_media.js",
             "generate_text.js"
           ],
           "timeout_ms": 14400000,

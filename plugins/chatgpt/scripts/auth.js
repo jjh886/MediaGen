@@ -243,6 +243,17 @@ function chatgptApiRequest(auth, method, path, options) {
     headers,
     timeout_ms: config.timeout_ms || (config.sse ? 3 * 60 * 60 * 1000 : 30000),
   }
+  if (method === 'GET' && /^\/backend-api\/conversations?\//.test(path)) {
+    request.request_control = {
+      group: 'conversation-read',
+      identity: chatgptApiAccountId(auth) || 'session',
+      min_interval_ms: 5000,
+      rate_limit_delay_ms: 120000,
+      rate_limit_max_delay_ms: 900000,
+      cache_ms: 3000,
+      wait: false,
+    }
+  }
   if (config.body !== undefined) request.body = config.body
   if (config.body_format) request.body_format = config.body_format
   if (config.body_format === 'multipart') delete request.headers['content-type']
@@ -263,64 +274,6 @@ function chatgptApiRequest(auth, method, path, options) {
     host.call(config.sse ? 'http.sse_request' : 'http.request', request),
     path
   )
-}
-
-// 新网页会将生成转交给 Conduit。只接续原会话，不重新提交用户消息。
-function chatgptApiStreamWithResume(auth, request, onEvent) {
-  const deadline = Date.now() + (request.timeout_ms || 3 * 60 * 60 * 1000)
-  let next = request
-  let result
-  let token = ''
-  let conversationId = ''
-  do {
-    let handoff = false
-    let completed = false
-    result = host.stream('http.sse_request', next, (event) => {
-      if (event?.type === 'resume_conversation_token') {
-        token = typeof event.token === 'string' ? event.token : ''
-        conversationId = String(event.conversation_id || '')
-      }
-      if (event?.type === 'stream_handoff') handoff = true
-      if (event?.type === 'message_stream_complete') completed = true
-      onEvent(event)
-      if (event?.type === 'resume_conversation_token' && token && conversationId) {
-        chatgptApiCheckpoint({
-          ...chatgptApiCheckpoint(),
-          phase: 'accepted',
-          conversation_id: conversationId,
-          resume_token: token,
-        })
-      }
-      return null
-    })
-    chatgptApiRememberCookies(auth, result, next.url.slice(CHATGPT_API_ORIGIN.length).split('?')[0])
-    if (!result.ok || !handoff || completed) return result
-    if (!conversationId || !token) {
-      throw new Error('PROVIDER_SUBMISSION_UNKNOWN: ChatGPT 转交结果缺少恢复凭据，请恢复原任务')
-    }
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) throw new Error('temporary_unavailable: ChatGPT 接续结果超时')
-    next = chatgptApiResumeRequest(auth, conversationId, token, remaining)
-  } while (true)
-}
-
-function chatgptApiResumeRequest(auth, conversationId, token, timeoutMs) {
-  const path = '/backend-api/f/conversation/resume'
-  return {
-    method: 'POST',
-    url: CHATGPT_API_ORIGIN + path,
-    proxy: 'system',
-    tls_profile: chatgptApiTlsProfile(auth),
-    headers: {
-      ...chatgptApiBaseHeaders(auth, path, path),
-      accept: 'text/event-stream',
-      'content-type': 'application/json',
-      'x-conduit-token': token,
-    },
-    body: { conversation_id: conversationId, offset: 0 },
-    retry: { max_attempts: 1 },
-    timeout_ms: timeoutMs,
-  }
 }
 
 function chatgptApiRequireOk(result, operation) {

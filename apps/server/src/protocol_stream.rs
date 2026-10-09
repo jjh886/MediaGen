@@ -8,6 +8,7 @@ pub(crate) struct Encoder {
     created: i64,
     tools: HashMap<String, usize>,
     include_usage: bool,
+    rich: crate::protocol_output::RichStream,
     pub terminal: bool,
 }
 
@@ -20,6 +21,7 @@ impl Encoder {
             created: chrono::Utc::now().timestamp(),
             tools: HashMap::new(),
             include_usage,
+            rich: Default::default(),
             terminal: false,
         }
     }
@@ -57,20 +59,34 @@ impl Encoder {
                     .insert(event["item"]["id"].as_str().unwrap_or("").into(), index);
                 self.chunk(json!({"tool_calls":[{"index":index,"id":event["item"]["call_id"],"type":"function","function":{"name":event["item"]["name"],"arguments":""}}]}), Value::Null)
             }
+            "response.reasoning_summary_text.delta" => {
+                self.chunk(json!({"reasoning_content":event["delta"]}), Value::Null)
+            }
+            "response.output_item.added" | "response.output_item.done" => self
+                .rich
+                .item(&event["item"])
+                .map(|delta| self.chunk(delta, Value::Null))
+                .unwrap_or_default(),
             "response.function_call_arguments.delta" => {
                 let index = self.tools.get(event["item_id"].as_str().unwrap_or(""));
                 index.map(|index| self.chunk(json!({"tool_calls":[{"index":index,"function":{"arguments":event["delta"]}}]}),Value::Null)).unwrap_or_default()
             }
             "response.completed" | "response.incomplete" => {
                 self.terminal = true;
-                let mut result = self.chunk_with_metadata(
+                let mut result = self
+                    .rich
+                    .finish(&event["response"])
+                    .into_iter()
+                    .map(|delta| self.chunk(delta, Value::Null))
+                    .collect::<String>();
+                result.push_str(&self.chunk_with_metadata(
                     json!({}),
                     json!(crate::protocol_request::finish_reason(
                         &event["response"],
                         !self.tools.is_empty()
                     )),
                     event["response"]["metadata"].as_object(),
-                );
+                ));
                 if self.include_usage {
                     let usage = json!({"id":self.id,"object":"chat.completion.chunk","created":self.created,"model":self.model,"choices":[],"usage":crate::protocol_request::chat_usage(&event["response"]["usage"])});
                     result.push_str(&format!("data: {usage}\n\n"));

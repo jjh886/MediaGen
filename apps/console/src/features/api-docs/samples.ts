@@ -47,6 +47,9 @@ export const video = {
   size: '1280x720',
 }
 export const textNotes = [
+  '聊天可返回媒体：ChatGPT 支持图片，豆包支持图片和视频，实际能力取决于账号与平台。Responses 保留 image_generation_call / video_generation_call；Chat 使用 MediaGen 扩展 message.media，SSE 使用 delta.media。',
+  '媒体进度与完成项按 id 更新；图片 result 为 Base64，视频 result_url 为有时效的 HTTPS 地址。思考摘要独立于正文；Responses 读取 reasoning.summary，Chat 读取 reasoning 或 reasoning_content。',
+
   'ChatGPT、豆包、DeepSeek 完成后可返回 metadata.conversation_title / conversation_id；Responses 在最终 response 中读取，Chat 流式在结束帧读取。标题获取失败时省略，不影响正文；Codex 不提供此平台标题读取能力。',
   'ChatGPT、Codex 的文档与聊天视频走 input_file（Responses）或 file（Chat）内容块，先上传 /v1/files 后引用 file_id；生成视频使用 /v1/videos。',
   '多媒体文件单个不超过 50 MiB、去重后累计不超过 64 MiB；视频最长 1 小时。不支持原生视频或文件超过 16 MiB 时最多抽取 8 帧，音轨按模型能力原生传入或转写。转写需要当前 Key 有可用的转写模型授权。',

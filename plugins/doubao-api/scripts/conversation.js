@@ -332,14 +332,18 @@ function doubaoConsume(state, event, onText, session) {
   if (event.event === 'SSE_REPLY_END' && data.end_type >= 2) state.finished = true
 }
 
-function doubaoSubmit(session, payload, onText) {
+function doubaoSubmit(session, payload, onText, onEvent) {
   const state = doubaoStreamState()
   state.conversationId = payload.client_meta.conversation_id || ''
   if (payload.option.need_create_conversation) {
     doubaoInitializeConversation(session, payload)
     doubaoRememberConversationMode(session, payload.option.need_deep_think === 1)
   }
-  host.checkpoint({ ...host.checkpoint(), phase: 'submitting' })
+  host.checkpoint({
+    ...host.checkpoint(),
+    phase: 'submitting',
+    local_message_id: payload.messages.at(-1)?.local_message_id,
+  })
   const request = doubaoSignedRequest(session, '/chat/completion', payload, 'POST', {
     accept: 'text/event-stream',
     'agw-js-conv': 'str, str',
@@ -368,6 +372,7 @@ function doubaoSubmit(session, payload, onText) {
         doubaoHeartbeatTick(session)
         if (event.type === 'http_idle') return null
         doubaoConsume(state, event, onText, session)
+        if (onEvent) onEvent(state, event)
       }
     ),
     '豆包生成失败'

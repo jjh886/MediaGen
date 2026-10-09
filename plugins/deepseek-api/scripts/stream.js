@@ -15,6 +15,17 @@ function deepseekEmitFragments(state, writer) {
     .filter((fragment) => fragment.type === 'RESPONSE')
     .map((fragment) => fragment.content || '')
     .join('')
+  const reasoning = state.fragments
+    .filter((fragment) => fragment.type === 'THINK')
+    .map((fragment) => fragment.content || '')
+    .join('')
+  if (reasoning)
+    apiTextUpdateReasoning(
+      writer,
+      'deepseek-thinking',
+      reasoning,
+      state.finished || text.length > 0
+    )
   if (!text.startsWith(state.output)) throw new Error('invalid_response: DeepSeek 已输出文本被改写')
   apiTextFeedResponseText(writer, text.slice(state.output.length))
   state.output = text

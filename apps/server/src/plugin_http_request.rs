@@ -31,7 +31,7 @@ impl ServerPluginHost {
             || params["use_proxy"] == false
             || params["use_account_proxy"] == false
         {
-            return reqwest::Client::builder()
+            return http_client_builder(params)
                 .no_proxy()
                 .redirect(redirects)
                 .timeout(Duration::from_secs(30))
@@ -39,15 +39,18 @@ impl ServerPluginHost {
                 .map_err(|_| "创建直连客户端失败".to_string());
         }
         let Some(proxy_url) = proxy_url(params, &self.proxy_url) else {
-            if params["follow_redirects"] == false || self.policy.is_some() {
-                return reqwest::Client::builder()
+            if params["follow_redirects"] == false
+                || self.policy.is_some()
+                || params["http1_only"] == true
+            {
+                return http_client_builder(params)
                     .redirect(redirects)
                     .build()
                     .map_err(|_| "创建 HTTP 客户端失败".to_string());
             }
             return Ok(self.client.clone());
         };
-        reqwest::Client::builder()
+        http_client_builder(params)
             .timeout(Duration::from_secs(30))
             .redirect(redirects)
             .proxy(
@@ -90,5 +93,47 @@ impl ServerPluginHost {
             "?0".to_string(),
         )?;
         Ok(headers)
+    }
+}
+
+impl ServerPluginHost {
+    pub(super) async fn http_request(&self, params: &Value, sse: bool) -> Result<Value, String> {
+        let response = self.send_http(params).await?;
+        let status = response.status;
+        let success = (200..300).contains(&status);
+        let headers = response.headers.clone();
+        if params["response_body_format"].as_str() == Some("base64") {
+            let bytes = read_response_bounded(response).await?;
+            if bytes.len() as u64 > MAX_FILE_BYTES {
+                return Err(format!("HTTP 二进制响应超过限制 {} bytes", MAX_FILE_BYTES));
+            }
+            return Ok(json!({
+                "status": status,
+                "body_base64": BASE64_STANDARD.encode(bytes),
+                "headers": headers,
+                "ok": success,
+            }));
+        }
+        let body_text =
+            String::from_utf8_lossy(&read_response_bounded(response).await?).into_owned();
+        let body = serde_json::from_str::<Value>(&body_text)
+            .unwrap_or_else(|_| Value::String(body_text.clone()));
+        Ok(json!({
+            "status": status,
+            "body": body,
+            "body_text": body_text,
+            "headers": headers,
+            "events": if sse { collect_sse_events(&body_text) } else { Vec::<Value>::new() },
+            "ok": success,
+        }))
+    }
+}
+
+fn http_client_builder(params: &Value) -> reqwest::ClientBuilder {
+    let builder = reqwest::Client::builder();
+    if params["http1_only"] == true {
+        builder.http1_only()
+    } else {
+        builder
     }
 }

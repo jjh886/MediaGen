@@ -81,7 +81,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "1.1.0",
+  "version": "1.1.1",
   "platform_id": "deepseek-api",
   "display_name": "DeepSeek",
   "sort_order": 60,
@@ -209,6 +209,7 @@
             "@shared/api_session.js",
             "@shared/api_text_attachments.js",
             "@shared/api_text_responses.js",
+            "@shared/api_text_media.js",
             "auth.js",
             "lifecycle.js",
             "pow.js",

@@ -81,7 +81,15 @@ impl Policy {
             return Err("插件未声明此原子能力".into());
         }
         if let Some(url) = params["url"].as_str() {
-            let url = reqwest::Url::parse(url).map_err(|_| "插件网络地址无效")?;
+            let mut url = reqwest::Url::parse(url).map_err(|_| "插件网络地址无效")?;
+            if action == "http.websocket_open" {
+                let scheme = match url.scheme() {
+                    "wss" => "https",
+                    "ws" => "http",
+                    _ => return Err("WebSocket 协议无效".into()),
+                };
+                url.set_scheme(scheme).map_err(|_| "WebSocket 协议无效")?;
+            }
             if !self.url_allowed(&url) {
                 return Err("插件网络域名不在声明范围内".into());
             }

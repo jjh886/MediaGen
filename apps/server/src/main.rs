@@ -61,6 +61,7 @@ mod port_process;
 mod protocol_api;
 mod protocol_attachments;
 mod protocol_files;
+mod protocol_output;
 mod protocol_queue;
 mod protocol_request;
 mod protocol_storage;

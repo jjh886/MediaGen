@@ -4,22 +4,15 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { expect, it, vi } from 'vitest'
 
-const source =
-  readFileSync(
-    path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      '../../../plugins/chatgpt/scripts/network_profile.js'
-    ),
-    'utf8'
-  ) +
-  '\n' +
-  readFileSync(
-    path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      '../../../plugins/chatgpt/scripts/auth.js'
-    ),
-    'utf8'
+const source = [
+  '../../../plugins/chatgpt/scripts/network_profile.js',
+  '../../../plugins/chatgpt/scripts/auth.js',
+  '../../../plugins/chatgpt/scripts/poll_retry.js',
+]
+  .map((file) =>
+    readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), file), 'utf8')
   )
+  .join('\n')
 
 it('接续 Conduit 原会话并立即保存恢复凭据，不重复提交用户消息', () => {
   let saved = { phase: 'submitting', model: 'gpt-6-astra-wm' }
@@ -68,6 +61,7 @@ it('接续 Conduit 原会话并立即保存恢复凭据，不重复提交用户�
     model: 'gpt-6-astra-wm',
     conversation_id: 'conversation-1',
     resume_token: 'resume-test',
+    resume_kind: '',
   })
   expect(checkpoint).toHaveBeenCalledTimes(2)
   expect(events).toHaveLength(6)

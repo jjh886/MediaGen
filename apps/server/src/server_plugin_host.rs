@@ -30,6 +30,10 @@ mod file_io;
 mod http_request;
 #[path = "plugin_http_transport.rs"]
 mod http_transport;
+#[path = "plugin_request_control.rs"]
+mod request_control;
+#[path = "plugin_websocket.rs"]
+mod websocket;
 
 #[path = "plugin_binary.rs"]
 mod binary;
@@ -57,6 +61,7 @@ pub struct ServerPluginHost {
     profile_clients: std::sync::Arc<std::sync::Mutex<HashMap<String, wreq::Client>>>,
     locks: crate::plugin_locks::PluginLocks,
     callbacks: CallbackRegistry,
+    sockets: websocket::Connections,
     client: reqwest::Client,
     proxy_url: String,
     browser_fingerprint: Option<BrowserFingerprint>,
@@ -134,6 +139,7 @@ impl ServerPluginHost {
             profile_clients: Default::default(),
             locks: Default::default(),
             callbacks: CallbackRegistry::default(),
+            sockets: Default::default(),
             client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
                 .redirect(reqwest::redirect::Policy::limited(10))
@@ -193,7 +199,11 @@ impl ServerPluginHost {
             "file.read_base64" => self.read_base64(params).await,
             "file.inspect_image" => self.inspect_image(params).await,
             "http.download" => self.download(params).await,
-            "http.request" => self.http_request(params, false).await,
+            "http.request" => self.controlled_request(params).await,
+            "http.websocket_open"
+            | "http.websocket_send"
+            | "http.websocket_receive"
+            | "http.websocket_close" => self.websocket(params, action).await,
             "http.sse_request" => self.http_request(params, true).await,
             "crypto.random_base64url" => random_base64url(params),
             "crypto.random_uuid" => Ok(json!({"value": uuid::Uuid::new_v4().to_string()})),
@@ -223,37 +233,6 @@ impl ServerPluginHost {
             }
             other => Err(format!("服务端插件 host 暂不支持 action: {other}")),
         }
-    }
-
-    async fn http_request(&self, params: &Value, sse: bool) -> Result<Value, String> {
-        let response = self.send_http(params).await?;
-        let status = response.status;
-        let success = (200..300).contains(&status);
-        let headers = response.headers.clone();
-        if params["response_body_format"].as_str() == Some("base64") {
-            let bytes = read_response_bounded(response).await?;
-            if bytes.len() as u64 > MAX_FILE_BYTES {
-                return Err(format!("HTTP 二进制响应超过限制 {} bytes", MAX_FILE_BYTES));
-            }
-            return Ok(json!({
-                "status": status,
-                "body_base64": BASE64_STANDARD.encode(bytes),
-                "headers": headers,
-                "ok": success,
-            }));
-        }
-        let body_text =
-            String::from_utf8_lossy(&read_response_bounded(response).await?).into_owned();
-        let body = serde_json::from_str::<Value>(&body_text)
-            .unwrap_or_else(|_| Value::String(body_text.clone()));
-        Ok(json!({
-            "status": status,
-            "body": body,
-            "body_text": body_text,
-            "headers": headers,
-            "events": if sse { collect_sse_events(&body_text) } else { Vec::<Value>::new() },
-            "ok": success,
-        }))
     }
 }
 

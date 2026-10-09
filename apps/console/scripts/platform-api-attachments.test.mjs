@@ -373,10 +373,44 @@ describe('DeepSeek 多附件解析', () => {
 })
 
 describe('DeepSeek 断流恢复', () => {
-  it('合并增量与完整消息，只输出新增正文，不泄露思考片段', () => {
+  it('思考增量使用现有 reasoning 事件，完成后关闭且不会混入正文', () => {
+    const events = []
+    const run = scripts(
+      [
+        '_shared/api_session.js',
+        '_shared/api_text_responses.js',
+        '_shared/api_text_media.js',
+        'deepseek-api/scripts/stream.js',
+      ],
+      { emit: (event) => events.push(event) }
+    )
+    run('state=deepseekStreamState();writer=apiTextCreateResponseWriter({tools:[]})')
+    run(
+      `deepseekSnapshot(state,writer,{status:'WIP',fragments:[{type:'THINK',content:'先核对输入'}]})`
+    )
+    run(
+      `deepseekSnapshot(state,writer,{status:'FINISHED',fragments:[{type:'THINK',content:'先核对输入，然后回答'},{type:'RESPONSE',content:'文本对话正常'}]})`
+    )
+    const response = run('apiTextCompleteResponse(writer)')
+    expect(response.output_text).toBe('文本对话正常')
+    expect(response.output.find((item) => item.type === 'reasoning')).toMatchObject({
+      status: 'completed',
+      summary: [{ type: 'summary_text', text: '先核对输入，然后回答' }],
+    })
+    expect(
+      events
+        .filter((event) => event.type === 'response.reasoning_summary_text.delta')
+        .map((event) => event.delta)
+        .join('')
+    ).toBe('先核对输入，然后回答')
+  })
+
+  it('合并增量与完整消息，只输出新增正文，思考片段独立显示', () => {
     const parts = []
+    const thoughts = []
     const run = scripts(['_shared/api_session.js', 'deepseek-api/scripts/stream.js'])
-    run('apiTextFeedResponseText=feed; state=deepseekStreamState()', {
+    run('apiTextFeedResponseText=feed; apiTextUpdateReasoning=think; state=deepseekStreamState()', {
+      think: (_writer, _id, text, done) => thoughts.push({ text, done }),
       feed: (_writer, text) => {
         if (text) parts.push(text)
       },
@@ -392,6 +426,7 @@ describe('DeepSeek 断流恢复', () => {
         {type:'RESPONSE',content:'星河杯子73921'}]
     }}}},()=>{})`)
     expect(parts).toEqual(['星河', '杯子', '73921'])
+    expect(thoughts.at(-1)).toEqual({ text: 'private reasoning', done: true })
     expect(run('state.finished')).toBe(true)
   })
 

@@ -93,3 +93,29 @@ Codex 文本请求的 `service_tier` 支持 `auto/default/priority/flex/scale/ul
 `POST /v1/audio/speech` 的 `chatgpt-speech` 使用文本会话，确认回复与输入逐字相同后生成音频；不匹配时失败，避免朗读模型自行增加的内容。只支持 `speed=1`，不支持 `instructions`。MP3、Opus、AAC 使用平台原生输出，WAV、PCM、FLAC 真实转码后返回对应格式的二进制。
 
 豆包在文本、图片和视频任务中自动执行账号续期与流式空闲保活。旧凭据若缺少续期协议会返回 `LOGIN_EXPIRED`，需要在账号页面重新登录以采集；仅完成验证码不一定包含这些新凭据。DeepSeek 会同步设备、客户端配置和辅助校验令牌，并按平台配置处理超时及保活。人工验证和登录失效继续走现有账号状态与微信通知流程，通知须已绑定并开启。
+
+## 文本聊天返回图片、视频和思考摘要
+
+`POST /v1/responses` 与 `POST /v1/chat/completions` 可在普通聊天中交付平台生成的媒体。ChatGPT 插件支持聊天图片，豆包支持聊天图片和视频；具体模型和账号能否生成仍由平台判定。DeepSeek 的思考摘要也会单独返回。输出能力可查询 `/v1/models` 的 `capabilities.output_modalities`。
+
+Responses 的 `output` 保留以下输出项；`output_text` 只包含回答正文：
+
+| type                    | 结果与状态                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `image_generation_call` | `result` 为纯 Base64，`output_format` 为 png/jpeg/webp；完成前 `result` 可为空 |
+| `video_generation_call` | `result_url` 为平台 HTTPS 视频地址，`output_format` 为 mp4                     |
+| `reasoning`             | `summary` 为 `summary_text` 数组，与正文分开                                   |
+
+媒体项的 `id` 在本次响应中保持稳定，`status` 反映 `in_progress`、`generating`、`completed` 等状态。图片可能附带 width/height，视频可能附带 duration/provider_media_id。
+
+SSE 与 Responses WebSocket 使用 `response.output_item.added` / `response.output_item.done` 返回媒体和摘要快照，摘要增量使用 `response.reasoning_summary_text.delta`。客户端按输出项 `id` 更新内容；收到 `response.completed` 后以最终 `response.output` 为准。图片 Base64 不应当作文字增量拼接。
+
+Chat Completions 使用以下 **MediaGen 扩展字段**，普通 `message.content` / `delta.content` 仍表示回答正文：
+
+- 非流式：`choices[0].message.media` 为图片、视频输出项数组；`message.reasoning` 为完整摘要项，`message.reasoning_content` 为摘要文本。
+- 流式：`choices[0].delta.media` 与 `delta.reasoning` 按 `id` 更新快照；`delta.reasoning_content` 为可追加的摘要增量，最终摘要以 reasoning.summary 为准。
+- 只有图片或视频时 `message.content` 可以为 null；不能以是否有文字判断生成是否成功。
+
+`store=true` 保存完整 Responses 媒体输出，读取仍受原 API Key 权限限制。`previous_response_id` 和同连接 WebSocket 续接会保留生成图片作为图片输入、生成视频作为地址文本引用；不会因新增生成项而把整轮历史判为非法。Chat 客户端回传助手 `media` 时使用相同规则。平台视频地址可能过期，保存响应不会延长地址有效期。
+
+豆包新登录流程会校验账号续期协议是否采集完整。缺少这些协议时报告 `AUTH_PROTOCOL_INCOMPLETE`；需要在账号页面重新登录完成采集。

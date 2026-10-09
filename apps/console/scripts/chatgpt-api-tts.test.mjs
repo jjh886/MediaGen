@@ -1,3 +1,4 @@
+import console from 'node:console'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
@@ -21,6 +22,10 @@ beforeEach(() => {
     '../../_shared/api_text_attachments.js',
     '../../_shared/api_text_responses.js',
     'conversation_results.js',
+    '../../_shared/api_text_media.js',
+    'text_updates.js',
+    'text_media.js',
+    'poll_retry.js',
     'text_conversation.js',
     'audio_speech.js',
     'generate_audio.js',

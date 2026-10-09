@@ -36,3 +36,43 @@ function doubaoBrowserAccountUrl(resources) {
   url.searchParams.delete('a_bogus')
   return url
 }
+
+function doubaoBrowserPassportCapture(resources) {
+  const passportRequests = {}
+  const accountConfigSource = (window.__LOADABLE_LOADED_CHUNKS__ || [])
+    .flatMap((chunk) => Object.values(chunk[1] || {}))
+    .filter((module) => typeof module === 'function')
+    .map((module) => module.toString())
+    .find(
+      (source) =>
+        (source.includes('getPassportSDKConfig') ||
+          (source.includes('accounts.doubao.com') && source.includes('isOversea'))) &&
+        /appKey\s*:\s*["']/.test(source)
+    )
+  const passportAppKey = accountConfigSource?.match(/appKey\s*:\s*["']([a-f0-9]{32})["']/)?.[1]
+  if (!passportAppKey) throw new Error('豆包账号 SDK 配置尚未初始化，请稍后重试')
+  for (const path of ['/passport/token/beat/web/', '/passport/doubao/security_token_beat/']) {
+    const resource = resources
+      .slice()
+      .reverse()
+      .find((url) => url.startsWith('https://accounts.doubao.com' + path + '?'))
+    if (!resource) throw new Error('豆包账号续期协议尚未初始化，请稍后重试')
+    passportRequests[path] = Object.fromEntries(
+      [...new URL(resource).searchParams].filter(
+        ([key]) =>
+          ![
+            'sign',
+            'qs',
+            'msToken',
+            'a_bogus',
+            'ts',
+            'p_ts',
+            'p_no',
+            'biz_trace_id',
+            'scene',
+          ].includes(key)
+      )
+    )
+  }
+  return { passport_requests: passportRequests, passport_app_key: passportAppKey }
+}

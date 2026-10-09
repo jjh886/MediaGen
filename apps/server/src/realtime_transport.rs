@@ -15,6 +15,19 @@ use tokio_tungstenite::{
 pub(crate) type Socket = WebSocketStream<reqwest::Upgraded>;
 
 pub(crate) async fn connect(account: &AccountRecord, descriptor: &Value) -> Result<Socket, String> {
+    let host = ServerPluginHost::new_for_account(account);
+    connect_with_host(&host, descriptor, 8 * 1024 * 1024).await
+}
+
+pub(crate) async fn connect_with_host(
+    host: &ServerPluginHost,
+    descriptor: &Value,
+    max_bytes: usize,
+) -> Result<Socket, String> {
+    let mut descriptor = descriptor.clone();
+    descriptor["http1_only"] = serde_json::json!(true);
+    descriptor["follow_redirects"] = serde_json::json!(false);
+    let descriptor = &descriptor;
     let mut url = reqwest::Url::parse(descriptor["url"].as_str().ok_or("缺少 WebSocket 地址")?)
         .map_err(|_| "WebSocket 地址无效")?;
     let scheme = match url.scheme() {
@@ -23,7 +36,6 @@ pub(crate) async fn connect(account: &AccountRecord, descriptor: &Value) -> Resu
         _ => return Err("WebSocket 协议无效".into()),
     };
     url.set_scheme(scheme).map_err(|_| "WebSocket 地址无效")?;
-    let host = ServerPluginHost::new_for_account(account);
     let key = generate_key();
     let request = host
         .client_for(descriptor)?
@@ -58,8 +70,8 @@ pub(crate) async fn connect(account: &AccountRecord, descriptor: &Value) -> Resu
     }
     let stream = response.upgrade().await.map_err(|_| "WebSocket 升级失败")?;
     let config = WebSocketConfig::default()
-        .max_message_size(Some(8 * 1024 * 1024))
-        .max_frame_size(Some(8 * 1024 * 1024));
+        .max_message_size(Some(max_bytes))
+        .max_frame_size(Some(max_bytes));
     Ok(WebSocketStream::from_raw_socket(stream, Role::Client, Some(config)).await)
 }
 

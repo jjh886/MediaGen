@@ -27,7 +27,7 @@
         },
         "tool_calling": false,
         "input_modalities": ["text", "image", "video", "audio", "file"],
-        "output_modalities": ["text"],
+        "output_modalities": ["text", "image"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
         "streaming": true,
         "input_schema": {
@@ -137,7 +137,7 @@
         },
         "tool_calling": false,
         "input_modalities": ["text", "image", "video", "audio", "file"],
-        "output_modalities": ["text"],
+        "output_modalities": ["text", "image"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
         "streaming": true,
         "input_schema": {
@@ -247,7 +247,7 @@
         },
         "tool_calling": false,
         "input_modalities": ["text", "image", "video", "audio", "file"],
-        "output_modalities": ["text"],
+        "output_modalities": ["text", "image"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
         "streaming": true,
         "input_schema": {
@@ -357,7 +357,7 @@
         },
         "tool_calling": false,
         "input_modalities": ["text", "image", "video", "audio", "file"],
-        "output_modalities": ["text"],
+        "output_modalities": ["text", "image"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
         "streaming": true,
         "input_schema": {
@@ -810,7 +810,11 @@
             "@shared/api_text_attachments.js",
             "@shared/api_text_responses.js",
             "reference_upload.js",
+            "poll_retry.js",
             "text_conversation.js",
+            "@shared/api_text_media.js",
+            "text_updates.js",
+            "text_media.js",
             "generate_text.js"
           ],
           "timeout_ms": 14400000,
@@ -843,6 +847,10 @@
             "sentinel.js",
             "conversation.js",
             "conversation_results.js",
+            "poll_retry.js",
+            "@shared/api_text_media.js",
+            "text_media.js",
+            "text_updates.js",
             "text_conversation.js",
             "audio_speech.js",
             "generate_audio.js"
@@ -877,6 +885,10 @@
             "reference_upload.js",
             "@shared/api_text_attachments.js",
             "@shared/api_text_responses.js",
+            "poll_retry.js",
+            "@shared/api_text_media.js",
+            "text_media.js",
+            "text_updates.js",
             "text_conversation.js",
             "generate_text.js",
             "transcribe_audio.js",
@@ -891,7 +903,7 @@
     "enabled": false
   },
   "http_profile": "chrome_149",
-  "version": "1.6.2",
+  "version": "1.7.1",
   "schema_version": 1,
   "task_recovery": {
     "media_types": ["text", "image"],

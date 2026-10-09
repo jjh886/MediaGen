@@ -53,6 +53,7 @@ describe('豆包人工验证状态', () => {
       `window=globalThis; __pluginLoginContext={requires_manual_verification:true,decision:{type:'verify',code:'10000'}};
       verifySDK={autoRender:()=>{throw Error('图形验证应等待 renderCaptcha')},renderCaptcha:render}; performance={getEntriesByType:()=>[]};
       doubaoBrowserAccountUrl=()=>({href:'https://accounts.doubao.com/passport/account/info/v2/'});
+      doubaoBrowserPassportCapture=()=>({});
       fetch=request`,
       {
         render: (value) => {
@@ -104,6 +105,41 @@ describe('豆包人工验证状态', () => {
 })
 
 describe('平台登录结果遵守客户端标准契约', () => {
+  it('身份有效但续期 SDK 未就绪时继续等待，不提前结束登录窗口', async () => {
+    const run = scripts(['doubao-api/scripts/config.js'])
+    run(
+      `window=globalThis; URL=URLImpl; performance={getEntriesByType:()=>resources.map(name=>({name}))};
+      resources=['https://accounts.doubao.com/passport/account/info/v2/?sdk_version=2.2.10'];
+      fetch=async()=>({ok:true,json:async()=>({data:{user_id_str:'test-user'}})});`,
+      { URLImpl: URL }
+    )
+    const source = readFileSync(
+      path.resolve(scriptDirectory, '../../../plugins/doubao-api/scripts/check_login.js'),
+      'utf8'
+    )
+    expect(JSON.parse(await run(source)).loggedIn).toBe(false)
+    run(`__LOADABLE_LOADED_CHUNKS__=[[[],{config:function(){return {host:'https://accounts.doubao.com',isOversea:false,appKey:'2094abfcccefaeaffd24c622475fba10'}}}]];
+      for(const path of ['/passport/token/beat/web/','/passport/doubao/security_token_beat/'])
+        resources.push('https://accounts.doubao.com'+path+'?passport_jssdk_version=3.1.6&account_sdk_source_info=fp&sign=private');`)
+    expect(JSON.parse(await run(source))).toMatchObject({ loggedIn: true, userId: 'test-user' })
+    const capture = run('doubaoBrowserPassportCapture(resources)')
+    expect(capture.passport_requests['/passport/token/beat/web/']).toEqual({
+      passport_jssdk_version: '3.1.6',
+      account_sdk_source_info: 'fp',
+    })
+    expect(capture.passport_app_key).toBe('2094abfcccefaeaffd24c622475fba10')
+  })
+
+  it('旧登录资料缺少续期协议属于资料更新，不是登录失效', () => {
+    const run = scripts(['doubao-api/scripts/passport.js'])
+    expect(() => run("doubaoPassportQuery({auth:{}},'/passport/token/beat/web/')")).toThrow(
+      'AUTH_PROTOCOL_INCOMPLETE:'
+    )
+    expect(() => run("doubaoPassportQuery({auth:{}},'/passport/token/beat/web/')")).not.toThrow(
+      'LOGIN_EXPIRED:'
+    )
+  })
+
   it.each(['doubao-api', 'deepseek-api'])(
     '%s 登录成功可被 Rust 检测并保留精确用户 ID',
     async (platform) => {
@@ -111,6 +147,7 @@ describe('平台登录结果遵守客户端标准契约', () => {
       run(
         `window=globalThis; performance={getEntriesByType:()=>[]};
       doubaoBrowserAccountUrl=()=>({href:'https://accounts.doubao.com/passport/account/info/v2/'});
+      doubaoBrowserPassportCapture=()=>({});
       localStorage={getItem:()=>JSON.stringify({value:'test-token'})}; fetch=request`,
         {
           request: async () => ({
@@ -176,6 +213,7 @@ describe('手机号和用户名映射', () => {
       run(
         `window=globalThis; performance={getEntriesByType:()=>[]};
       doubaoBrowserAccountUrl=()=>({href:'https://accounts.doubao.com/passport/account/info/v2/'});
+      doubaoBrowserPassportCapture=()=>({});
       localStorage={getItem:()=>JSON.stringify({value:'test-token'})}; fetch=request`,
         {
           request: async () => ({

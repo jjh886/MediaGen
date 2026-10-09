@@ -84,13 +84,7 @@ pub(crate) async fn responses(
                         continue;
                     }
                     let mut items = crate::protocol_storage::input_items(&prior_input["input"]);
-                    items.extend(
-                        prior_response["output"]
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .cloned(),
-                    );
+                    items.extend(crate::protocol_output::continuation(prior_response));
                     items.extend(crate::protocol_storage::input_items(&input["input"]));
                     input["input"] = json!(items);
                     request.extensions_mut().insert(LocalContinuation(

@@ -27,13 +27,7 @@ pub(crate) fn previous_input(
         return Err("previous_response_id 必须使用相同模型".into());
     }
     let mut input = prior["input"].as_array().cloned().unwrap_or_default();
-    input.extend(
-        prior["response"]["output"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .cloned(),
-    );
+    input.extend(crate::protocol_output::continuation(&prior["response"]));
     input.extend(input_items(&request["input"]));
     request["input"] = json!(input);
     request

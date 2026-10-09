@@ -51,45 +51,14 @@
     .find((item) => item.startsWith('s_v_web_id='))
     ?.slice(11)
   if (!fp || !query.get('web_id')) throw new Error('豆包网页身份尚未初始化，请稍后重试')
-  const passportRequests = {}
-  const accountConfigSource = (window.__LOADABLE_LOADED_CHUNKS__ || [])
-    .flatMap((chunk) => Object.values(chunk[1] || {}))
-    .filter((module) => typeof module === 'function')
-    .map((module) => module.toString())
-    .find((source) => source.includes('getPassportSDKConfig') && /appKey\s*:\s*["']/.test(source))
-  const passportAppKey = accountConfigSource?.match(/appKey\s*:\s*["']([a-f0-9]{32})["']/)?.[1]
-  if (!passportAppKey) throw new Error('豆包账号 SDK 配置尚未初始化，请稍后重试')
-  for (const path of ['/passport/token/beat/web/', '/passport/doubao/security_token_beat/']) {
-    const resource = resources
-      .slice()
-      .reverse()
-      .find((url) => url.startsWith('https://accounts.doubao.com' + path + '?'))
-    if (!resource) throw new Error('豆包账号续期协议尚未初始化，请稍后重试')
-    passportRequests[path] = Object.fromEntries(
-      [...new URL(resource).searchParams].filter(
-        ([key]) =>
-          ![
-            'sign',
-            'qs',
-            'msToken',
-            'a_bogus',
-            'ts',
-            'p_ts',
-            'p_no',
-            'biz_trace_id',
-            'scene',
-          ].includes(key)
-      )
-    )
-  }
+  const passport = doubaoBrowserPassportCapture(resources)
   return JSON.stringify({
     user: {
       user_id: String(userId),
       name: user.screen_name || user.name || user.mobile || user.email || '',
     },
     account_query: Object.fromEntries(accountUrl.searchParams),
-    passport_requests: passportRequests,
-    passport_app_key: passportAppKey,
+    ...passport,
     protocol_query: {
       ...Object.fromEntries(
         keys.filter((key) => query.has(key)).map((key) => [key, query.get(key)])

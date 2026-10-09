@@ -11,9 +11,12 @@ beforeEach(() => {
   context = vm.createContext({ host: { emit: (event) => events.push(event) } })
   for (const file of [
     'auth',
+    'poll_retry',
     'conversation_results',
     '../../_shared/api_text_attachments',
     '../../_shared/api_text_responses',
+    '../../_shared/api_text_media',
+    'text_media',
     'text_conversation',
   ]) {
     vm.runInContext(

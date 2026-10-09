@@ -66,20 +66,31 @@ describe('平台会话标题', () => {
           ? { conversation_id: '123' }
           : { conversation_id: '123', response_message_id: 7 }
       const queries = []
-      const run = scripts([shared, `${platform}-api/scripts/generate_text.js`], {
-        checkpoint: (value) => {
-          if (value) saved = value
-          return saved
-        },
-        emit: vi.fn(),
-        call: vi.fn(),
-      })
+      const run = scripts(
+        [
+          shared,
+          ...(platform === 'doubao'
+            ? ['_shared/api_text_media.js', 'doubao-api/scripts/text_media.js']
+            : []),
+          `${platform}-api/scripts/generate_text.js`,
+        ],
+        {
+          checkpoint: (value) => {
+            if (value) saved = value
+            return saved
+          },
+          emit: vi.fn(),
+          call: vi.fn(),
+        }
+      )
       const response = run(`main({request:{input:'测试',model:'model'}})`, {
         apiTextResponsesMedia: () => [],
         apiSessionRead: () => ({}),
         doubaoRequireVerified: () => {},
         doubaoStartHeartbeats: () => {},
         doubaoWaitForResult: () => '正文',
+        doubaoWaitForTextMedia: (_session, _media, writer) =>
+          run('apiTextFeedResponseText(writer, "正文")', { writer }),
         doubaoMarkConversationRead: () => {},
         doubaoImRequest: (...args) => {
           queries.push(args)

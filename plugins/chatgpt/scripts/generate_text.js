@@ -46,21 +46,24 @@ function chatgptApiGenerateTextConversation(auth, request) {
     throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原文本会话提交状态待核对')
   }
   const writer = apiTextCreateResponseWriter(request)
+  let connection
   try {
+    connection = chatgptApiOpenTextUpdates(auth)
     let conversationId = saved.conversation_id || ''
     const parentId = saved.parent_message_id || 'client-created-root'
     const state = chatgptApiCreateTextStreamState()
     if (conversationId) {
       writer.request.model = saved.model || request.model
       apiTextStartResponse(writer)
-      if (saved.resume_token) {
-        chatgptApiRequireOk(
+      if (saved.resume_token && saved.resume_kind !== 'topic') {
+        chatgptApiRequireTextStreamOrPoll(
           chatgptApiStreamWithResume(
             auth,
             chatgptApiResumeRequest(auth, conversationId, saved.resume_token, 660000),
             (event) => chatgptApiConsumeTextStreamEvent(state, writer, event)
           ),
-          '恢复 ChatGPT 文本结果'
+          '恢复 ChatGPT 文本结果',
+          conversationId
         )
       }
     } else {
@@ -105,7 +108,7 @@ function chatgptApiGenerateTextConversation(auth, request) {
           })
         }
       )
-      chatgptApiRequireOk(result, '发送 ChatGPT 文本消息')
+      chatgptApiRequireTextStreamOrPoll(result, '发送 ChatGPT 文本消息', conversationId)
       conversationId =
         conversationId ||
         chatgptApiFindConversationId(result.events) ||
@@ -120,10 +123,16 @@ function chatgptApiGenerateTextConversation(auth, request) {
         conversation_id: conversationId,
       })
     }
+    const streamedImages = chatgptApiResolveTextImages(auth, conversationId, state, writer)
     const finalText =
-      state.finished && chatgptApiIsFinalText(state) && state.text.trim()
-        ? state.text
-        : chatgptApiWaitForText(auth, conversationId, parentId)
+      streamedImages && !state.pending_image_files
+        ? state.final_text || ''
+        : !state.image_pending &&
+            state.finished &&
+            chatgptApiIsFinalText(state) &&
+            state.text.trim()
+          ? state.text
+          : chatgptApiWaitForRichText(auth, conversationId, parentId, state, writer, connection)
     chatgptApiAppendMissingFinalText(state, writer, finalText)
     apiTextReadConversationTitle(
       writer,
@@ -141,5 +150,16 @@ function chatgptApiGenerateTextConversation(auth, request) {
   } catch (error) {
     apiTextFailResponse(writer, error)
     throw error
+  } finally {
+    chatgptApiCloseTextUpdates(connection)
   }
+}
+
+// 已接收会话的流可能在完成后过期；读取原会话正文，不重新提交消息。
+function chatgptApiRequireTextStreamOrPoll(result, operation, conversationId) {
+  if (!result?.ok && Number(result?.status) === 404 && conversationId) {
+    chatgptApiCheckpoint({ ...chatgptApiCheckpoint(), resume_token: '' })
+    return
+  }
+  chatgptApiRequireOk(result, operation)
 }
