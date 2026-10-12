@@ -39,6 +39,7 @@ if (process.platform === 'linux') {
 }
 
 await createArchive()
+await run('node', ['scripts/verify-local-installer-layout.mjs'])
 console.log(`安装包产物已生成：${installersDir}`)
 
 async function createMacApp() {
@@ -290,6 +291,11 @@ async function installLinuxPayload(targetRoot, binDir) {
     { recursive: true }
   )
   await cp(
+    path.join(releaseDir, 'ffmpeg-runtime'),
+    path.join(targetRoot, 'opt/mediagen/ffmpeg-runtime'),
+    { recursive: true }
+  )
+  await cp(
     path.join(root, 'deploy/systemd/mediagen-server.service'),
     path.join(targetRoot, 'lib/systemd/system/mediagen-server.service')
   )
@@ -339,6 +345,8 @@ function linuxEnv() {
     'MEDIAGEN_LOGS_DIR=/var/log/mediagen',
     'MEDIAGEN_PROFILES_DIR=/var/lib/mediagen/profiles',
     'CLOAK_BROWSER_BUNDLE_DIR=/opt/mediagen/browser-runtime',
+    'MEDIAGEN_FFMPEG=/opt/mediagen/ffmpeg-runtime/ffmpeg',
+    'MEDIAGEN_FFPROBE=/opt/mediagen/ffmpeg-runtime/ffprobe',
     'CLOAKBROWSER_CACHE_DIR=/var/lib/mediagen/.cloakbrowser',
     '',
   ].join('\n')

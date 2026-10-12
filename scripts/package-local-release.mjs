@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { bundleFfmpegRuntime } from './ffmpeg-runtime.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const dist = path.join(root, 'dist-local', 'MediaGen-local')
@@ -19,6 +20,7 @@ await cp(path.join(root, 'apps/console/dist'), path.join(dist, 'console'), { rec
 await cp(path.join(root, 'plugins'), path.join(dist, 'plugins'), { recursive: true })
 await cp(path.join(root, 'scripts/start'), dist, { recursive: true })
 await copyDirIfExists(path.join(root, 'deploy/local'), path.join(dist, 'docs'))
+await bundleFfmpegRuntime(path.join(dist, 'ffmpeg-runtime'))
 await bundleCloakBrowserRuntime()
 
 await copyIfExists(
