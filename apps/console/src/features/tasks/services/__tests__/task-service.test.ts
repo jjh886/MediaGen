@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cancelTask, fetchTasks } from '../task-service'
+import { cancelTask, fetchTasks, fetchTaskFilterOptions } from '../task-service'
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -46,6 +46,31 @@ describe('task-service', () => {
     await fetchTasks('', 50, 0)
 
     expect(fetchMock).toHaveBeenCalledWith('/api/tasks?limit=50&offset=0', {
+      headers: { Accept: 'application/json' },
+    })
+  })
+
+  it('传递组合筛选并编码特殊字符', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: [] }))
+    await fetchTasks('codex', 40, 40, {
+      task_kind: 'video',
+      account_id: 'a&b',
+      status: 'failed',
+      model_id: 'model+1',
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/tasks?limit=40&offset=40&platform=codex&task_kind=video&account_id=a%26b&status=failed&model_id=model%2B1',
+      {
+        headers: { Accept: 'application/json' },
+      }
+    )
+  })
+
+  it('读取当前平台的历史筛选选项', async () => {
+    const options = { account_ids: ['old-account'], model_ids: ['old-model'] }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: options }))
+    await expect(fetchTaskFilterOptions('codex')).resolves.toEqual(options)
+    expect(fetchMock).toHaveBeenCalledWith('/api/tasks/filter-options?platform=codex', {
       headers: { Accept: 'application/json' },
     })
   })

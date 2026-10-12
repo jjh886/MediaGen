@@ -7,7 +7,7 @@ use crate::dom_scripts::{
     download_script, element_point_script, focus_script, point_from_value, runtime_result_to_value,
     text_point_script,
 };
-use crate::rendering::{apply_viewport, normalize_device_scale_factor, restart_screencast};
+use crate::rendering::{apply_viewport, normalize_device_scale_factor};
 use crate::{
     BrowserClipboardAction, BrowserClipboardRequest, BrowserClipboardResponse, BrowserGateway,
     BrowserGatewayError, BrowserHistoryAction, BrowserHistoryRequest, BrowserHistoryResponse,
@@ -71,8 +71,9 @@ impl BrowserGateway {
         .clamped();
         let device_scale_factor = normalize_device_scale_factor(request.device_scale_factor);
         let client = self.session_client(id).await?;
+        let _viewport = client.viewport_lock.lock().await;
         apply_viewport(&client, viewport, device_scale_factor).await?;
-        restart_screencast(&client).await?;
+        // 投屏会跟随视口变化；重新 stop/start 会与页面合成、连续 resize 发生竞争。
         self.update_session(id, |session| {
             session.viewport = viewport;
             session.device_scale_factor = device_scale_factor;

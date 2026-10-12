@@ -105,6 +105,9 @@ test('Grok 请求标识对应公共标识，缓存会话仅在指定稳定键时
     request: { model: 'grok-4.6', prompt_cache_key: 'my-session' },
   }
   const headers = script.grokHeaders(ctx, auth, true)
+  assert.equal(headers['x-grok-client-version'], '1.0.13')
+  assert.equal(headers['user-agent'], 'xai-grok-workspace/1.0.13')
+  assert.equal(headers['x-grok-client-mode'], 'interactive')
   assert.equal(headers['x-grok-req-id'], '01234567-89ab-cdef-0123-456789abcdef')
   assert.equal(headers['x-client-request-id'], ctx.request_id)
   assert.equal(
@@ -116,6 +119,17 @@ test('Grok 请求标识对应公共标识，缓存会话仅在指定稳定键时
     /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/
   )
   assert.equal(script.grokHeaders({ request: {} }, auth, true)['x-grok-session-id'], undefined)
+})
+
+test('Grok 协议版本过期可诊断且不暴露上游敏感正文', () => {
+  const script = load(['auth'], {})
+  assert.throws(
+    () => script.grokError({ status: 426, body: { error: 'private-upstream-token' } }),
+    (error) =>
+      error.message.includes('upstream_client_outdated:') &&
+      !error.message.includes('private-upstream-token') &&
+      !error.message.includes('LOGIN_EXPIRED')
+  )
 })
 
 test('Grok 文本保留工具、结构化输出、增量和 incomplete 终态', () => {

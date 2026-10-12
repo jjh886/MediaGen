@@ -62,6 +62,80 @@ async fn task_and_account_routes_return_latest_forty_then_next_page() {
     assert_eq!(account["data"]["id"], "acc-00");
 }
 
+#[actix_web::test]
+async fn task_filters_apply_before_pagination_and_options_include_history() {
+    let state = server_state(
+        test_root("task-filters"),
+        mediagen_plugin_runtime::PluginLoader::empty(),
+    );
+    for index in 0..45 {
+        state.store.insert_task(task(index, timestamp(index)));
+    }
+    for index in 0..3 {
+        let mut record = task(index, timestamp(index));
+        record.id = format!("filtered-{index}");
+        record.task_kind = "video".into();
+        record.status = "failed".into();
+        record.account_id = Some("deleted-account".into());
+        record.model_id = "historic-model".into();
+        state.store.insert_task(record);
+    }
+    let mut other_platform = task(50, timestamp(50));
+    other_platform.platform = "other".into();
+    other_platform.model_id = "other-model".into();
+    state.store.insert_task(other_platform);
+    let app = crate::init_admin_test_app!(state);
+
+    for filter in [
+        "task_kind=video",
+        "status=failed",
+        "account_id=deleted-account",
+        "model_id=historic-model",
+        "task_kind=video&status=failed&account_id=deleted-account&model_id=historic-model",
+    ] {
+        let body: Value = actix_test::call_and_read_body_json(
+            &app,
+            actix_test::TestRequest::get()
+                .uri(&format!(
+                    "/api/tasks?platform=fake&limit=1&offset=1&{filter}"
+                ))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(body["data"].as_array().unwrap().len(), 1, "{filter}");
+        assert_eq!(body["data"][0]["id"], "filtered-1", "{filter}");
+    }
+    for query in [
+        "status=completed&task_kind=video",
+        "model_id=missing",
+        "task_kind=unknown",
+    ] {
+        let body: Value = actix_test::call_and_read_body_json(
+            &app,
+            actix_test::TestRequest::get()
+                .uri(&format!("/api/tasks?platform=fake&{query}"))
+                .to_request(),
+        )
+        .await;
+        assert!(body["data"].as_array().unwrap().is_empty());
+    }
+    let options: Value = actix_test::call_and_read_body_json(
+        &app,
+        actix_test::TestRequest::get()
+            .uri("/api/tasks/filter-options?platform=fake")
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        options["data"]["model_ids"],
+        serde_json::json!(["fake-model", "historic-model"])
+    );
+    assert_eq!(
+        options["data"]["account_ids"],
+        serde_json::json!(["deleted-account"])
+    );
+}
+
 fn seeded_main_list_state() -> crate::ServerState {
     let state = server_state(
         test_root("main-lists"),

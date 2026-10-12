@@ -1,3 +1,5 @@
+import { parseProxyUrlParts } from '@/shared/utils/proxy-url'
+import type { ProxyItem } from '@/shared/services/proxy-service'
 import { RefreshCw } from 'lucide-react'
 import { KtTable, KtBadge, KtButton } from '@/shared/ui'
 import type { Column } from '@/shared/ui'
@@ -120,6 +122,7 @@ function UsageCell({
 }
 interface AccountTableProps {
   accounts: Account[]
+  proxies?: ProxyItem[]
   onRefreshQuota?: (account: Account) => void
   onRefreshAllQuota?: () => void
   quotaBusy?: string | null
@@ -130,6 +133,7 @@ interface AccountTableProps {
 }
 export default function AccountTable({
   accounts,
+  proxies = [],
   onConfigure,
   onRelogin,
   onToggle,
@@ -242,6 +246,29 @@ export default function AccountTable({
         ) : (
           <span className="account-table__small">默认</span>
         ),
+    },
+    {
+      key: 'proxy',
+      title: '代理',
+      width: 160,
+      minWidth: 120,
+      maxWidth: 320,
+      render: (r) => {
+        const proxy = proxies.find((item) => item.id === r.proxy_id)
+        const parts = parseProxyUrlParts(r.proxy_id ? proxy?.server || '' : r.proxy_url || '')
+        const address = parts
+          ? `${parts.protocol}://${parts.host}${parts.port ? `:${parts.port}` : ''}`
+          : ''
+        const label = r.proxy_id
+          ? proxy?.name || address || `代理 ${r.proxy_id}`
+          : address || (r.proxy_url ? '独立代理' : '未设置')
+        return (
+          <div className="account-table__small account-table__ellipsis" title={address || label}>
+            <span>{label}</span>
+            {proxy && !proxy.enabled && <span>（已停用）</span>}
+          </div>
+        )
+      },
     },
     {
       key: 'actions',

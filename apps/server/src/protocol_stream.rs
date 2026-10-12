@@ -1,6 +1,30 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn outdated_client_errors_keep_actionable_codes_in_both_stream_formats() {
+        let (status, code, message) =
+            crate::protocol_api::public_failure("upstream_client_outdated: private-upstream-token");
+        assert_eq!(status, 503);
+        assert_eq!(code, "upstream_client_outdated");
+        assert!(message.contains("更新对应插件"));
+        for chat in [false, true] {
+            let mut encoder = Encoder::new(chat, "test-model".into(), false);
+            let body = encoder.encode(&json!({
+                "type": "error", "status": status,
+                "error": {"code": code, "message": message}
+            }));
+            assert!(body.contains(code));
+            assert!(!body.contains("private-upstream-token"));
+            assert!(encoder.terminal);
+        }
+    }
+}
+
 pub(crate) struct Encoder {
     chat: bool,
     model: String,

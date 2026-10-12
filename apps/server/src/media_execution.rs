@@ -52,7 +52,10 @@ pub(crate) fn resolve_media_flow_context<'a>(
             (
                 409,
                 "account_unavailable",
-                format!("{} 没有可用账号，请先添加账号。", manifest.display_name),
+                format!(
+                    "{} 当前没有可调度账号，请检查登录、验证状态、额度或并发占用。",
+                    manifest.display_name
+                ),
             )
         })?;
     Ok(MediaFlowContext {

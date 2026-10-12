@@ -1,5 +1,5 @@
 const GROK_CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828'
-const GROK_VERSION = '1.0.4'
+const GROK_VERSION = '1.0.13'
 const GROK_BUILD = 'https://cli-chat-proxy.grok.com/v1'
 const GROK_API = 'https://api.x.ai/v1'
 function grokRead(ctx) {
@@ -10,6 +10,8 @@ function grokSave(ctx, auth) {
 }
 function grokError(result) {
   const code = String(result.body?.error?.code || result.body?.error || '')
+  if (result.status === 426)
+    throw new Error('upstream_client_outdated: Grok 要求更新插件使用的 CLI 协议版本')
   if (result.status === 401 || ['invalid_grant', 'access_denied'].includes(code))
     throw new Error('LOGIN_EXPIRED: Grok 账号需要重新授权')
   if (result.status === 429) {
@@ -67,7 +69,9 @@ function grokHeaders(ctx, auth, build = false) {
     authorization: 'Bearer ' + auth.access_token,
     'content-type': 'application/json',
     accept: 'application/json',
-    'user-agent': (build ? 'grok-shell/' : 'xai-grok-build/') + GROK_VERSION + ' (linux; x86_64)',
+    'user-agent': build
+      ? 'xai-grok-workspace/' + GROK_VERSION
+      : 'xai-grok-build/' + GROK_VERSION + ' (linux; x86_64)',
   }
   if (build) {
     const requestId = String(ctx.request_id || ctx.task_id || '').replace(/^req_/, '')
@@ -78,7 +82,7 @@ function grokHeaders(ctx, auth, build = false) {
       'x-xai-token-auth': 'xai-grok-cli',
       'x-grok-client-version': GROK_VERSION,
       'x-grok-client-identifier': 'grok-shell',
-      'x-grok-client-mode': 'headless',
+      'x-grok-client-mode': 'interactive',
       'x-grok-agent-id': auth.agent_id,
       'x-grok-req-id': wireId,
       'x-client-request-id': ctx.request_id || ctx.task_id || wireId,

@@ -4,6 +4,7 @@ import {
   KtTable,
   KtBadge,
   KtTabs,
+  KtSelect,
   KtButton,
   KtConfirmDialog,
   KtAsyncState,
@@ -12,10 +13,11 @@ import type { Column } from '@/shared/ui'
 import { fetchPlugins, type PluginInfo } from '@/shared/services/plugin-service'
 import { fetchAllAccounts } from '@/shared/services/account-service'
 import type { Account } from '@/shared/types/account'
-import type { Task, TaskKind } from '../types/task'
+import type { Task, TaskKind, TaskFilters, TaskStatus, TaskFilterOptions } from '../types/task'
 import { statusVariant, statusLabel } from '../types/task'
 import { useTaskStore } from '../hooks/useTaskStore'
 import TaskDetail from './TaskDetail'
+import { fetchTaskFilterOptions } from '../services/task-service'
 
 const kindLabel: Record<TaskKind, string> = {
   text: '文本',
@@ -53,6 +55,8 @@ export default function TaskList({
 }) {
   const {
     tasks,
+    filters,
+    setFilters,
     selectedTaskId,
     activePlatform,
     loading,
@@ -67,6 +71,12 @@ export default function TaskList({
   } = useTaskStore()
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null
 
+  const [filterOptions, setFilterOptions] = useState<TaskFilterOptions>({
+    account_ids: [],
+    model_ids: [],
+  })
+  const [optionsVersion, setOptionsVersion] = useState(0)
+  const [optionsError, setOptionsError] = useState('')
   const [plugins, setPlugins] = useState<PluginInfo[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [cancelTarget, setCancelTarget] = useState<Task | null>(null)
@@ -93,19 +103,48 @@ export default function TaskList({
       .catch((error) => setPluginError(error instanceof Error ? error.message : '平台加载失败。'))
   }, [])
 
-  useEffect(() => {
-    if (activePlatform) {
-      fetchAllAccounts(activePlatform)
-        .then(setAccounts)
-        .catch(() => setAccounts([]))
-    }
+  const loadFilterOptions = useCallback(async () => {
+    const [accounts, options] = await Promise.all([
+      fetchAllAccounts(activePlatform),
+      fetchTaskFilterOptions(activePlatform),
+    ])
+    return { accounts, options }
   }, [activePlatform])
+
+  useEffect(() => {
+    let active = true
+    setAccounts([])
+    setFilterOptions({ account_ids: [], model_ids: [] })
+    setOptionsError('')
+    void loadFilterOptions()
+      .then(({ accounts, options }) => {
+        if (!active) return
+        setAccounts(accounts)
+        setFilterOptions(options)
+      })
+      .catch(() => {
+        if (active) setOptionsError('筛选选项加载失败，请刷新重试')
+      })
+    return () => {
+      active = false
+    }
+  }, [loadFilterOptions, optionsVersion])
+
+  const changeFilters = (updates: Partial<TaskFilters>) => {
+    scrollRef.current?.scrollTo({ top: 0 })
+    setFilters({ ...filters, ...updates })
+  }
+  const accountOptions = [
+    ...new Set([...accounts.map((account) => account.id), ...filterOptions.account_ids]),
+  ].map((id) => ({ value: id, label: accountMap.get(id) || id }))
+  const filterStyle = { height: 28, width: 100, fontSize: 12, padding: '0 6px', borderRadius: 6 }
 
   const platformTabs = plugins.map((p) => ({ key: p.platform_id, label: p.display_name }))
 
   const refreshLatest = useCallback(() => {
     scrollRef.current?.scrollTo({ top: 0 })
-    return fetch()
+    setOptionsVersion((version) => version + 1)
+    return fetch().catch(() => undefined)
   }, [fetch])
 
   const handlePlatformChange = useCallback(
@@ -250,14 +289,75 @@ export default function TaskList({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <KtTabs items={platformTabs} activeKey={activePlatform} onChange={handlePlatformChange} />
-        <KtButton variant="default" size="sm" onClick={() => void refreshLatest()}>
-          刷新
-        </KtButton>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, overflowX: 'auto' }}>
+          <KtTabs items={platformTabs} activeKey={activePlatform} onChange={handlePlatformChange} />
+        </div>
+        <div
+          role="group"
+          aria-label="任务筛选"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            flexShrink: 0,
+            maxWidth: '100%',
+            overflowX: 'auto',
+          }}
+        >
+          <KtSelect
+            aria-label="任务类型"
+            title="任务类型"
+            style={filterStyle}
+            value={filters.task_kind || ''}
+            placeholder="全部类型"
+            options={Object.entries(kindLabel).map(([value, label]) => ({ value, label }))}
+            onChange={(value) => changeFilters({ task_kind: (value as TaskKind) || undefined })}
+          />
+          <KtSelect
+            aria-label="账号"
+            title="账号"
+            style={{ ...filterStyle, width: 120 }}
+            value={filters.account_id || ''}
+            placeholder="全部账号"
+            options={accountOptions}
+            onChange={(value) => changeFilters({ account_id: value || undefined })}
+          />
+          <KtSelect
+            aria-label="状态"
+            title="状态"
+            style={filterStyle}
+            value={filters.status || ''}
+            placeholder="全部状态"
+            options={Object.entries(statusLabel).map(([value, label]) => ({ value, label }))}
+            onChange={(value) => changeFilters({ status: (value as TaskStatus) || undefined })}
+          />
+          <KtSelect
+            aria-label="模型"
+            title={filters.model_id || '模型'}
+            style={{ ...filterStyle, width: 140 }}
+            value={filters.model_id || ''}
+            placeholder="全部模型"
+            options={filterOptions.model_ids.map((id) => ({ value: id, label: id }))}
+            onChange={(value) => changeFilters({ model_id: value || undefined })}
+          />
+          {Object.values(filters).some(Boolean) && (
+            <KtButton variant="text" size="sm" onClick={() => setFilters({})}>
+              重置
+            </KtButton>
+          )}
+          <KtButton variant="default" size="sm" onClick={() => void refreshLatest()}>
+            刷新
+          </KtButton>
+        </div>
       </div>
 
       <div ref={scrollRef} style={{ flex: 1, overflow: 'auto' }}>
+        {optionsError && (
+          <div role="alert" style={{ color: 'var(--color-error)', fontSize: 13 }}>
+            {optionsError}
+          </div>
+        )}
         {cancelError && (
           <div
             role="alert"
@@ -270,7 +370,7 @@ export default function TaskList({
           loading={loading}
           error={pluginError || error}
           empty={!loading && tasks.length === 0}
-          emptyText="暂无任务记录"
+          emptyText={Object.values(filters).some(Boolean) ? '没有符合条件的任务' : '暂无任务记录'}
           onRetry={() => fetch()}
         />
         {!loading && !pluginError && !error && tasks.length > 0 && (

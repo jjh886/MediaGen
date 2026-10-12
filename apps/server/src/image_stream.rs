@@ -39,6 +39,9 @@ pub(crate) fn response(
                             Err((status, code, _)) => pending.push_back(json!({
                                 "type": "error", "code": code, "param": null,
                                 "message": match code {
+                                    "verification_required" => "上游账号需要人工验证，请从控制台账号页面打开验证窗口",
+                                    "login_expired" | "account_authentication_failed" => "上游账号需要重新登录，请在账号设置中更新登录资料",
+                                    "upstream_client_outdated" => "上游要求升级客户端协议，请更新对应插件后重试",
                                     "insufficient_quota" => "当前模型的上游账号额度为 0，请检查 API 额度或订阅",
                                     "account_permission_denied" => "当前上游账号未获此能力授权，请检查订阅或账号权限",
                                     _ if status == 429 => "请求已达到限额，请稍后重试",
@@ -113,5 +116,25 @@ mod tests {
             ImageEndpoint::Generation
         )
         .is_none());
+    }
+
+    #[actix_web::test]
+    async fn account_failures_explain_the_action_without_leaking_private_details() {
+        for (code, expected) in [
+            ("verification_required", "验证窗口"),
+            ("login_expired", "重新登录"),
+            ("upstream_client_outdated", "更新对应插件"),
+        ] {
+            let response = response(ImageEndpoint::Generation, async move {
+                Err((409, code, "private-challenge-token".into()))
+            });
+            let bytes = actix_web::body::to_bytes(response.into_body())
+                .await
+                .unwrap();
+            let body = std::str::from_utf8(&bytes).unwrap();
+            assert!(body.contains(code));
+            assert!(body.contains(expected));
+            assert!(!body.contains("private-challenge-token"));
+        }
     }
 }

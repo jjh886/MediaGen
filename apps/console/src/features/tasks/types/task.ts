@@ -99,3 +99,15 @@ export function parseResultData(task: Task): TaskResultData | null {
     return null
   }
 }
+
+export interface TaskFilters {
+  task_kind?: TaskKind
+  account_id?: string
+  status?: TaskStatus
+  model_id?: string
+}
+
+export interface TaskFilterOptions {
+  account_ids: string[]
+  model_ids: string[]
+}

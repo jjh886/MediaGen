@@ -218,6 +218,18 @@ impl BrowserGateway {
             session.updated_at = Utc::now();
         })?;
 
+        // 配置阶段也可能收到投屏帧、代理认证与弹窗事件，必须立即开始消费。
+        let gateway = self.clone();
+        let session_id = id.to_string();
+        let event_client = Arc::clone(&client);
+        tokio::spawn(async move {
+            while let Some(event) = events.recv().await {
+                gateway
+                    .handle_cdp_event(&session_id, Arc::clone(&event_client), event)
+                    .await;
+            }
+        });
+
         client.send("Page.enable", json!({})).await?;
         client.send("Runtime.enable", json!({})).await?;
         client.send("Network.enable", json!({})).await?;
@@ -231,16 +243,6 @@ impl BrowserGateway {
             client.send_fire_and_forget("Page.navigate", json!({ "url": session.start_url }))?;
         }
 
-        let gateway = self.clone();
-        let session_id = id.to_string();
-        tokio::spawn(async move {
-            while let Some(event) = events.recv().await {
-                gateway
-                    .handle_cdp_event(&session_id, Arc::clone(&client), event)
-                    .await;
-            }
-        });
-
         Ok(())
     }
 
@@ -253,12 +255,10 @@ impl BrowserGateway {
         match method {
             "Page.screencastFrame" => {
                 if let Some(session_id) = params.get("sessionId").and_then(Value::as_u64) {
-                    let _ = client
-                        .send(
-                            "Page.screencastFrameAck",
-                            json!({ "sessionId": session_id }),
-                        )
-                        .await;
+                    let _ = client.send_fire_and_forget(
+                        "Page.screencastFrameAck",
+                        json!({ "sessionId": session_id }),
+                    );
                 }
                 let (viewport, device_scale_factor) = self
                     .get_session(id)

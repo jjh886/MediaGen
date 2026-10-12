@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { InfiniteScrollTrigger, KtTabs, KtButton, KtConfirmDialog, KtAsyncState } from '@/shared/ui'
 import { fetchPlugins, type PluginInfo } from '@/shared/services/plugin-service'
+import { fetchAllProxies, type ProxyItem } from '@/shared/services/proxy-service'
 import { useAccountStore } from '../hooks/useAccountStore'
 import { refreshAccountQuota, type AccountConfigUpdate } from '../services/account-service'
 import type { Account } from '../types/account'
@@ -28,6 +29,7 @@ export default function AccountPage() {
     checkLogin,
   } = useAccountStore()
 
+  const [proxies, setProxies] = useState<ProxyItem[]>([])
   const [plugins, setPlugins] = useState<PluginInfo[]>([])
   const [loginOpen, setLoginOpen] = useState(false)
   const [reloginId, setReloginId] = useState<string | null>(null)
@@ -66,6 +68,20 @@ export default function AccountPage() {
     const updated = accounts.find((account) => account.id === configAccount.id)
     if (updated && updated !== configAccount) setConfigAccount(updated)
   }, [accounts, configAccount])
+
+  useEffect(() => {
+    let active = true
+    void fetchAllProxies()
+      .then((items) => {
+        if (active) setProxies(items)
+      })
+      .catch(() => {
+        if (active) setProxies([])
+      })
+    return () => {
+      active = false
+    }
+  }, [activePlatform, configAccount?.id])
 
   const platformTabs = plugins.map((p) => ({ key: p.platform_id, label: p.display_name }))
   const activePlugin = plugins.find((p) => p.platform_id === activePlatform)
@@ -180,6 +196,7 @@ export default function AccountPage() {
           <>
             <AccountTable
               accounts={accounts}
+              proxies={proxies}
               onRefreshQuota={(account) => void handleRefreshQuota(account)}
               onRefreshAllQuota={() => void handleRefreshQuota()}
               quotaBusy={quotaBusy}

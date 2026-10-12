@@ -38,6 +38,7 @@ beforeEach(() => {
   // 重置 store 状态
   useTaskStore.setState({
     tasks: [],
+    filters: {},
     selectedTaskId: null,
     activePlatform: '',
     loading: false,
@@ -80,7 +81,7 @@ describe('useTaskStore', () => {
         await useTaskStore.getState().fetch('doubao')
       })
 
-      expect(mockFetchTasks).toHaveBeenCalledWith('doubao', 40, 0)
+      expect(mockFetchTasks).toHaveBeenCalledWith('doubao', 40, 0, {})
       expect(useTaskStore.getState().tasks).toHaveLength(1)
     })
 
@@ -92,7 +93,7 @@ describe('useTaskStore', () => {
         await useTaskStore.getState().fetch()
       })
 
-      expect(mockFetchTasks).toHaveBeenCalledWith('chatgpt', 40, 0)
+      expect(mockFetchTasks).toHaveBeenCalledWith('chatgpt', 40, 0, {})
     })
 
     it('fetch 失败时 loading 恢复为 false', async () => {
@@ -154,7 +155,7 @@ describe('useTaskStore', () => {
         useTaskStore.getState().setActivePlatform('doubao')
       })
 
-      expect(mockFetchTasks).toHaveBeenCalledWith('doubao', 40, 0)
+      expect(mockFetchTasks).toHaveBeenCalledWith('doubao', 40, 0, {})
     })
   })
 
@@ -169,8 +170,88 @@ describe('useTaskStore', () => {
 
     await act(async () => useTaskStore.getState().loadMore())
 
-    expect(mockFetchTasks).toHaveBeenCalledWith('doubao', 40, 1)
+    expect(mockFetchTasks).toHaveBeenCalledWith('doubao', 40, 1, {})
     expect(useTaskStore.getState().tasks).toEqual(SAMPLE_TASKS)
+  })
+
+  it('组合筛选重置分页、保留刷新和后续页的条件，切换平台清空筛选', async () => {
+    const filters = {
+      task_kind: 'image' as const,
+      status: 'failed' as const,
+      account_id: 'acc',
+      model_id: 'model',
+    }
+    const page = Array.from({ length: 40 }, (_, i) => ({ ...SAMPLE_TASKS[0], id: String(i) }))
+    mockFetchTasks.mockResolvedValue(page)
+    useTaskStore.setState({ activePlatform: 'doubao', nextOffset: 80, selectedTaskId: 'old' })
+    await act(async () => useTaskStore.getState().setFilters(filters))
+    expect(mockFetchTasks).toHaveBeenLastCalledWith('doubao', 40, 0, filters)
+    expect(useTaskStore.getState().selectedTaskId).toBeNull()
+    await act(async () => useTaskStore.getState().loadMore())
+    expect(mockFetchTasks).toHaveBeenLastCalledWith('doubao', 40, 40, filters)
+    await act(async () => useTaskStore.getState().fetch())
+    expect(mockFetchTasks).toHaveBeenLastCalledWith('doubao', 40, 0, filters)
+    await act(async () => useTaskStore.getState().setActivePlatform('chatgpt'))
+    expect(useTaskStore.getState().filters).toEqual({})
+    expect(mockFetchTasks).toHaveBeenLastCalledWith('chatgpt', 40, 0, {})
+  })
+
+  it('快速切换筛选时忽略旧请求结果和错误', async () => {
+    let resolveOld!: (tasks: Task[]) => void
+    let rejectOld!: (error: Error) => void
+    mockFetchTasks.mockImplementationOnce(
+      () =>
+        new Promise<Task[]>((resolve) => {
+          resolveOld = resolve
+        })
+    )
+    const first = useTaskStore.getState().fetch()
+    mockFetchTasks.mockResolvedValueOnce([SAMPLE_TASKS[1]])
+    await act(async () => useTaskStore.getState().setFilters({ task_kind: 'video' }))
+    resolveOld([SAMPLE_TASKS[0]])
+    await first
+    expect(useTaskStore.getState().tasks).toEqual([SAMPLE_TASKS[1]])
+    mockFetchTasks.mockImplementationOnce(
+      () =>
+        new Promise<Task[]>((_, reject) => {
+          rejectOld = reject
+        })
+    )
+    const old = useTaskStore.getState().fetch()
+    mockFetchTasks.mockResolvedValueOnce([])
+    await act(async () => useTaskStore.getState().setFilters({ status: 'failed' }))
+    rejectOld(new Error('旧请求失败'))
+    await old
+    expect(useTaskStore.getState().error).toBe('')
+    expect(useTaskStore.getState().loading).toBe(false)
+  })
+
+  it('切换筛选后不追加旧分页结果', async () => {
+    let resolvePage!: (tasks: Task[]) => void
+    useTaskStore.setState({ tasks: [SAMPLE_TASKS[0]], nextOffset: 40 })
+    mockFetchTasks.mockImplementationOnce(
+      () =>
+        new Promise<Task[]>((resolve) => {
+          resolvePage = resolve
+        })
+    )
+    const more = useTaskStore.getState().loadMore()
+    mockFetchTasks.mockResolvedValueOnce([SAMPLE_TASKS[1]])
+    await act(async () => useTaskStore.getState().setFilters({ task_kind: 'video' }))
+    resolvePage([SAMPLE_TASKS[0]])
+    await more
+    expect(useTaskStore.getState().tasks).toEqual([SAMPLE_TASKS[1]])
+    expect(useTaskStore.getState().nextOffset).toBe(1)
+    expect(useTaskStore.getState().loadingMore).toBe(false)
+  })
+
+  it('按状态筛选时取消成功后重新查询，移除不再匹配的任务', async () => {
+    useTaskStore.setState({ tasks: [SAMPLE_TASKS[0]], filters: { status: 'processing' } })
+    mockCancelTask.mockResolvedValue({ ...SAMPLE_TASKS[0], status: 'cancelled' })
+    mockFetchTasks.mockResolvedValue([])
+    await useTaskStore.getState().cancel('task-001')
+    expect(useTaskStore.getState().tasks).toEqual([])
+    expect(mockFetchTasks).toHaveBeenCalledWith('', 40, 0, { status: 'processing' })
   })
 
   describe('selectTask', () => {

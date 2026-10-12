@@ -191,12 +191,54 @@ pub async fn check_accounts_login(state: web::Data<ServerState>) -> impl Respond
     HttpResponse::Ok().json(summary)
 }
 
-pub async fn tasks(
+#[derive(Deserialize)]
+pub struct TaskQuery {
+    platform: Option<String>,
+    task_kind: Option<String>,
+    account_id: Option<String>,
+    status: Option<String>,
+    model_id: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+}
+
+pub async fn task_filter_options(
     state: web::Data<ServerState>,
     query: web::Query<AccountQuery>,
 ) -> impl Responder {
+    let tasks = state.store.list_tasks(query.platform.as_deref());
+    let model_ids: std::collections::BTreeSet<_> =
+        tasks.iter().map(|task| &task.model_id).collect();
+    let account_ids: std::collections::BTreeSet<_> = tasks
+        .iter()
+        .filter_map(|task| task.account_id.as_deref())
+        .collect();
+    HttpResponse::Ok()
+        .json(json!({ "data": { "model_ids": model_ids, "account_ids": account_ids } }))
+}
+
+pub async fn tasks(state: web::Data<ServerState>, query: web::Query<TaskQuery>) -> impl Responder {
     let page = PageQuery::new(query.limit, query.offset);
-    let data = paginate(state.store.list_tasks(query.platform.as_deref()), &page);
+    let matches = |filter: &Option<String>, value: &str| {
+        filter
+            .as_deref()
+            .is_none_or(|filter| filter.is_empty() || filter == value)
+    };
+    let tasks = state
+        .store
+        .list_tasks(query.platform.as_deref())
+        .into_iter()
+        .filter(|task| {
+            matches(&query.task_kind, &task.task_kind)
+                && matches(
+                    &query.account_id,
+                    task.account_id.as_deref().unwrap_or_default(),
+                )
+                && matches(&query.status, &task.status)
+                && matches(&query.model_id, &task.model_id)
+        })
+        .collect();
+    let data = paginate(tasks, &page);
     HttpResponse::Ok().json(serde_json::json!({ "data": data }))
 }
 

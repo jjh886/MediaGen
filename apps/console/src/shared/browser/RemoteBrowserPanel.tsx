@@ -74,7 +74,8 @@ export default function RemoteBrowserPanel({ session, mode = 'debug' }: RemoteBr
   }
 
   const sendInput = useRemoteBrowserStream(session.id, {
-    onFrame: (blob, metadata) => void drawFrame(blob, metadata),
+    onFrame: (blob, metadata) =>
+      void drawFrame(blob, metadata).catch(() => setStatusText('远程画面解码失败，请重试')),
     onSession: updateFromSession,
     onInput: (result) => pointerUpdateRef.current(result),
     onError: setStatusText,
@@ -93,6 +94,29 @@ export default function RemoteBrowserPanel({ session, mode = 'debug' }: RemoteBr
     if (showTools) return
     const stage = stageRef.current
     if (!stage) return
+    let active = true
+    let busy = false
+    let lastSize = ''
+    let pending: { width: number; height: number; scale: number } | null = null
+    const flushResize = async () => {
+      if (busy) return
+      busy = true
+      while (active && pending) {
+        const next = pending
+        pending = null
+        const size = `${next.width}:${next.height}:${next.scale}`
+        if (size === lastSize) continue
+        try {
+          await resizeBrowserSession(session.id, next.width, next.height, next.scale)
+          lastSize = size
+          if (active) setStatusText('远程视口尺寸已同步')
+        } catch (error) {
+          if (active)
+            setStatusText(error instanceof Error ? error.message : '同步远程视口失败，请重试')
+        }
+      }
+      busy = false
+    }
     const observer = new ResizeObserver(([entry]) => {
       const width = Math.round(entry.contentRect.width)
       const height = Math.round(entry.contentRect.height)
@@ -102,13 +126,16 @@ export default function RemoteBrowserPanel({ session, mode = 'debug' }: RemoteBr
         current.width === width && current.height === height ? current : { width, height }
       )
       setDeviceScaleFactor(scale)
+      pending = { width, height, scale }
       if (resizeTimerRef.current) window.clearTimeout(resizeTimerRef.current)
       resizeTimerRef.current = window.setTimeout(() => {
-        void resizeBrowserSession(session.id, width, height, scale)
+        void flushResize()
       }, 180)
     })
     observer.observe(stage)
     return () => {
+      active = false
+      pending = null
       observer.disconnect()
       if (resizeTimerRef.current) window.clearTimeout(resizeTimerRef.current)
     }
@@ -116,8 +143,12 @@ export default function RemoteBrowserPanel({ session, mode = 'debug' }: RemoteBr
 
   const handleNavigate = async (event: FormEvent) => {
     event.preventDefault()
-    await navigateBrowserSession(session.id, urlInput)
-    interaction.sinkRef.current?.focus()
+    try {
+      await navigateBrowserSession(session.id, urlInput)
+      interaction.sinkRef.current?.focus()
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : '远程页面跳转失败，请重试')
+    }
   }
 
   return (
@@ -187,6 +218,8 @@ export default function RemoteBrowserPanel({ session, mode = 'debug' }: RemoteBr
                 viewport.width,
                 viewport.height,
                 deviceScaleFactor
+              ).catch((error: unknown) =>
+                setStatusText(error instanceof Error ? error.message : '同步远程视口失败，请重试')
               )
             }
           />

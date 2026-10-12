@@ -280,6 +280,10 @@ fn configure_management_routes(cfg: &mut web::ServiceConfig) {
         )
         .route("/api/accounts/{id}/toggle", web::post().to(toggle_account))
         .route("/api/tasks", web::get().to(tasks))
+        .route(
+            "/api/tasks/filter-options",
+            web::get().to(routes::task_filter_options),
+        )
         .route("/api/tasks/{id}/cancel", web::post().to(cancel_task))
         .route(
             "/api/generation-queue",

@@ -13,6 +13,7 @@ use crate::BrowserGatewayError;
 const CDP_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(crate) struct CdpClient {
+    pub(crate) viewport_lock: Mutex<()>,
     sender: mpsc::UnboundedSender<String>,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     next_id: AtomicU64,
@@ -64,6 +65,7 @@ impl CdpClient {
 
         Ok((
             Arc::new(Self {
+                viewport_lock: Mutex::new(()),
                 sender: tx,
                 pending,
                 next_id: AtomicU64::new(1),

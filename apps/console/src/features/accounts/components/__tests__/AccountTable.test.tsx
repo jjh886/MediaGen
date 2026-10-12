@@ -41,7 +41,7 @@ describe('紧凑账号列表', () => {
   it('合并身份与两类用量，保留恢复时间和全部操作', () => {
     const handlers = callbacks()
     render(<AccountTable accounts={[account]} {...handlers} />)
-    expect(screen.getAllByRole('columnheader')).toHaveLength(8)
+    expect(screen.getAllByRole('columnheader')).toHaveLength(9)
     expect(screen.queryByText('平台剩余额度')).not.toBeInTheDocument()
     expect(screen.getByText('剩余额度')).toBeInTheDocument()
     const cells = within(screen.getAllByRole('row')[1]).getAllByRole('cell')
@@ -63,6 +63,45 @@ describe('紧凑账号列表', () => {
       fireEvent.click(screen.getByRole('button', { name: label, exact: true }))
       expect(callback).toHaveBeenCalledWith(account)
     }
+  })
+
+  it('显示代理名称、脱敏地址、未设置和停用状态', () => {
+    render(
+      <AccountTable
+        accounts={[
+          { ...account, id: 'saved', proxy_id: 'proxy-1' },
+          {
+            ...account,
+            id: 'custom',
+            proxy_url: 'socks5://secret-user:secret-password@127.0.0.1:1080',
+          },
+          { ...account, id: 'none' },
+          { ...account, id: 'missing', proxy_id: 'missing-proxy' },
+          { ...account, id: 'invalid', proxy_url: 'http://user:secret-password@' },
+        ]}
+        proxies={[
+          {
+            id: 'proxy-1',
+            name: '香港节点',
+            server: 'http://proxy.example.com:8080',
+            username: '',
+            password_configured: false,
+            enabled: false,
+            created_at: '',
+          },
+        ]}
+        {...callbacks()}
+      />
+    )
+    expect(screen.getByText('香港节点')).toBeInTheDocument()
+    expect(screen.getByText('（已停用）')).toBeInTheDocument()
+    expect(screen.getByTitle('http://proxy.example.com:8080')).toHaveTextContent('香港节点')
+    expect(screen.getByText('socks5://127.0.0.1:1080')).toBeInTheDocument()
+    expect(screen.getByText('未设置')).toBeInTheDocument()
+    expect(screen.getByText('代理 missing-proxy')).toBeInTheDocument()
+    expect(screen.getByText('独立代理')).toBeInTheDocument()
+    expect(document.body.innerHTML).not.toContain('secret-password')
+    expect(document.body.innerHTML).not.toContain('secret-user')
   })
 
   it('图标可刷新单账号或当前列表，刷新期间禁用并显示忙碌状态', () => {

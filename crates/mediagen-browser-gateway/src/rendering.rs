@@ -20,6 +20,7 @@ pub(crate) async fn configure_rendering(
     client: &Arc<CdpClient>,
     session: &BrowserSession,
 ) -> Result<(), BrowserGatewayError> {
+    let _viewport = client.viewport_lock.lock().await;
     apply_viewport(client, session.viewport, session.device_scale_factor).await?;
     restart_screencast(client).await
 }

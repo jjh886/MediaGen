@@ -312,7 +312,7 @@ pub(crate) async fn dispatch(
                     task_id: task_id.clone(),
                 };
                 crate::media_execution::classify_and_apply_failure(&task_state, &context, message);
-                let (_, code, _) = public_failure(message);
+                let (_, code, public) = public_failure(message);
                 task_state.store.add_audit_log(
                     "protocol",
                     "error",
@@ -322,7 +322,7 @@ pub(crate) async fn dispatch(
                 );
                 task_state
                     .store
-                    .fail_task(&task_id, "插件执行失败，请通过请求标识检查上游状态".into());
+                    .fail_task(&task_id, format!("{code}: {public}"));
             }
         }
         if let Ok(value) = &result {
@@ -466,6 +466,12 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
             409,
             "verification_required",
             "上游账号需要人工验证，请从控制台账号页面打开验证窗口".into(),
+        )
+    } else if message.contains("upstream_client_outdated") {
+        (
+            503,
+            "upstream_client_outdated",
+            "上游要求升级客户端协议，请更新对应插件后重试".into(),
         )
     } else if message.contains("LOGIN_EXPIRED") {
         (

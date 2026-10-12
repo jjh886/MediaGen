@@ -20,6 +20,8 @@ const store = vi.hoisted(() => ({
   checkLogin: vi.fn(async () => ({ checked: 0, expired: 0, limited: 0 })),
 }))
 
+vi.mock('@/shared/services/proxy-service', () => ({ fetchAllProxies: vi.fn(async () => []) }))
+
 vi.mock('../../hooks/useAccountStore', () => ({ useAccountStore: () => store }))
 vi.mock('@/shared/services/plugin-service', () => ({
   fetchPlugins: vi.fn(async () => [
