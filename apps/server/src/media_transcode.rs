@@ -5,7 +5,7 @@ use tokio::{
 };
 
 pub(crate) async fn run(source: Vec<u8>, args: &[&str]) -> Result<Vec<u8>, String> {
-    let binary = std::env::var("MEDIAGEN_FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
+    let binary = mediagen_core::resolve_ffmpeg_binary();
     let mut child = Command::new(binary)
         .args(args)
         .kill_on_drop(true)

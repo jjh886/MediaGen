@@ -279,7 +279,7 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn real_video_retains_native_bytes_or_produces_distinct_sampled_frames() {
-        let binary = std::env::var("MEDIAGEN_FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
+        let binary = mediagen_core::resolve_ffmpeg_binary();
         if tokio::process::Command::new(&binary)
             .arg("-version")
             .output()

@@ -4,27 +4,25 @@ use serde_json::{json, Value};
 
 pub(crate) async fn ffmpeg_file(path: &std::path::Path, args: &[&str]) -> Result<Vec<u8>, String> {
     use tokio::io::AsyncReadExt;
-    let mut child = tokio::process::Command::new(
-        std::env::var("MEDIAGEN_FFMPEG").unwrap_or_else(|_| "ffmpeg".into()),
-    )
-    .args([
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-nostdin",
-        "-protocol_whitelist",
-        "file,pipe",
-        "-i",
-    ])
-    .arg(path)
-    .args(args)
-    .arg("pipe:1")
-    .kill_on_drop(true)
-    .stdin(std::process::Stdio::null())
-    .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::null())
-    .spawn()
-    .map_err(|_| "视频处理需要可用的 FFmpeg")?;
+    let mut child = tokio::process::Command::new(mediagen_core::resolve_ffmpeg_binary())
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-protocol_whitelist",
+            "file,pipe",
+            "-i",
+        ])
+        .arg(path)
+        .args(args)
+        .arg("pipe:1")
+        .kill_on_drop(true)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|_| "视频处理需要可用的 FFmpeg")?;
     let output = child.stdout.take().ok_or("媒体输出不可用")?;
     let execution = async {
         let mut bytes = Vec::new();

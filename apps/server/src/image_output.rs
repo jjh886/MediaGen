@@ -175,13 +175,11 @@ mod tests {
 
     #[tokio::test]
     async fn webp_compression_survives_dimension_conversion() {
-        if tokio::process::Command::new(
-            std::env::var("MEDIAGEN_FFMPEG").unwrap_or_else(|_| "ffmpeg".into()),
-        )
-        .arg("-version")
-        .output()
-        .await
-        .is_err()
+        if tokio::process::Command::new(mediagen_core::resolve_ffmpeg_binary())
+            .arg("-version")
+            .output()
+            .await
+            .is_err()
         {
             return;
         }

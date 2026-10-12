@@ -61,7 +61,7 @@ mod tests {
     }
     #[tokio::test]
     async fn real_transcoding_produces_requested_containers() {
-        if Command::new(std::env::var("MEDIAGEN_FFMPEG").unwrap_or_else(|_| "ffmpeg".into()))
+        if Command::new(mediagen_core::resolve_ffmpeg_binary())
             .arg("-version")
             .output()
             .await
