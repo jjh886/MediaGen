@@ -32,6 +32,26 @@ async fn resizing_keeps_screencast_frames_arriving() {
         .await
         .unwrap()
         .session;
+    // 初始导航异步执行；先确认测试页面已加载，再测试视口调整。
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if gateway
+                .evaluate_script(
+                    &session.id,
+                    "document.body?.textContent.includes('Resize probe') === true",
+                    false,
+                )
+                .await
+                .unwrap()
+                == json!(true)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("测试页面必须完成初始导航");
     for width in [800, 1100, 900] {
         let after = gateway
             .events_since(&session.id, 0)
@@ -79,7 +99,16 @@ async fn resizing_keeps_screencast_frames_arriving() {
             }
         })
         .await
-        .expect("调整视口后必须继续收到真实画面");
+        .unwrap_or_else(|error| {
+            let frame_sizes: Vec<_> = gateway
+                .events_since(&session.id, after)
+                .unwrap()
+                .iter()
+                .filter(|event| event.event == "frame")
+                .map(|event| event.data["viewport"].clone())
+                .collect();
+            panic!("调整视口 {width} 后必须继续收到真实画面: {error}; 帧视口: {frame_sizes:?}");
+        });
     }
     gateway.complete_session(&session.id).await.unwrap();
     let _ = std::fs::remove_dir_all(root);
