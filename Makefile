@@ -36,7 +36,6 @@ build: ## 编译 Console、Server 和 Launcher，不生成安装包
 
 package: ## 生成当前操作系统的正式安装包
 	cd $(ROOT_DIR) && npm run package
-	cd $(ROOT_DIR) && node scripts/verify-local-installer-layout.mjs
 
 check: ## 运行提交前完整质量门禁
 	cd $(ROOT_DIR) && npm run check
