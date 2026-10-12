@@ -45,5 +45,6 @@ systemctl daemon-reload || true
 /usr/share/mediagen/console
 /opt/mediagen/plugins
 /opt/mediagen/browser-runtime
+/opt/mediagen/ffmpeg-runtime
 /lib/systemd/system/mediagen-server.service
 /etc/mediagen/mediagen.env
