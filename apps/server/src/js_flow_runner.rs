@@ -77,8 +77,11 @@ impl JsFlowRunner {
         find_result: fn(&[Value]) -> Option<Value>,
         result_label: &str,
     ) -> Result<Value, String> {
-        let workspace = tempfile::tempdir().map_err(|_| "创建媒体工作目录失败")?;
-        context["workspace_dir"] = serde_json::json!(workspace.path());
+        let workspace = crate::server_plugin_host::recovery_workspace(
+            &account.profile_dir,
+            context["task_id"].as_str().unwrap_or(""),
+        )?;
+        context["workspace_dir"] = serde_json::json!(workspace);
         let host = ServerPluginHost::new_for_account(account)
             .with_storage(self.cipher.clone(), &account.profile_dir, manifest)
             .with_http_profile(manifest)

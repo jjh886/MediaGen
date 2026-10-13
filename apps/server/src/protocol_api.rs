@@ -8,24 +8,8 @@ use mediagen_core::TaskKind;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-pub(crate) fn error(status: u16, code: &str, message: &str) -> HttpResponse {
-    let kind = error_kind(status);
-    HttpResponse::build(
-        actix_web::http::StatusCode::from_u16(status)
-            .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR),
-    )
-    .json(json!({"error":{"message":message,"type":kind,"param":null,"code":code}}))
-}
-
-fn error_kind(status: u16) -> &'static str {
-    match status {
-        401 => "authentication_error",
-        403 => "permission_error",
-        429 => "rate_limit_error",
-        500..=599 => "server_error",
-        _ => "invalid_request_error",
-    }
-}
+pub(crate) use crate::protocol_error::error;
+use crate::protocol_error::error_kind;
 
 pub(crate) async fn responses(
     state: web::Data<ServerState>,
@@ -171,7 +155,18 @@ pub(crate) async fn dispatch(
         return error(400, "invalid_previous_response", &message);
     }
     let stored_input = crate::protocol_storage::input_items(&payload["input"]);
-    let (affinity_id, preferred) = crate::conversation_affinity::identify(
+    if payload
+        .get("options")
+        .is_some_and(|value| !value.is_object())
+    {
+        return error(400, "invalid_options", "options 必须是对象");
+    }
+    if let Some(options) = payload.get_mut("options").and_then(Value::as_object_mut) {
+        options.remove("platform_session");
+        options.remove("session_input_start");
+        options.remove("session_key");
+    }
+    let (mut affinity_id, mut preferred) = crate::conversation_affinity::identify(
         &state,
         &request,
         &key,
@@ -179,6 +174,35 @@ pub(crate) async fn dispatch(
         &body,
         &payload,
     );
+    let session_id = crate::conversation_affinity::session_identity(
+        &state,
+        &request,
+        &key,
+        &manifest.platform_id,
+        &body,
+        endpoint,
+    );
+    let session_lock = if let Some(id) = session_id.as_ref() {
+        affinity_id = id.clone();
+        let locks = crate::plugin_locks::PluginLocks::default();
+        if let Err(message) = locks.acquire(&format!("conversation:{affinity_id}")).await {
+            return error(409, "conversation_busy", &message);
+        }
+        match crate::conversation_affinity::read_session(&state, &affinity_id) {
+            Ok(Some(saved)) => {
+                preferred = crate::conversation_affinity::apply_cursor(&mut payload, &saved);
+            }
+            Ok(None) => {}
+            Err(message) => return error(409, "conversation_recovery_failed", &message),
+        }
+        if !payload["options"].is_object() {
+            payload["options"] = json!({});
+        }
+        payload["options"]["session_key"] = json!(affinity_id);
+        Some(locks)
+    } else {
+        None
+    };
     if let Err(message) = crate::protocol_files::resolve(&state, &key, &mut payload).await {
         return error(400, "invalid_file_id", &message);
     }
@@ -194,7 +218,19 @@ pub(crate) async fn dispatch(
     let previous_response_id = body["previous_response_id"].clone();
     let metadata = body.get("metadata").cloned().unwrap_or(json!({}));
     let request_id = crate::request_identity::id(&request);
-    let task_id = request_id.clone();
+    let task_id = crate::request_identity::recovery_id(&request, &key, &body);
+    let session_base = if session_lock.is_some() {
+        match crate::conversation_affinity::begin_session(&state, &affinity_id, &task_id).await {
+            Ok(base) => base,
+            Err(message) => return error(409, "conversation_recovery_failed", &message),
+        }
+    } else {
+        None
+    };
+    let already_completed = state
+        .store
+        .task_by_id(&task_id)
+        .is_some_and(|task| task.status == "completed");
     let (mut account, lease) = match crate::protocol_task::reserve_affinity_wait(
         &state,
         &manifest,
@@ -233,10 +269,11 @@ pub(crate) async fn dispatch(
     let (sender, mut receiver) = mpsc::channel(8);
     let events = streaming.then_some(sender.clone());
     let task_state = state.clone();
-    let task_request_id = request_id.clone();
+    let task_request_id = task_id.clone();
     let is_audio = endpoint == "speech";
     let mut job = AbortJob(tokio::spawn(async move {
         let _lease = lease;
+        let _session_lock = session_lock;
         let execution = run_with_failover(
             &task_state,
             &manifest,
@@ -275,7 +312,24 @@ pub(crate) async fn dispatch(
         }) {
             result = Err("invalid_upstream_response".into());
         }
+        if let Ok(value) = &result {
+            if _session_lock.is_some() && !already_completed {
+                if let Err(message) = crate::conversation_affinity::write_session(
+                    &task_state,
+                    &affinity_id,
+                    &account.id,
+                    &task_id,
+                    session_base.as_deref(),
+                    &value["response"],
+                )
+                .await
+                {
+                    result = Err(message);
+                }
+            }
+        }
         if let Ok(value) = &mut result {
+            crate::conversation_affinity::redact_cursor(value);
             if value["response"]["object"] == "response" {
                 value["response"]["store"] = json!(store_response);
                 value["response"]["metadata"] =
@@ -295,13 +349,15 @@ pub(crate) async fn dispatch(
                         &account.id,
                     );
                 }
-                task_state.store.mark_account_usage_for(
-                    &account.id,
-                    if is_audio { "audio_speech" } else { "text" },
-                );
+                if !already_completed {
+                    task_state.store.mark_account_usage_for(
+                        &account.id,
+                        if is_audio { "audio_speech" } else { "text" },
+                    );
+                }
                 task_state
                     .store
-                    .complete_task(&task_id, if store_response { json!({"task_id":task_id,"owner":crate::access_control::hash_secret(&key),"model_id":model.model_id,"input":stored_input,"response":value["response"]}) } else { json!({"status":"completed"}) });
+                    .complete_task(&task_id, if store_response { json!({"task_id":task_id,"owner":crate::access_control::hash_secret(&key),"model_id":model.model_id,"input":stored_input,"conversation_session_id":session_id,"response":value["response"]}) } else { json!({"status":"completed"}) });
             }
             Err(message) if message == "task_cancelled" => {}
             Err(message) => {
@@ -430,56 +486,4 @@ impl Drop for AbortJob {
     }
 }
 
-pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
-    if message == "task_cancelled" {
-        return (409, "task_cancelled", "请求已取消".into());
-    }
-    if message.contains("invalid_input")
-        || message.contains("missing_input")
-        || message.contains("unsupported_")
-    {
-        (
-            400,
-            "unsupported_parameter",
-            "当前模型不支持请求中的参数，请查询模型能力".into(),
-        )
-    } else if message.contains("account_permission_denied") {
-        (
-            403,
-            "account_permission_denied",
-            "当前上游账号未获此能力授权，请检查订阅或账号权限".into(),
-        )
-    } else if message.contains("insufficient_quota") {
-        (
-            429,
-            "insufficient_quota",
-            "当前模型的上游账号额度为 0，请检查 API 额度或订阅".into(),
-        )
-    } else if message.contains("429") || message.contains("quota_exhausted") {
-        (
-            429,
-            "rate_limit_exceeded",
-            "上游额度或速率限制，请稍后重试".into(),
-        )
-    } else if message.contains("verification_required") || message.contains("needs_verification") {
-        (
-            409,
-            "verification_required",
-            "上游账号需要人工验证，请从控制台账号页面打开验证窗口".into(),
-        )
-    } else if message.contains("upstream_client_outdated") {
-        (
-            503,
-            "upstream_client_outdated",
-            "上游要求升级客户端协议，请更新对应插件后重试".into(),
-        )
-    } else if message.contains("LOGIN_EXPIRED") {
-        (
-            503,
-            "account_authentication_failed",
-            "上游账号需要重新登录".into(),
-        )
-    } else {
-        (502, "upstream_error", "上游请求未成功完成".into())
-    }
-}
+pub(crate) use crate::protocol_error::public_failure;

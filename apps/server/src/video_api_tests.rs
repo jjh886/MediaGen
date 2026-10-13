@@ -91,7 +91,7 @@ async fn running_video_can_be_cancelled() {
     assert_eq!(cancelled["error"]["code"], "video_cancelled");
 }
 
-fn video_state(label: &str, content_url: &str, delay_ms: u64) -> ServerState {
+pub(crate) fn video_state(label: &str, content_url: &str, delay_ms: u64) -> ServerState {
     let root = std::env::temp_dir().join(format!("mediagen-video-api-{label}"));
     let plugin_root = root.join("plugins");
     let plugin_dir = plugin_root.join("fake-video");

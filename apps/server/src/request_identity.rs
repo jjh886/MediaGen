@@ -17,6 +17,22 @@ pub(crate) fn id(request: &HttpRequest) -> String {
         .unwrap_or_else(|| format!("req_{}", uuid::Uuid::new_v4().simple()))
 }
 
+/// 同一调用方明确携带原客户端请求编号时，重用同一任务和检查点。
+/// 将规范化输入纳入摘要，避免不同请求误领同一会话；日志仍使用独立追踪编号。
+pub(crate) fn recovery_id(request: &HttpRequest, key: &str, payload: &serde_json::Value) -> String {
+    use sha2::{Digest, Sha256};
+    let Some(client_id) = request
+        .headers()
+        .get("x-client-request-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| !v.is_empty() && v.len() <= 512 && v.bytes().all(|b| (32..=126).contains(&b)))
+    else {
+        return id(request);
+    };
+    let input = serde_json::json!([key, request.path(), client_id, payload]);
+    format!("resume_{:x}", Sha256::digest(input.to_string().as_bytes()))
+}
+
 pub(crate) fn new_turn(request: &HttpRequest) {
     request
         .extensions_mut()

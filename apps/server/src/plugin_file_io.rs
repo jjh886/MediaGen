@@ -73,7 +73,7 @@ impl ServerPluginHost {
         Ok(json!({"path":path.to_string_lossy(),"bytes":content.len()}))
     }
 
-    pub(super) async fn checkpoint(&self, params: &Value) -> Result<Value, String> {
+    pub(crate) async fn checkpoint(&self, params: &Value) -> Result<Value, String> {
         if self.request_id.is_empty() || self.profile_dir.as_os_str().is_empty() {
             let mut checkpoint = self
                 .checkpoint_memory
@@ -90,7 +90,7 @@ impl ServerPluginHost {
             .join("checkpoints")
             .join(format!("{key}.json"));
         if let Some(value) = params.get("value") {
-            if value.to_string().len() > 8 * 1024 * 1024 {
+            if value.to_string().len() > 64 * 1024 * 1024 {
                 return Err("检查点超过大小限制".into());
             }
             self.write_json(&json!({"path":path,"value":value,"encrypted":true}))
@@ -175,4 +175,15 @@ impl ServerPluginHost {
             json!({ "path": path, "width": width, "height": height, "size": size, "mime_type": mime, "mime": mime }),
         )
     }
+}
+
+/// 使用任务摘要作为目录名，进程退出后媒体/附件仍能供原任务使用。
+pub(crate) fn recovery_workspace(profile: &str, request: &str) -> Result<PathBuf, String> {
+    if profile.is_empty() || request.is_empty() {
+        return Err("恢复工作目录缺少账号或请求编号".into());
+    }
+    let key = format!("{:x}", Sha256::digest(request.as_bytes()));
+    let path = PathBuf::from(profile).join("workspaces").join(key);
+    std::fs::create_dir_all(&path).map_err(|_| "创建恢复工作目录失败")?;
+    Ok(path)
 }

@@ -45,7 +45,10 @@ pub fn account_record(id: &str, platform: &str, name: &str, api_key: &str) -> Ac
         browser_os: String::new(),
         browser_version: String::new(),
         api_key: api_key.to_string(),
-        profile_dir: String::new(),
+        profile_dir: std::env::temp_dir()
+            .join(format!("mediagen-account-{}", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .into_owned(),
         browser_profile_dir: String::new(),
         created_at: "2026-06-29T00:00:00Z".to_string(),
     }

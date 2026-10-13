@@ -60,6 +60,7 @@ mod plugin_scripts;
 mod port_process;
 mod protocol_api;
 mod protocol_attachments;
+mod protocol_error;
 mod protocol_files;
 mod protocol_output;
 mod protocol_queue;
@@ -167,6 +168,7 @@ async fn main() -> std::io::Result<()> {
     let state = web::Data::new(build_state(&config).map_err(std::io::Error::other)?);
     realtime_api::recover_sessions(state.clone());
     generation_queue::start_worker(state.clone());
+    video_creation::recover_pending(state.clone());
     account_status_refresh::start_worker(state.clone());
     weixin::start_workers(state.clone());
     let console_dir = config.console_dir.clone();
@@ -473,3 +475,5 @@ fn env_path(name: &str, fallback: PathBuf) -> PathBuf {
 
 #[cfg(test)]
 mod protocol_api_tests;
+#[cfg(test)]
+mod protocol_restart_tests;

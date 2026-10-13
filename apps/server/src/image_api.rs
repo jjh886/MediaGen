@@ -180,6 +180,10 @@ struct ImageExecutionGuard {
 
 impl Drop for ImageExecutionGuard {
     fn drop(&mut self) {
+        // 持久队列由 worker 处理重试；执行器退出不能伪装成用户取消。
+        if self.store.generation_job(&self.task_id, None).is_some() {
+            return;
+        }
         if self
             .store
             .task_by_id(&self.task_id)
@@ -331,4 +335,49 @@ fn resolve_image_flow_context_with_task_id<'a>(
     task_id: String,
 ) -> Result<MediaFlowContext<'a>, (u16, &'static str, String)> {
     resolve_media_flow_context(state, &body.model, TaskKind::Image, caller_key, task_id)
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    use super::*;
+    #[test]
+    fn dropping_queued_execution_preserves_retry_and_original_account() {
+        let root = std::env::temp_dir().join(format!("image-restart-{}", uuid::Uuid::new_v4()));
+        let store = std::sync::Arc::new(crate::store::AppStore::load(root.join("state.json")));
+        let body =
+            serde_json::from_value(serde_json::json!({"model":"model","prompt":"原请求"})).unwrap();
+        let (task, job) = crate::generation_queue::queued_image_records(
+            "task".into(),
+            "plugin".into(),
+            &body,
+            "owner",
+            "encrypted".into(),
+            chrono::Utc::now().to_rfc3339(),
+        )
+        .unwrap();
+        store.create_generation_job(task, job).unwrap();
+        let now = chrono::Utc::now();
+        store
+            .claim_next_generation_job(now, now + chrono::Duration::hours(6))
+            .unwrap();
+        store.set_task_account("task", "original");
+        store.start_task("task");
+        drop(ImageExecutionGuard {
+            store: store.clone(),
+            task_id: "task".into(),
+        });
+        assert_eq!(store.task_by_id("task").unwrap().status, "processing");
+        drop(store);
+        let restored = crate::store::AppStore::load(root.join("state.json"));
+        restored.recover_leased_generation_jobs(now);
+        assert_eq!(
+            restored.task_by_id("task").unwrap().account_id.as_deref(),
+            Some("original")
+        );
+        assert_eq!(
+            restored.generation_job("task", None).unwrap().state,
+            crate::store::GenerationJobState::RetryWait
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

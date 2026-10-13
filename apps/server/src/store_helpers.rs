@@ -259,7 +259,13 @@ pub(crate) fn recover_interrupted_direct_tasks(
     };
     let mut recovered = 0;
     for task in tasks.iter_mut().filter(|task| task_is_active(task)) {
-        if has_recoverable_job(&task.id)
+        if (task.task_kind == "video"
+            && task
+                .result_data
+                .as_deref()
+                .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+                .is_some_and(|value| value["_recovery_ciphertext"].is_string()))
+            || has_recoverable_job(&task.id)
             || (task.task_kind == "realtime"
                 && task
                     .result_data

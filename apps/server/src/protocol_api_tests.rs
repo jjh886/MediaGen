@@ -31,9 +31,13 @@ pub(crate) fn state() -> web::Data<ServerState> {
         api_keys: Some("key-a\nkey-b".into()),
         ..Default::default()
     });
-    state
-        .store
-        .insert_account(account_record("account", "test", "Account", ""));
+    let mut account = account_record("account", "test", "Account", "");
+    account.profile_dir = state
+        .file_root
+        .join("test-profile")
+        .to_string_lossy()
+        .into_owned();
+    state.store.insert_account(account);
     web::Data::new(state)
 }
 

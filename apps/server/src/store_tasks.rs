@@ -45,7 +45,7 @@ impl AppStore {
         {
             let mut tasks = self.tasks.lock().unwrap_or_else(|err| err.into_inner());
             if let Some(existing) = tasks.iter_mut().find(|existing| existing.id == task.id) {
-                if existing.status != "queued" {
+                if !matches!(existing.status.as_str(), "queued" | "failed" | "completed") {
                     return false;
                 }
                 *existing = task;

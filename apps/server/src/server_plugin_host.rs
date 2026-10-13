@@ -26,6 +26,7 @@ mod http_body;
 use http_body::apply_body;
 #[path = "plugin_file_io.rs"]
 mod file_io;
+pub(crate) use file_io::recovery_workspace;
 #[path = "plugin_http_request.rs"]
 mod http_request;
 #[path = "plugin_http_transport.rs"]

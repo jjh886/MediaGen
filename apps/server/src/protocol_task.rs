@@ -65,6 +65,12 @@ pub(crate) fn reserve_affinity(
     preferred: Option<&str>,
 ) -> Result<(crate::store::AccountRecord, Lease), String> {
     let account = state.store.with_account_dispatch(|| {
+        let original = state.store.task_by_id(id).and_then(|task| task.account_id);
+        if let Some(original) = &original {
+            if state.store.account_by_id(original).is_none() {
+                return Err("原任务账号不存在，无法读取恢复凭据".into());
+            }
+        }
         let mut excluded = state
             .store
             .list_accounts(Some(&manifest.platform_id))
@@ -90,7 +96,19 @@ pub(crate) fn reserve_affinity(
             })
             .map(|account| account.id)
             .collect::<Vec<_>>();
-        if let Some(preferred) = preferred
+        if let Some(original) = &original {
+            excluded.extend(
+                state
+                    .store
+                    .list_accounts(Some(&manifest.platform_id))
+                    .into_iter()
+                    .filter(|account| &account.id != original)
+                    .map(|account| account.id),
+            );
+        }
+        if let Some(preferred) = original
+            .as_deref()
+            .or(preferred)
             .and_then(|id| state.store.account_by_id(id))
             .filter(|a| {
                 a.platform == manifest.platform_id
@@ -170,8 +188,18 @@ pub(crate) async fn run_plugin(
         .ok_or("插件目录不存在")?
         .join("scripts");
     let mut context = json!({"account":account,"account_id":account.id,"profile_dir":account.profile_dir,"request":request,"request_id":request_id,"task_id":request_id,"scripts_dir":scripts.to_string_lossy(),"platform_config":state.store.settings().platform_generation_config(&manifest.platform_id),"model_capabilities":capabilities});
-    let workspace = tempfile::tempdir().map_err(|_| "创建附件工作目录失败")?;
-    context["workspace_dir"] = json!(workspace.path());
+    let temporary = request_id
+        .is_empty()
+        .then(tempfile::tempdir)
+        .transpose()
+        .map_err(|_| "创建工作目录失败")?;
+    let workspace = if let Some(temporary) = &temporary {
+        temporary.path().to_owned()
+    } else {
+        crate::server_plugin_host::recovery_workspace(&account.profile_dir, request_id)?
+    };
+    context["workspace_dir"] = json!(workspace);
+    let replay_events = events.clone();
     let host = ServerPluginHost::new_for_account(account)
         .with_storage(
             state.credential_cipher.clone(),
@@ -180,6 +208,15 @@ pub(crate) async fn run_plugin(
         )
         .with_http_profile(manifest)
         .with_events(events, request_id.into());
+    let saved = host.checkpoint(&json!({})).await?;
+    if saved["phase"] == "completed" && saved["result"].is_object() {
+        let mut result = saved["result"].clone();
+        if result["response"].is_object() {
+            replay_response(replay_events, &result["response"]).await?;
+            result["terminal_event"] = json!({"type":if result["response"]["status"] == "incomplete" {"response.incomplete"} else {"response.completed"},"response":result["response"]});
+        }
+        return Ok(result);
+    }
     let execution = async {
         let mut results = Vec::new();
         for step in &flow.steps {
@@ -219,6 +256,8 @@ pub(crate) async fn run_plugin(
         if let Some(event) = host.take_terminal_event() {
             result["terminal_event"] = event;
         }
+        host.checkpoint(&json!({"value":{"phase":"completed","result":result}}))
+            .await?;
         Ok::<_, String>(result)
     }
     .await;
@@ -294,7 +333,7 @@ pub(crate) async fn run_with_failover(
             tokio::time::sleep(std::time::Duration::from_millis(250 * (attempt + 1) as u64)).await;
             continue;
         }
-        if !decision.should_failover() {
+        if request["options"]["platform_session"].is_object() || !decision.should_failover() {
             return result;
         }
         excluded.push(account.id.clone());
@@ -345,4 +384,37 @@ pub(crate) async fn run_with_failover(
         *account = next;
     }
     Err("重试次数已耗尽".into())
+}
+
+/// 用已保存的完整响应重放协议事件，不再次请求上游。
+async fn replay_response(
+    events: Option<mpsc::Sender<Value>>,
+    response: &Value,
+) -> Result<(), String> {
+    let Some(sender) = events else { return Ok(()) };
+    let mut created = response.clone();
+    created["output"] = json!([]);
+    created["status"] = json!("in_progress");
+    let mut frames = vec![json!({"type":"response.created","response":created})];
+    for (index, item) in response["output"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        frames.push(json!({"type":"response.output_item.added","output_index":index,"item":item}));
+        if item["type"] == "function_call" {
+            frames.push(json!({"type":"response.function_call_arguments.delta","item_id":item["id"],"delta":item["arguments"]}));
+        }
+        for part in item["content"].as_array().into_iter().flatten() {
+            if part["type"] == "output_text" {
+                frames.push(json!({"type":"response.output_text.delta","item_id":item["id"],"output_index":index,"delta":part["text"]}));
+            }
+        }
+        frames.push(json!({"type":"response.output_item.done","output_index":index,"item":item}));
+    }
+    for frame in frames {
+        sender.send(frame).await.map_err(|_| "请求已取消")?;
+    }
+    Ok(())
 }
