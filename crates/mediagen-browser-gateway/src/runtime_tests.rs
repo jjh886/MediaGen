@@ -86,3 +86,127 @@ async fn browser_reuse_requires_same_proxy_credentials_and_fingerprint() {
     assert!(!crate::proxy::runtime_config_matches(&path, &session).await);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+#[ignore = "需 MEDIAGEN_BROWSER_TEST_EXECUTABLE 指定本机浏览器"]
+async fn real_browser_identity_matches_page_worker_and_http_headers() {
+    use crate::{BrowserGateway, BrowserGatewayConfig, BrowserSessionCreateRequest};
+    use serde_json::json;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let root = std::env::temp_dir().join(format!("mediagen-identity-{}", uuid::Uuid::new_v4()));
+    let config = BrowserGatewayConfig {
+        browser_path: Some(
+            std::env::var_os("MEDIAGEN_BROWSER_TEST_EXECUTABLE")
+                .unwrap()
+                .into(),
+        ),
+        profile_root: root.clone(),
+        default_proxy_server: None,
+        ..Default::default()
+    };
+    let native = super::installed_browser_major_version(&config)
+        .await
+        .unwrap();
+    // 原生版本和模拟版本都必须在页面、Worker、HTTP 中保持一致。
+    for major in [native, native + 1] {
+        let gateway = BrowserGateway::new(config.clone());
+        let mut session = gateway.build_session(BrowserSessionCreateRequest::default());
+        session.headless = true;
+        session
+            .metadata
+            .insert("browser_os".into(), json!(std::env::consts::OS));
+        session
+            .metadata
+            .insert("browser_version".into(), json!(major.to_string()));
+        let (runtime, target) = super::launch_cloakbrowser(&config, &session).await.unwrap();
+        let (client, _) = crate::cdp::CdpClient::connect(&target.websocket_url)
+            .await
+            .unwrap();
+        crate::fingerprint::apply_browser_fingerprint(&client, &session)
+            .await
+            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let fixture = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            while !bytes.windows(4).any(|part| part == b"\r\n\r\n") {
+                let mut chunk = [0u8; 4096];
+                let n = tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    stream.read(&mut chunk),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+                assert!(n > 0 && bytes.len() < 32768);
+                bytes.extend_from_slice(&chunk[..n]);
+            }
+            let body = "<!doctype html><title>Identity test</title>";
+            stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes()).await.unwrap();
+            String::from_utf8(bytes).unwrap()
+        });
+        client
+            .send("Page.navigate", json!({"url":format!("http://{address}/")}))
+            .await
+            .unwrap();
+        let headers = tokio::time::timeout(std::time::Duration::from_secs(10), fixture)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut ready = false;
+        for _ in 0..40 {
+            let value = client
+                .send(
+                    "Runtime.evaluate",
+                    json!({"expression":"document.title", "returnByValue":true}),
+                )
+                .await
+                .unwrap();
+            if value["result"]["value"] == "Identity test" {
+                ready = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(ready);
+        let result = client.send("Runtime.evaluate", json!({"awaitPromise":true,"returnByValue":true,"expression":r#"(async()=>{
+            const read=async()=>({ua:navigator.userAgent,appVersion:navigator.appVersion,platform:navigator.platform,hints:await navigator.userAgentData.getHighEntropyValues(['fullVersionList','platformVersion','architecture'])});
+            const worker=new Worker(URL.createObjectURL(new Blob(['onmessage=async()=>postMessage(await ('+read.toString()+')())'],{type:'text/javascript'})));
+            const data=await new Promise((resolve,reject)=>{worker.onmessage=e=>resolve(e.data);worker.onerror=reject;worker.postMessage({})}); worker.terminate();
+            return {page:await read(),worker:data};
+        })()"#})).await.unwrap();
+        runtime.stop().await;
+        let value = &result["result"]["value"];
+        assert!(
+            headers.contains(&format!("Chrome/{major}.")),
+            "HTTP UA 版本不一致"
+        );
+        assert!(
+            headers
+                .to_ascii_lowercase()
+                .contains(&format!("\"chromium\";v=\"{major}\"")),
+            "HTTP Client Hints 版本不一致"
+        );
+        for context in ["page", "worker"] {
+            for field in ["ua", "appVersion"] {
+                assert!(value[context][field]
+                    .as_str()
+                    .unwrap()
+                    .contains(&format!("Chrome/{major}.")));
+            }
+            let brands = value[context]["hints"]["fullVersionList"]
+                .as_array()
+                .unwrap();
+            for name in ["Google Chrome", "Chromium"] {
+                assert!(brands.iter().any(|brand| brand["brand"] == name
+                    && brand["version"]
+                        .as_str()
+                        .unwrap()
+                        .starts_with(&format!("{major}."))));
+            }
+        }
+        assert_eq!(value["page"], value["worker"]);
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}

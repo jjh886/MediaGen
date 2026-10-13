@@ -97,6 +97,7 @@ pub(crate) async fn launch_cloakbrowser(
     config: &BrowserGatewayConfig,
     session: &BrowserSession,
 ) -> Result<(BrowserRuntime, BrowserTarget), BrowserGatewayError> {
+    let fingerprint = BrowserFingerprint::checked_metadata(&session.metadata)?;
     tokio::fs::create_dir_all(&session.browser_profile_dir)
         .await
         .map_err(|err| BrowserGatewayError::BrowserLaunch(err.to_string()))?;
@@ -141,8 +142,11 @@ pub(crate) async fn launch_cloakbrowser(
     if cfg!(target_os = "linux") && std::env::var("USER").is_ok_and(|user| user == "root") {
         args.push("--no-sandbox".to_string());
     }
-    if let Some(fingerprint) = BrowserFingerprint::from_metadata(&session.metadata) {
-        args.push(format!("--user-agent={}", fingerprint.user_agent()));
+    if let Some(fingerprint) = fingerprint {
+        let native_major = installed_browser_major_version(config).await?;
+        args.extend(
+            fingerprint.launch_args(Path::new(&session.browser_profile_dir), Some(native_major)),
+        );
     }
     args.extend(proxy_launch_args(
         bridge

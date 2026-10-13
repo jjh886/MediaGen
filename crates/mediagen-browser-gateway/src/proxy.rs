@@ -18,7 +18,7 @@ pub(crate) fn runtime_signature(session: &BrowserSession) -> String {
     .map(|key| session.metadata.get(key).cloned().unwrap_or(Value::Null));
     format!(
         "{:x}",
-        Sha256::digest(serde_json::to_vec(&values).unwrap_or_default())
+        Sha256::digest(serde_json::to_vec(&("launch-fingerprint-v2", values)).unwrap_or_default())
     )
 }
 
