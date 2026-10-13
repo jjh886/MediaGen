@@ -58,7 +58,7 @@ export const textDocs: ApiExample[] = [
       input: '请用一句话介绍你自己。',
       stream: false,
       store: true,
-      prompt_cache_key: 'my-conversation-001',
+      metadata: { session_id: 'my-conversation-001' },
     },
     response,
   },
@@ -87,7 +87,7 @@ export const textDocs: ApiExample[] = [
       model: 'gpt-6-luna',
       messages: [{ role: 'user', content: '你好' }],
       stream: false,
-      prompt_cache_key: 'my-conversation-001',
+      metadata: { session_id: 'my-conversation-001' },
     },
     response: {
       id: 'chatcmpl_example',

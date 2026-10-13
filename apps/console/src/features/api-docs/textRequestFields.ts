@@ -47,7 +47,7 @@ const tuning = fields([
     'object<string, string>',
     '否',
     '{}',
-    '最多 16 项；键不超过 64 字符，值不超过 512 字符。',
+    '最多 16 项；键不超过 64 字符，值不超过 512 字符。对话模式在 metadata.session_id 传稳定的窗口 ID，同一 API Key、同一平台持续复用原账号和平台会话，重启后仍保留；不同窗口须用不同 ID。',
   ],
 ])
 const input = fields([
@@ -118,7 +118,13 @@ export const responseRequest = [
     ['instructions', 'string', '否', '未设置', '系统指令。'],
     ['stream', 'boolean', '否', 'false', 'true 返回 SSE，false 返回完整 JSON。'],
     ['store', 'boolean', '否', 'true', '是否保存响应，供查询、删除和 previous_response_id 续接。'],
-    ['previous_response_id', 'string', '否', '未设置', '同一 API Key、同一模型的已保存响应 ID。'],
+    [
+      'previous_response_id',
+      'string',
+      '否',
+      '未设置',
+      '同一 API Key、同一模型的已保存响应 ID；继承历史并续接对应平台会话。',
+    ],
     ['reasoning', 'object', '否', '由模型决定', '推理配置。'],
     [
       'reasoning.effort',
