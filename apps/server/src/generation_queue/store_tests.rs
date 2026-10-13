@@ -37,6 +37,18 @@ fn leased_jobs_recover_after_restart_and_retry() {
         .unwrap();
     assert_eq!(claimed.state, GenerationJobState::Leased);
 
+    store.set_task_account("task-recover", "original-account");
+    let path = store.path.clone();
+    drop(store);
+    let store = AppStore::load(path);
+    assert_eq!(
+        store
+            .task_by_id("task-recover")
+            .unwrap()
+            .account_id
+            .as_deref(),
+        Some("original-account")
+    );
     assert_eq!(store.recover_leased_generation_jobs(now), 1);
     assert_eq!(
         store.generation_job("task-recover", None).unwrap().state,

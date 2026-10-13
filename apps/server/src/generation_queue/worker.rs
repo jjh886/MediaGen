@@ -98,9 +98,6 @@ async fn finish_execution(
         Err((403, code, message)) | Err((_, code @ "insufficient_quota", message)) => {
             finish_terminal_failure(state, task_id, body, code, &message)
         }
-        Err((_, "RESULT_STORAGE_ERROR", message)) => {
-            finish_terminal_failure(state, task_id, body, "RESULT_STORAGE_ERROR", &message)
-        }
         Ok(response) if task.status == "completed" => {
             finish_completed(state, task_id, body, response).await
         }
