@@ -47,7 +47,7 @@ function chatgptApiQuotaMessageFromImagesPage(auth) {
       },
       timeout_ms: 60000,
     })
-    chatgptApiReceiveCookies(auth, response, '/images')
+    chatgptApiRememberCookies(auth, response, '/images')
     chatgptApiRequireOk(response, '检查 ChatGPT 图片额度')
     return response?.ok ? chatgptApiQuotaMessageFromText(String(response.body_text || '')) : ''
   } catch (error) {

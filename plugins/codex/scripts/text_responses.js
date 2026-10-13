@@ -49,6 +49,8 @@ function codexNormalizeResponsesRequest(value, platformConfig) {
   if (!payload.reasoning && options.reasoning_effort) {
     payload.reasoning = { effort: codexReasoningEffort(options.reasoning_effort) }
   }
+  if (typeof options.session_key === 'string' && options.session_key)
+    payload.prompt_cache_key = options.session_key
   delete payload.options
   payload.store = false
   payload.stream = true
@@ -259,6 +261,7 @@ function codexExecuteResponses(auth, payload, ctx) {
       }
       if (type === 'response.completed' || type === 'response.incomplete') {
         completed = event.response || null
+        if (completed && type === 'response.incomplete') completed.status = 'incomplete'
         // Codex 完成事件可能不重复携带输出，使用此前明确完成的输出项。
         if (completed && (!Array.isArray(completed.output) || !completed.output.length)) {
           completed.output = [...completedItems.entries()]

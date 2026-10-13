@@ -13,34 +13,15 @@ function chatgptApiGenerateConversation(
 ) {
   const saved = chatgptApiCheckpoint()
   if (saved.conversation_id) {
-    let resumedImage
-    if (saved.resume_token) {
-      const events = []
-      chatgptApiRequireOk(
-        chatgptApiStreamWithResume(
-          auth,
-          chatgptApiResumeRequest(auth, saved.conversation_id, saved.resume_token, 660000),
-          (event) => events.push(event)
-        ),
-        '恢复 ChatGPT 图片结果'
-      )
-      resumedImage = chatgptApiResolveImageCandidate(
-        auth,
-        saved.conversation_id,
-        chatgptApiGeneratedImageCandidate(events)
-      )
-    }
     return {
       model: saved.model,
       thinking_effort: saved.thinking_effort,
       references: saved.references || references,
       submitted_prompt: saved.submitted_prompt,
-      result: resumedImage || chatgptApiWaitForImage(auth, saved.conversation_id),
+      result: chatgptApiWaitForImage(auth, saved.conversation_id),
     }
   }
-  if (saved.phase === 'submitting') {
-    throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原会话提交状态待核对')
-  }
+  // 没有上游会话编号可供查询时，重新提交这一张；已完成图片由外层检查点复用。
   const init = initialized || chatgptApiInitializeConversation(auth)
   chatgptApiAssertImageAvailable(init)
   const options = chatgptApiConversationOptions(init, generationConfig)

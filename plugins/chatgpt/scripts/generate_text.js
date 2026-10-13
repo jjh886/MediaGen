@@ -1,8 +1,16 @@
 function main(ctx) {
-  const request = apiTextNormalizeTextRequest(ctx.request)
-  const saved = chatgptApiCheckpoint()
+  let request = apiTextNormalizeTextRequest(ctx.request)
+  const saved = chatgptApiPrepareConversationAttempt()
   if (saved.phase === 'completed' && saved.result?.response) return saved.result
+  if (request.session?.conversation_id && !saved.reset_session)
+    request = apiTextSessionRequest(request)
+  if (saved.phase === 'submitting' && !saved.conversation_id) {
+    saved.phase = 'ready'
+    chatgptApiCheckpoint(saved)
+  }
   if (!saved.phase) chatgptApiCheckpoint({ phase: 'ready' })
+  if (saved.reset_session && request.session && !saved.session_attachments_rebuilt)
+    delete saved.attachments
   const auth = chatgptApiRefreshSession(chatgptApiReadAuth(ctx))
   const bootstrap =
     !saved.conversation_id && saved.phase !== 'submitting' ? chatgptApiBootstrap(auth, false) : null
@@ -25,6 +33,7 @@ function main(ctx) {
       ...chatgptApiCheckpoint(),
       phase: 'ready',
       attachments: request.attachments,
+      session_attachments_rebuilt: !!(saved.reset_session && request.session),
     })
   }
   if (!saved.conversation_id && saved.phase !== 'submitting')
@@ -48,28 +57,37 @@ function chatgptApiGenerateTextConversation(auth, request) {
   const writer = apiTextCreateResponseWriter(request)
   let connection
   try {
-    connection = chatgptApiOpenTextUpdates(auth)
+    if (!saved.conversation_id) connection = chatgptApiTryOpenTextUpdates(auth)
     let conversationId = saved.conversation_id || ''
-    const parentId = saved.parent_message_id || 'client-created-root'
+    const continued =
+      !saved.reset_session && request.session?.conversation_id ? request.session : null
+    let parentId = saved.parent_message_id || continued?.parent_message_id || 'client-created-root'
+    if (!saved.conversation_id && continued && !continued.parent_message_id) {
+      const snapshot = chatgptApiTextConversationResponse(auth, continued.conversation_id)
+      chatgptApiRequireRetryableRead(snapshot)
+      const conversation = chatgptApiRequireOk(snapshot, '读取原会话最后回复').body || {}
+      parentId =
+        conversation.current_node ||
+        chatgptApiCurrentTurnMessages(conversation, '', 'client-created-root')
+          .filter(
+            (message) =>
+              message.author?.role === 'assistant' && chatgptApiTextMessageFinished(message)
+          )
+          .at(-1)?.id
+      if (!parentId) throw new Error('temporary_unavailable: 原会话尚未取得最后回复编号')
+    }
     const state = chatgptApiCreateTextStreamState()
     if (conversationId) {
       writer.request.model = saved.model || request.model
       apiTextStartResponse(writer)
-      if (saved.resume_token && saved.resume_kind !== 'topic') {
-        chatgptApiRequireTextStreamOrPoll(
-          chatgptApiStreamWithResume(
-            auth,
-            chatgptApiResumeRequest(auth, conversationId, saved.resume_token, 660000),
-            (event) => chatgptApiConsumeTextStreamEvent(state, writer, event)
-          ),
-          '恢复 ChatGPT 文本结果',
-          conversationId
-        )
-      }
+      // 恢复先查询原会话快照；旧实时流可能已经关闭，不能先等待过期流。
     } else {
       chatgptApiCheckpoint({ ...chatgptApiCheckpoint(), phase: 'ready' })
       const prompt = apiTextBuildResponsesPrompt(request)
-      const thread = { conversation_id: '', parent_message_id: parentId }
+      const thread = {
+        conversation_id: continued?.conversation_id || '',
+        parent_message_id: parentId,
+      }
       const init = chatgptApiInitializeConversation(auth)
       const options = chatgptApiTextOptions(init, request)
       writer.request.model = options.model
@@ -85,9 +103,12 @@ function chatgptApiGenerateTextConversation(auth, request) {
       )
       const checkpoint = {
         phase: 'submitting',
+        reset_session: saved.reset_session === true,
+        ...(continued ? { conversation_id: continued.conversation_id } : {}),
         model: options.model,
         parent_message_id: parentId,
         user_message_id: prepared.user_message_id,
+        attachments: request.attachments || saved.attachments || [],
       }
       chatgptApiCheckpoint(checkpoint)
       const result = chatgptApiStreamTextConversation(
@@ -98,6 +119,8 @@ function chatgptApiGenerateTextConversation(auth, request) {
         request.attachments || saved.attachments || [],
         (event) => {
           chatgptApiConsumeTextStreamEvent(state, writer, event, (id) => {
+            if (continued && id !== continued.conversation_id)
+              throw new Error('invalid_response: 平台返回的会话与当前窗口绑定不一致')
             if (conversationId) return
             conversationId = id
             chatgptApiCheckpoint({
@@ -108,11 +131,15 @@ function chatgptApiGenerateTextConversation(auth, request) {
           })
         }
       )
-      chatgptApiRequireTextStreamOrPoll(result, '发送 ChatGPT 文本消息', conversationId)
+      if (!(state.finished && chatgptApiIsFinalText(state) && state.text.trim())) {
+        chatgptApiRequireRetryableRead(result)
+        chatgptApiRequireTextStreamOrPoll(result, '发送 ChatGPT 文本消息', conversationId)
+      }
       conversationId =
         conversationId ||
         chatgptApiFindConversationId(result.events) ||
-        chatgptApiFindConversationId(result.body)
+        chatgptApiFindConversationId(result.body) ||
+        continued?.conversation_id
       if (!conversationId) {
         throw new Error('PROVIDER_SUBMISSION_UNKNOWN: ChatGPT 文本响应缺少 conversation_id')
       }
@@ -139,6 +166,14 @@ function chatgptApiGenerateTextConversation(auth, request) {
       conversationId,
       () => chatgptApiFetchTextConversation(auth, conversationId, 3000).title || ''
     )
+    if (request.session_key)
+      writer.metadata = {
+        ...writer.metadata,
+        platform_session: {
+          conversation_id: conversationId,
+          parent_message_id: state.message_id || '',
+        },
+      }
     const response = apiTextCompleteResponse(writer)
     // 自由文本会话保留在平台侧，便于核对结果、标题和后续恢复。
     chatgptApiCheckpoint({
@@ -157,6 +192,7 @@ function chatgptApiGenerateTextConversation(auth, request) {
 
 // 已接收会话的流可能在完成后过期；读取原会话正文，不重新提交消息。
 function chatgptApiRequireTextStreamOrPoll(result, operation, conversationId) {
+  chatgptApiRequireRetryableRead(result)
   if (!result?.ok && Number(result?.status) === 404 && conversationId) {
     chatgptApiCheckpoint({ ...chatgptApiCheckpoint(), resume_token: '' })
     return

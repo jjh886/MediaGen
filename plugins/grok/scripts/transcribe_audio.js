@@ -1,4 +1,6 @@
 function main(ctx) {
+  const saved = host.checkpoint() || {}
+  if (saved.phase === 'completed' && saved.result) return saved.result
   const request = ctx.request
   const allowed = ['model', 'file', 'language', 'response_format']
   for (const key of Object.keys(request))
@@ -13,5 +15,7 @@ function main(ctx) {
   host.checkpoint({ phase: 'submitting' })
   const result = grokRequest(ctx, auth, '/stt', body, { body_format: 'multipart', headers })
   if (typeof result.body?.text !== 'string') throw new Error('Grok 未返回有效转写文本')
-  return { success: true, text: result.body.text }
+  const completed = { success: true, text: result.body.text }
+  host.checkpoint({ phase: 'completed', result: completed })
+  return completed
 }

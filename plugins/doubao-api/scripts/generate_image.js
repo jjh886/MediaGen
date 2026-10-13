@@ -5,8 +5,7 @@ function main(ctx) {
   if (!Number.isInteger(count) || count < 1 || count > 4)
     throw new Error('invalid_input: 图片数量应为 1 至 4 张')
   const saved = host.checkpoint() || {}
-  if (saved.phase === 'submitting' && !saved.conversation_id)
-    throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原图片请求提交状态待核对')
+
   const session = apiSessionRead(ctx)
   doubaoRequireVerified(session)
   doubaoStartHeartbeats(session)

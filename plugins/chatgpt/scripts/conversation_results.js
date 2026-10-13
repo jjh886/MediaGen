@@ -2,6 +2,7 @@ function chatgptApiWaitForImage(auth, conversationId) {
   const generationTimeoutMs = 20 * 60 * 1000
   const started = Date.now()
   let pollDelayMs = CHATGPT_API_FALLBACK_POLL_MS
+  let waitingForReadSlot = false
   while (Date.now() - started < generationTimeoutMs) {
     host.call('time.sleep', { milliseconds: pollDelayMs })
     const encoded = encodeURIComponent(conversationId)
@@ -10,6 +11,9 @@ function chatgptApiWaitForImage(auth, conversationId) {
       target_route: '/backend-api/conversation/{conversation_id}',
       timeout_ms: 60000,
     })
+    if (chatgptApiMissingConversation(response)) continue
+    chatgptApiRequireRetryableRead(response)
+    waitingForReadSlot = chatgptApiPollRateLimited(response) && response.coalesced === true
     if (response.ok) {
       const error = chatgptApiConversationError(response.body)
       if (error) throw new Error(error)
@@ -26,7 +30,8 @@ function chatgptApiWaitForImage(auth, conversationId) {
       chatgptApiRequireOk(response, '轮询 ChatGPT 图片结果')
     }
   }
-  throw new Error('generation_timeout: ChatGPT 图片生成超过 20 分钟')
+  if (waitingForReadSlot) throw new Error('temporary_unavailable: 本机查询仍在排队，继续原任务')
+  chatgptApiFailConversation('generation_timeout')
 }
 
 function chatgptApiGeneratedFileId(conversation) {

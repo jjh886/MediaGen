@@ -197,8 +197,7 @@ function codexImageCheckpoint(value) {
 function requestImageWithRetry(accessToken, accountId, payload, ctx) {
   const saved = codexImageCheckpoint()
   if (saved.pending_image?.image && !saved.pending_image.error) return saved.pending_image
-  if (saved.phase === 'submitting')
-    throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原生成提交状态待核对')
+  // 上游 store:false 无查询接口；复用已保存图片，仅重试尚未收到的这一张。
   codexImageCheckpoint({ ...saved, phase: 'submitting' })
   const result = requestImage(accessToken, accountId, payload, ctx)
   if (result.error || !result.image) throw new Error(resultError(result))

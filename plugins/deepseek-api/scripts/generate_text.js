@@ -1,14 +1,57 @@
 function main(ctx) {
-  const request = apiTextNormalizeTextRequest(ctx.request)
-  const saved = host.checkpoint() || {}
+  let request = apiTextNormalizeTextRequest(ctx.request)
+  let saved = host.checkpoint() || {}
   if (saved.phase === 'completed') return saved.result
-  if (saved.phase === 'submitting' && !saved.response_message_id) {
-    throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原 DeepSeek 请求提交状态待核对')
-  }
+
   deepseekValidateAttachments(request)
   const session = apiSessionRead(ctx)
   deepseekInitializeSession(session)
+  if (['submitting', 'accepted'].includes(saved.phase) && !saved.response_message_id) {
+    // 每次生成创建独立会话。确认只含原始一轮时才认领消息，不能取其他轮次的结果。
+    const history = saved.conversation_id
+      ? deepseekRequest(
+          session,
+          '/chat/history_messages?chat_session_id=' + encodeURIComponent(saved.conversation_id),
+          undefined,
+          'GET'
+        )
+      : { chat_messages: [] }
+    const messages = history.chat_messages
+    if (!Array.isArray(messages)) throw new Error('temporary_unavailable: DeepSeek 会话历史未就绪')
+    const answers = messages.filter((item) => item.role === 'ASSISTANT')
+    const users = messages.filter((item) => item.role === 'USER')
+    const message =
+      !saved.parent_message_id && answers.length === 1 && users.length <= 1 ? answers[0] : null
+    if (Number.isSafeInteger(message?.message_id) && message.message_id > 0) {
+      saved = { ...saved, phase: 'accepted', response_message_id: message.message_id }
+    } else {
+      saved = {
+        phase: 'ready',
+        reset_session: true,
+        attachment_file_ids: saved.attachment_file_ids,
+      }
+    }
+    host.checkpoint(saved)
+  }
+  const continued =
+    !saved.reset_session && request.session?.conversation_id ? request.session : null
+  if (continued && !Number.isSafeInteger(continued.parent_message_id)) {
+    const history = deepseekRequest(
+      session,
+      '/chat/history_messages?chat_session_id=' + encodeURIComponent(continued.conversation_id),
+      undefined,
+      'GET'
+    )
+    const answers = (history.chat_messages || []).filter(
+      (message) => message.role === 'ASSISTANT' && message.status === 'FINISHED'
+    )
+    if (answers.length !== 1 || !Number.isSafeInteger(answers[0].message_id))
+      throw new Error('temporary_unavailable: 旧会话最后回复编号无法确认')
+    continued.parent_message_id = answers[0].message_id
+  }
+  if (continued) request = apiTextSessionRequest(request)
   const resume = Boolean(saved.response_message_id)
+  if (saved.reset_session && request.session) delete saved.attachment_file_ids
   const attachments = resume
     ? []
     : saved.attachment_file_ids || deepseekUploadAttachments(ctx, session, request)
@@ -20,7 +63,7 @@ function main(ctx) {
     })
   let targetPath = '/api/v0/chat/' + (resume ? 'resume_stream' : 'completion')
   const pow = resume ? null : deepseekPow(session, targetPath)
-  let conversationId = saved.conversation_id
+  let conversationId = saved.conversation_id || continued?.conversation_id
   if (!conversationId) {
     const created = deepseekRequest(session, '/chat_session/create', {})
     conversationId = created.chat_session?.id
@@ -48,7 +91,7 @@ function main(ctx) {
       }
     : {
         chat_session_id: conversationId,
-        parent_message_id: null,
+        parent_message_id: continued?.parent_message_id ?? null,
         model_type: 'default',
         prompt: apiTextBuildResponsesPrompt(request),
         ref_file_ids: attachments,
@@ -68,10 +111,20 @@ function main(ctx) {
       const message = history.chat_messages?.find(
         (item) => item.message_id === saved.response_message_id && item.role === 'ASSISTANT'
       )
+      if (['ERROR', 'FAILED', 'STOPPED'].includes(message?.status)) {
+        host.checkpoint({ phase: 'ready', reset_session: true })
+        return main(ctx)
+      }
       if (message) deepseekSnapshot(state, writer, message)
       state.responseId = saved.response_message_id
     }
-    if (!resume) host.checkpoint({ phase: 'submitting', conversation_id: conversationId })
+    if (!resume)
+      host.checkpoint({
+        phase: 'submitting',
+        conversation_id: conversationId,
+        parent_message_id: continued?.parent_message_id,
+        reset_session: saved.reset_session === true,
+      })
     for (let attempt = 0; !state.finished && attempt < 8; attempt++) {
       const continuing = state.status === 'INCOMPLETE'
       if (attempt > 0 || continuing) {
@@ -125,6 +178,11 @@ function main(ctx) {
     apiTextReadConversationTitle(writer, conversationId, () =>
       deepseekReadTextTitle(session, conversationId)
     )
+    if (request.session_key)
+      writer.metadata = {
+        ...writer.metadata,
+        platform_session: { conversation_id: conversationId, parent_message_id: state.responseId },
+      }
     const response = apiTextCompleteResponse(writer)
     const result = { success: true, status: 'done', source: 'deepseek-api', response }
     host.checkpoint({ phase: 'completed', conversation_id: conversationId, result })

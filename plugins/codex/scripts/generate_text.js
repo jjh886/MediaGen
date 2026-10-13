@@ -1,4 +1,6 @@
 function main(ctx) {
+  const saved = host.checkpoint() || {}
+  if (saved.phase === 'completed' && saved.result?.response) return saved.result
   const normalized = codexNormalizeResponsesRequest(ctx.request, ctx.platform_config)
   let auth = codexEnsureFreshAuth(ctx)
   codexApplyReasoning(ctx, auth, normalized.payload)
@@ -18,10 +20,19 @@ function main(ctx) {
   if (execution.error || !execution.response) {
     throw new Error(execution.error || 'temporary_unavailable: Codex Responses 缺少完成事件')
   }
-  return {
+  if (ctx.request?.options?.session_key || ctx.request?.prompt_cache_key)
+    execution.response.metadata = {
+      ...execution.response.metadata,
+      platform_session: {
+        session_id: ctx.request.options?.session_key || ctx.request.prompt_cache_key,
+      },
+    }
+  const result = {
     success: true,
     status: 'done',
     source: 'codex',
     response: execution.response,
   }
+  host.checkpoint({ phase: 'completed', result })
+  return result
 }

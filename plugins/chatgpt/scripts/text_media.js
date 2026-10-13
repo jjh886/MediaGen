@@ -67,7 +67,15 @@ function chatgptApiPatchRichMessage(message, operation) {
 
 function chatgptApiCurrentTurnMessages(conversation, userId, baseline) {
   if (Array.isArray(conversation.messages)) {
-    const start = conversation.messages.findIndex((message) => message.id === userId)
+    let start = userId ? conversation.messages.findIndex((message) => message.id === userId) : -1
+    if (!userId && baseline === 'client-created-root') {
+      for (let index = conversation.messages.length - 1; index >= 0; index--) {
+        if (conversation.messages[index].author?.role === 'user') {
+          start = index
+          break
+        }
+      }
+    }
     return start >= 0 ? conversation.messages.slice(start + 1) : []
   }
   const mapping = conversation.mapping || {}
@@ -79,11 +87,13 @@ function chatgptApiCurrentTurnMessages(conversation, userId, baseline) {
     visited.add(id)
     const node = mapping[id]
     if (node.message?.author?.role === 'user')
-      return node.message.id === userId ? messages.reverse() : []
+      return node.message.id === userId || (!userId && baseline === 'client-created-root')
+        ? messages.reverse()
+        : []
     if (node.message) messages.push(node.message)
     id = node.parent
   }
-  return baseline === 'client-created-root' ? messages.reverse() : []
+  return !userId && baseline === 'client-created-root' ? messages.reverse() : []
 }
 
 function chatgptApiResolveTextImages(auth, conversationId, state, writer) {
@@ -142,56 +152,148 @@ function chatgptApiWaitForRichText(auth, conversationId, parentId, state, writer
   const deadline = Date.now() + CHATGPT_API_TEXT_TIMEOUT_MS
   const saved = chatgptApiCheckpoint()
   let delay = chatgptApiClampPollDelay(saved.poll_retry_ms || CHATGPT_API_TEXT_POLL_MS, 3600000)
-  let nextPoll = Math.max(Number(saved.poll_next_at_ms || 0), Date.now() + CHATGPT_API_TEXT_POLL_MS)
+  let nextPoll = connection
+    ? Math.max(Number(saved.poll_next_at_ms || 0), Date.now() + CHATGPT_API_TEXT_POLL_MS)
+    : saved.poll_rate_limited === false
+      ? Date.now()
+      : Math.max(Number(saved.poll_next_at_ms || 0), Date.now())
+  const initialConnection = connection
+  let connected = !!connection
   const userId = saved.user_message_id || ''
-  while (Date.now() < deadline) {
-    chatgptApiReceiveTextUpdates(connection, conversationId, (event) => {
-      chatgptApiConsumeTextStreamEvent(state, writer, event)
-    })
-    if (Date.now() >= nextPoll) {
-      const response = chatgptApiTextConversationResponse(auth, conversationId)
-      if (chatgptApiPollRateLimited(response)) {
-        delay = chatgptApiPollRetryDelayMs(response, delay)
-        nextPoll = Date.now() + delay
-        host.checkpoint({ ...host.checkpoint(), poll_retry_ms: delay, poll_next_at_ms: nextPoll })
-        continue
-      }
-      const conversation = chatgptApiRequireOk(response, '读取 ChatGPT 对话结果').body || {}
-      const error = chatgptApiTextConversationError(conversation)
-      if (error) throw new Error(error)
-      const messages = chatgptApiCurrentTurnMessages(conversation, userId, parentId)
-      for (const message of messages)
-        chatgptApiConsumeTextStreamEvent(state, writer, {
-          message,
-          conversation_id: conversationId,
-        })
-      const final = messages
-        .filter(
-          (message) =>
-            !message.metadata?.is_visually_hidden_from_conversation &&
-            message.author?.role === 'assistant' &&
-            (!message.channel || message.channel === 'final') &&
-            chatgptApiTextMessageFinished(message) &&
-            message.content?.content_type === 'text'
+  try {
+    while (Date.now() < deadline) {
+      if (Date.now() >= nextPoll) {
+        const response = chatgptApiTextConversationResponse(auth, conversationId)
+        if (chatgptApiMissingConversation(response)) {
+          nextPoll = Date.now() + delay
+          host.call('time.sleep', { ms: 1000 })
+          continue
+        }
+        chatgptApiRequireRetryableRead(response)
+        if (chatgptApiPollRateLimited(response)) {
+          delay = chatgptApiPollRetryDelayMs(response, delay)
+          nextPoll = Date.now() + delay
+          host.checkpoint({
+            ...host.checkpoint(),
+            poll_retry_ms: delay,
+            poll_next_at_ms: nextPoll,
+            poll_rate_limited: true,
+            poll_rate_limit_source: 'local',
+          })
+          host.call('time.sleep', { ms: 1000 })
+          continue
+        }
+        const conversation = chatgptApiRequireOk(response, '读取 ChatGPT 对话结果').body || {}
+        const error = chatgptApiTextConversationError(conversation)
+        if (error) chatgptApiFailConversation('upstream_failed')
+        const messages = chatgptApiCurrentTurnMessages(conversation, userId, parentId)
+        for (const message of messages)
+          chatgptApiConsumeTextStreamEvent(state, writer, {
+            message,
+            conversation_id: conversationId,
+          })
+        if (
+          messages.some((message) =>
+            ['failed', 'error', 'cancelled', 'canceled'].includes(message.status)
+          )
         )
-        .at(-1)
-      if (final) state.final_text = chatgptApiTextParts(final.content.parts)
-      delay = CHATGPT_API_TEXT_POLL_MS
-      nextPoll = Date.now() + delay
-      host.checkpoint({ ...host.checkpoint(), poll_retry_ms: delay, poll_next_at_ms: nextPoll })
+          chatgptApiFailConversation('upstream_failed')
+        const final = messages
+          .filter(
+            (message) =>
+              !message.metadata?.is_visually_hidden_from_conversation &&
+              message.author?.role === 'assistant' &&
+              (!message.channel || message.channel === 'final') &&
+              chatgptApiTextMessageFinished(message) &&
+              message.content?.content_type === 'text'
+          )
+          .at(-1)
+        if (final) {
+          // 后续工具/摘要事件不应抹掉已经确认完成的最终正文。
+          chatgptApiConsumeTextStreamEvent(state, writer, {
+            message: { ...final, channel: final.channel || 'final' },
+            conversation_id: conversationId,
+          })
+          state.final_text = chatgptApiTextParts(final.content.parts)
+        }
+        delay = CHATGPT_API_TEXT_POLL_MS
+        nextPoll = Date.now() + delay
+        host.checkpoint({
+          ...host.checkpoint(),
+          poll_retry_ms: delay,
+          poll_next_at_ms: nextPoll,
+          poll_rate_limited: false,
+          history_probe: chatgptApiHistoryProbe(conversation, userId, messages),
+        })
+      }
+      const images = chatgptApiResolveTextImages(auth, conversationId, state, writer)
+      if (
+        (images && !state.pending_image_files) ||
+        (!state.image_pending &&
+          state.finished &&
+          chatgptApiIsFinalText(state) &&
+          state.final_text?.trim())
+      ) {
+        for (const id of Object.keys(writer.reasoning_items || {}))
+          apiTextUpdateReasoning(writer, id, '', true)
+        return state.final_text || ''
+      }
+      if (!connected) {
+        connected = true
+        connection = chatgptApiTryOpenTextUpdates(auth)
+      }
+      if (connection) {
+        const open = chatgptApiReceiveTextUpdates(connection, conversationId, (event) => {
+          chatgptApiConsumeTextStreamEvent(state, writer, event)
+        })
+        if (open === false) {
+          chatgptApiCloseTextUpdates(connection)
+          connection = null
+          // 断线后立即读取原会话；已有 429 退避时仍遵守服务器要求的等待时间。
+          if (!host.checkpoint()?.poll_rate_limited) nextPoll = Date.now()
+        }
+      } else {
+        host.call('time.sleep', { ms: 1000 })
+      }
     }
-    const images = chatgptApiResolveTextImages(auth, conversationId, state, writer)
-    if (
-      (images && !state.pending_image_files) ||
-      (!state.image_pending &&
-        state.finished &&
-        chatgptApiIsFinalText(state) &&
-        state.final_text?.trim())
-    ) {
-      for (const id of Object.keys(writer.reasoning_items || {}))
-        apiTextUpdateReasoning(writer, id, '', true)
-      return state.final_text || ''
-    }
+    const last = chatgptApiCheckpoint()
+    if (last.poll_rate_limited && last.poll_rate_limit_source === 'local')
+      throw new Error('temporary_unavailable: 本机查询仍在排队，继续原任务')
+    chatgptApiFailConversation('generation_timeout')
+  } finally {
+    if (connection !== initialConnection) chatgptApiCloseTextUpdates(connection)
   }
-  throw new Error('generation_timeout: ChatGPT 对话生成超过 20 分钟')
+}
+
+// 只保存历史响应的结构特征，便于判断恢复停在哪一步；不记录正文或凭据。
+function chatgptApiHistoryProbe(conversation, userId, currentMessages) {
+  const nodes = Array.isArray(conversation.messages)
+    ? conversation.messages
+    : Object.values(conversation.mapping || {})
+        .map((node) => node.message)
+        .filter(Boolean)
+  const first = nodes[0] || {}
+  return {
+    checked_at_ms: Date.now(),
+    root_keys: Object.keys(conversation),
+    async_status: conversation.async_status,
+    page_info: Object.fromEntries(
+      Object.entries(conversation.page_info || {}).map(([key, value]) => [
+        key,
+        typeof value === 'boolean' || typeof value === 'number' || value === null
+          ? value
+          : { type: typeof value, present: Boolean(value) },
+      ])
+    ),
+    message_count: nodes.length,
+    current_turn_messages: currentMessages.length,
+    requested_user_found: nodes.some((message) => message.id === userId),
+    first_message_keys: Object.keys(first),
+    roles: [...new Set(nodes.map((message) => message.author?.role || message.role || 'unknown'))],
+    states: [...new Set(nodes.map((message) => message.status || 'unknown'))],
+    content_types: [...new Set(nodes.map((message) => message.content?.content_type || 'unknown'))],
+    completed_assistant_count: nodes.filter(
+      (message) => message.author?.role === 'assistant' && chatgptApiTextMessageFinished(message)
+    ).length,
+  }
 }

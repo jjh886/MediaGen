@@ -352,7 +352,13 @@ function codexUpstreamHeaders(accessToken, accountId, accept, ctx) {
     'openai-beta': 'responses=experimental',
     ...codexAuthHeaders(ctx),
     version: CODEX_UPSTREAM_VERSION,
-    'session-id': globalThis.__context?.request_id || globalThis.__context?.task_id || '',
+    'session-id':
+      ctx?.request?.options?.session_key ||
+      ctx?.request?.prompt_cache_key ||
+      globalThis.__context?.request?.prompt_cache_key ||
+      globalThis.__context?.request_id ||
+      globalThis.__context?.task_id ||
+      '',
   }
   if (accountId) headers['chatgpt-account-id'] = accountId
   return headers

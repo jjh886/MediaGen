@@ -1,14 +1,15 @@
 function main(ctx) {
-  const request = apiTextNormalizeTextRequest(ctx.request)
+  let request = apiTextNormalizeTextRequest(ctx.request)
   const saved = host.checkpoint() || {}
   if (
     saved.phase === 'completed' &&
     !(saved.result?.response?.output || []).some((item) => item.type === 'video_generation_call')
   )
     return saved.result
-  if (saved.phase === 'submitting' && !saved.conversation_id) {
-    throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 请恢复原豆包会话，不能重复提交')
-  }
+
+  const continued =
+    !saved.reset_session && request.session?.conversation_id ? request.session : null
+  if (continued) request = apiTextSessionRequest(request)
   const session = apiSessionRead(ctx)
   doubaoRequireVerified(session)
   doubaoStartHeartbeats(session)
@@ -24,16 +25,39 @@ function main(ctx) {
       doubaoWaitForTextMedia(session, media, writer, conversationId)
     } else {
       const references = doubaoUploadTextAttachments(ctx, session, request)
+      const options = {
+        reasoning: request.reasoning.effort,
+        references: doubaoReferenceBlocks(references),
+        reference_message_id: references[0]?.message_id,
+      }
+      let payload
+      if (continued) {
+        const info = doubaoImRequest(session, '/im/conversation/info', 1110, {
+          get_conv_info_uplink_body: {
+            conversation_id: continued.conversation_id,
+            ext: { cold_start: 'true' },
+            bot_id: '',
+            conversation_type: 3,
+            option: { need_bot_info: true },
+          },
+        })
+        const conversation = info.downlink_body?.get_conv_info_downlink_body?.conversation_info
+        if (String(conversation?.conversation_id) !== String(continued.conversation_id))
+          throw new Error('temporary_unavailable: 原豆包会话无法确认')
+        payload = doubaoContinuationPayload(
+          conversation,
+          apiTextBuildResponsesPrompt(request),
+          options
+        )
+      } else payload = doubaoPayload(apiTextBuildResponsesPrompt(request), 'text', options)
       const state = doubaoSubmit(
         session,
-        doubaoPayload(apiTextBuildResponsesPrompt(request), 'text', {
-          reasoning: request.reasoning.effort,
-          references: doubaoReferenceBlocks(references),
-          reference_message_id: references[0]?.message_id,
-        }),
+        payload,
         (text) => apiTextFeedResponseText(writer, text),
         (stream, event) => doubaoTextMediaEvent(session, media, writer, stream, event)
       )
+      if (continued && String(state.conversationId) !== String(continued.conversation_id))
+        throw new Error('invalid_response: 平台返回的会话与当前窗口绑定不一致')
       conversationId = state.conversationId
       const creations = doubaoCreations(state)
       if (media.pending || creations.length) {
@@ -51,6 +75,11 @@ function main(ctx) {
     )
     for (const id of Object.keys(writer.reasoning_items || {}))
       apiTextUpdateReasoning(writer, id, '', true)
+    if (request.session_key)
+      writer.metadata = {
+        ...writer.metadata,
+        platform_session: { conversation_id: conversationId },
+      }
     const response = apiTextCompleteResponse(writer)
     const result = { success: true, status: 'done', source: 'doubao-api', response }
     host.checkpoint({ phase: 'completed', conversation_id: conversationId, result })

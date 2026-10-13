@@ -1,4 +1,6 @@
 function main(ctx) {
+  const saved = host.checkpoint() || {}
+  if (saved.phase === 'completed' && saved.result) return saved.result
   if (ctx.mask_image_dataurl) throw new Error('invalid_input: Grok 不支持局部遮罩')
   if (ctx.background && !['auto', 'opaque'].includes(ctx.background))
     throw new Error('invalid_input: Grok 不支持透明背景')
@@ -32,5 +34,7 @@ function main(ctx) {
       revised_prompt: item.revised_prompt || ctx.prompt,
     }
   })
-  return { success: true, images }
+  const completed = { success: true, images }
+  host.checkpoint({ phase: 'completed', result: completed })
+  return completed
 }

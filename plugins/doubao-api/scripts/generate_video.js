@@ -2,8 +2,7 @@ function main(ctx) {
   const prompt = String(ctx.prompt || '').trim()
   if (!prompt) throw new Error('missing_input: 缺少视频提示词')
   const saved = host.checkpoint() || {}
-  if (saved.phase === 'submitting' && !saved.conversation_id)
-    throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原视频请求提交状态待核对')
+
   const session = apiSessionRead(ctx)
   doubaoRequireVerified(session)
   doubaoStartHeartbeats(session)

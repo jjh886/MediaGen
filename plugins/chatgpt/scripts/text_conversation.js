@@ -190,6 +190,11 @@ function chatgptApiTextConversationPayload(auth, prompt, prepared, attachments =
   const fingerprint = chatgptApiFingerprint(auth)
   const metadata = chatgptApiTextMessageMetadata()
   if (attachments.length) {
+    // 当前上传器走网页保留的 files/process_upload_stream 链路。
+    metadata.file_upload_slot_prefetch_attribution = {
+      actual_path: 'legacy',
+      reason: 'direct_library_multipart_preserved',
+    }
     metadata.attachments = attachments.map((attachment) => ({
       id: attachment.file_id,
       library_file_id: attachment.library_file_id || '',
@@ -223,7 +228,7 @@ function chatgptApiTextConversationPayload(auth, prompt, prepared, attachments =
     parent_message_id: prepared.parent_message_id,
     conversation_id: prepared.conversation_id,
     model: prepared.model,
-    client_prepare_state: 'sent',
+    client_prepare_state: 'success',
     genui_state_snapshots: [],
     timezone_offset_min: Number(fingerprint.timezone_offset_min || 0),
     timezone: fingerprint.timezone || 'UTC',
@@ -238,156 +243,6 @@ function chatgptApiTextMessageMetadata() {
   return {}
 }
 
-function chatgptApiParseTextEvents(events) {
-  const state = {
-    conversation_id: '',
-    message_id: '',
-    role: '',
-    channel: '',
-    text: '',
-    final_text: '',
-    finished: false,
-  }
-  for (const event of Array.isArray(events) ? events : []) chatgptApiApplyTextEvent(state, event)
-  return {
-    conversation_id: state.conversation_id,
-    output_text: String(state.finished && chatgptApiIsFinalText(state) ? state.text : '').trim(),
-  }
-}
-
-function chatgptApiApplyTextEvent(state, event) {
-  if (!event || typeof event !== 'object') return
-  state.conversation_id =
-    state.conversation_id || String(event.conversation_id || event.v?.conversation_id || '')
-  if (event.p === '' && event.v?.message) {
-    chatgptApiApplyFullTextMessage(state, event.v)
-    return
-  }
-  if (Array.isArray(event.choices)) {
-    chatgptApiApplyTextChunk(state, event)
-    return
-  }
-  // 网页 2026-08 起还会发送不带 p 的补丁数组。
-  if (Array.isArray(event.v)) {
-    for (const operation of event.v) chatgptApiApplyTextPatch(state, operation)
-    return
-  }
-  if (typeof event.p === 'string') {
-    if (event.p === '' && event.o === 'patch' && Array.isArray(event.v)) {
-      for (const operation of event.v) chatgptApiApplyTextPatch(state, operation)
-    } else {
-      chatgptApiApplyTextPatch(state, event)
-    }
-    return
-  }
-  if (typeof event.v === 'string') {
-    state.text = chatgptApiAppendText(state.text, event.v)
-    chatgptApiRememberFinalText(state)
-    return
-  }
-  const value = event.v && typeof event.v === 'object' ? event.v : event
-  if (value.message) chatgptApiApplyFullTextMessage(state, value)
-}
-
-function chatgptApiApplyTextChunk(state, event) {
-  const choice = event.choices[0] || {}
-  const delta = choice.delta || {}
-  const channel = String(delta.channel || choice.channel || event.channel || '')
-  if (channel) chatgptApiSetTextChannel(state, channel)
-  else if (!state.channel) state.channel = 'final'
-  if (delta.role) state.role = String(delta.role)
-  if (typeof delta.content === 'string') {
-    state.text = chatgptApiAppendText(state.text, delta.content)
-    chatgptApiRememberFinalText(state)
-  }
-  if (choice.finish_reason) state.finished = true
-}
-
-function chatgptApiApplyTextPatch(state, operation) {
-  if (!operation || typeof operation !== 'object') return
-  const path = String(operation.p || '')
-  const value = operation.v
-  if (path === '/conversation_id') state.conversation_id = String(value || '')
-  else if (path === '/message') chatgptApiApplyFullTextMessage(state, { message: value })
-  else if (path === '/message/id') {
-    const nextId = String(value || '')
-    if (state.message_id && state.message_id !== nextId) {
-      state.text = ''
-      state.final_text = ''
-      state.role = ''
-      state.channel = ''
-      state.finished = false
-    }
-    state.message_id = nextId
-  } else if (path === '/message/channel') chatgptApiSetTextChannel(state, String(value || ''))
-  else if (path === '/message/author/role') state.role = String(value || '')
-  else if (path === '/message/content/parts' && Array.isArray(value)) {
-    state.text = chatgptApiTextParts(value)
-  } else if (path.startsWith('/message/content/parts/0') && typeof value === 'string') {
-    state.text = operation.o === 'append' ? state.text + value : value
-  } else if (path === '/message/end_turn' && value === true) state.finished = true
-  else if (path === '/message/status' && value === 'finished_successfully') state.finished = true
-  else if (path.startsWith('/message/metadata/finish_details') && value) state.finished = true
-  chatgptApiRememberFinalText(state)
-}
-
-function chatgptApiApplyFullTextMessage(state, value) {
-  const message = value?.message
-  if (!message || message.author?.role === 'user') return
-  const messageId = String(message.id || '')
-  if (state.message_id && messageId && state.message_id !== messageId) {
-    state.text = ''
-    state.final_text = ''
-    state.role = ''
-    state.channel = ''
-    state.finished = false
-  }
-  state.message_id = messageId || state.message_id
-  state.role = String(message.author?.role || state.role)
-  state.channel = String(message.channel || value.channel || state.channel)
-  state.text = chatgptApiTextParts(message.content?.parts)
-  state.finished = chatgptApiTextMessageFinished(message) || state.finished
-  chatgptApiRememberFinalText(state)
-}
-
-function chatgptApiTextMessageFinished(message) {
-  return Boolean(
-    message?.end_turn === true ||
-    message?.status === 'finished_successfully' ||
-    message?.metadata?.finish_details
-  )
-}
-
-function chatgptApiSetTextChannel(state, channel) {
-  if (state.channel && state.channel !== channel) {
-    state.text = ''
-    state.final_text = ''
-    state.finished = false
-  }
-  state.channel = channel
-}
-
-function chatgptApiIsFinalText(state) {
-  return (
-    (!state.role || state.role === 'assistant') && (!state.channel || state.channel === 'final')
-  )
-}
-
-function chatgptApiRememberFinalText(state) {
-  if (!chatgptApiIsFinalText(state)) return
-  if (state.text.trim()) state.final_text = state.text
-}
-
-function chatgptApiAppendText(current, incoming) {
-  if (!incoming) return current
-  // 此函数只接收 delta；重复引号、括号、字词都是合法内容。
-  return current + incoming
-}
-
-function chatgptApiTextParts(parts) {
-  return (Array.isArray(parts) ? parts : []).filter((part) => typeof part === 'string').join('')
-}
-
 function chatgptApiWaitForText(auth, conversationId, baselineParentId) {
   const started = Date.now()
   const checkpoint = host.checkpoint() || {}
@@ -396,6 +251,7 @@ function chatgptApiWaitForText(auth, conversationId, baselineParentId) {
     ? chatgptApiClampPollDelay(checkpoint.poll_retry_ms || CHATGPT_API_TEXT_POLL_MS, 3600000)
     : CHATGPT_API_TEXT_POLL_MS
   let nextPollAt = sameConversation ? Number(checkpoint.poll_next_at_ms || 0) : 0
+  let waitingForReadSlot = false
   while (Date.now() - started < CHATGPT_API_TEXT_TIMEOUT_MS) {
     if (nextPollAt > Date.now()) {
       host.call('time.sleep', {
@@ -407,11 +263,19 @@ function chatgptApiWaitForText(auth, conversationId, baselineParentId) {
       if (Date.now() - started >= CHATGPT_API_TEXT_TIMEOUT_MS) break
     }
     const response = chatgptApiTextConversationResponse(auth, conversationId)
+    chatgptApiRequireRetryableRead(response)
+    waitingForReadSlot = chatgptApiPollRateLimited(response) && response.coalesced === true
     if (chatgptApiPollRateLimited(response)) {
       delay = chatgptApiPollRetryDelayMs(response, delay)
       nextPollAt = Date.now() + delay
       if (sameConversation) {
-        host.checkpoint({ ...host.checkpoint(), poll_retry_ms: delay, poll_next_at_ms: nextPollAt })
+        host.checkpoint({
+          ...host.checkpoint(),
+          poll_retry_ms: delay,
+          poll_next_at_ms: nextPollAt,
+          poll_rate_limited: true,
+          poll_rate_limit_source: 'local',
+        })
       }
       continue
     }
@@ -422,15 +286,18 @@ function chatgptApiWaitForText(auth, conversationId, baselineParentId) {
       host.checkpoint({ ...host.checkpoint(), poll_retry_ms: delay, poll_next_at_ms: 0 })
     }
     const error = chatgptApiTextConversationError(conversation)
-    if (error) throw new Error(error)
+    if (error) chatgptApiFailConversation('upstream_failed')
     const result = chatgptApiFinalTextFromConversation(conversation, baselineParentId)
     if (result) return result
     host.call('time.sleep', { milliseconds: delay })
   }
-  throw new Error('generation_timeout: ChatGPT 文本生成超过 20 分钟')
+  if (waitingForReadSlot) throw new Error('temporary_unavailable: 本机查询仍在排队，继续原任务')
+  chatgptApiFailConversation('generation_timeout')
 }
 
 function chatgptApiTextConversationError(conversation) {
+  const status = String(conversation?.async_status || conversation?.status || '').toLowerCase()
+  if (['failed', 'error', 'cancelled', 'canceled'].includes(status)) return 'ChatGPT 原任务已失败'
   const detail = conversation?.detail || conversation?.error
   if (detail) {
     const message = typeof detail === 'string' ? detail : detail.message || JSON.stringify(detail)

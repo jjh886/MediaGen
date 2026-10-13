@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import vm from 'node:vm'
 import './grok-plugin-contracts.test.mjs'
+import './chatgpt-web-parity.test.mjs'
+import './platform-conversation-session.test.mjs'
+import './chatgpt-failed-retry.test.mjs'
 
 function context(platform, scripts, host = {}) {
   const ctx = vm.createContext({ host })

@@ -32,18 +32,20 @@ function deepseekHeaders(session, path = '/', method = 'POST') {
 }
 
 function deepseekRequest(session, path, body, method, timeoutMs = 60000) {
-  const result = apiSessionRequireOk(
-    host.call('http.request', {
-      method: method || 'POST',
-      url: DEEPSEEK_ORIGIN + '/api/v0' + path,
-      headers: deepseekHeaders(session, '/api/v0' + path.split('?')[0], method || 'POST'),
-      proxy: 'system',
-      timeout_ms: timeoutMs,
-      retry: { max_attempts: 1 },
-      ...(body === undefined ? {} : { body }),
-    }),
-    'DeepSeek 请求失败'
-  )
+  const response = host.call('http.request', {
+    method: method || 'POST',
+    url: DEEPSEEK_ORIGIN + '/api/v0' + path,
+    headers: deepseekHeaders(session, '/api/v0' + path.split('?')[0], method || 'POST'),
+    proxy: 'system',
+    timeout_ms: timeoutMs,
+    retry: { max_attempts: 1 },
+    ...(body === undefined ? {} : { body }),
+  })
+  if (path.startsWith('/chat/history_messages?') && [404, 410].includes(Number(response.status))) {
+    host.checkpoint({ phase: 'ready' })
+    throw new Error('temporary_unavailable: 原 DeepSeek 会话无法查询，将重新提交请求')
+  }
+  const result = apiSessionRequireOk(response, 'DeepSeek 请求失败')
   deepseekRefreshSession(session, result, '/api/v0' + path.split('?')[0])
   const value = result.body
   const globalCode = Number(value?.code || 0)

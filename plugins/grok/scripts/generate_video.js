@@ -61,8 +61,10 @@ function main(ctx) {
         String(value?.status || value?.state).toLowerCase()
       ) ||
       value?.error
-    )
-      throw new Error('Grok 视频生成失败')
+    ) {
+      host.checkpoint({ phase: 'ready' })
+      throw new Error('temporary_unavailable: Grok 原视频任务已终止，将重新提交请求')
+    }
     const url = grokVideoURL(result.body)
     if (url) {
       if (!/^https:\/\/(?:[\w.-]+\.)?(?:x\.ai|grok\.com)\//i.test(url))

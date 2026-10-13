@@ -2,6 +2,7 @@ function main(ctx) {
   const prompt = String(ctx.prompt || '').trim()
   if (!prompt) throw new Error('缺少图片提示词。')
 
+  const saved = chatgptApiPrepareConversationAttempt()
   const auth = chatgptApiRefreshSession(chatgptApiReadAuth(ctx))
   const bootstrap = chatgptApiBootstrap(auth)
   const init = chatgptApiInitializeConversation(auth)
@@ -9,7 +10,6 @@ function main(ctx) {
   const count = Math.max(1, Math.min(4, Math.floor(Number(ctx.max_images || 1))))
   const aspectRatio = chatgptApiAspectRatio(ctx.image_aspect_ratio)
   let references = chatgptApiReadReferenceFiles(ctx)
-  const saved = chatgptApiCheckpoint()
   const images = Array.isArray(saved.images)
     ? saved.images.map((image) => {
         if (!image.conversation_id || String(image.url || '').startsWith('data:image/'))

@@ -342,6 +342,9 @@ function doubaoSubmit(session, payload, onText, onEvent) {
   host.checkpoint({
     ...host.checkpoint(),
     phase: 'submitting',
+    ...(payload.client_meta.conversation_id
+      ? { conversation_id: payload.client_meta.conversation_id }
+      : {}),
     local_message_id: payload.messages.at(-1)?.local_message_id,
   })
   const request = doubaoSignedRequest(session, '/chat/completion', payload, 'POST', {
@@ -389,17 +392,23 @@ function doubaoSubmit(session, payload, onText, onEvent) {
 }
 
 function doubaoConfirmationPayload(conversation, kind) {
+  return doubaoContinuationPayload(
+    conversation,
+    '确认，按上述参数直接生成' + (kind === 'image' ? '图片' : '视频') + '。'
+  )
+}
+
+function doubaoContinuationPayload(conversation, prompt, options = {}) {
   if (
     !/^\d+$/.test(String(conversation?.conversation_id || '')) ||
     !/^\d+$/.test(String(conversation.last_section_id || '')) ||
     !Number.isSafeInteger(Number(conversation.latest_index))
   )
     throw new Error('invalid_response: 豆包原会话缺少继续生成所需信息')
-  const payload = doubaoPayload(
-    '确认，按上述参数直接生成' + (kind === 'image' ? '图片' : '视频') + '。',
-    'text',
-    { conversationId: String(conversation.conversation_id) }
-  )
+  const payload = doubaoPayload(prompt, 'text', {
+    ...options,
+    conversationId: String(conversation.conversation_id),
+  })
   delete payload.client_meta.local_conversation_id
   Object.assign(payload.client_meta, {
     conversation_id: String(conversation.conversation_id),

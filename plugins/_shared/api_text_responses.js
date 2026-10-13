@@ -6,6 +6,13 @@ function apiTextNormalizeTextRequest(value) {
   if (!options || typeof options !== 'object' || Array.isArray(options)) {
     throw new Error('invalid_input: 文本模型 request.options 必须是对象。')
   }
+  if (
+    options.platform_session != null &&
+    (!options.platform_session ||
+      typeof options.platform_session !== 'object' ||
+      Array.isArray(options.platform_session))
+  )
+    throw new Error('invalid_input: 平台会话信息必须是对象')
   const input = apiTextNormalizeResponsesInput(value.input)
   if (!input.length) throw new Error('missing_input: 文本模型 request 缺少 input。')
   const maxOutputTokens = Number(value.max_output_tokens ?? options.max_output_tokens ?? 0)
@@ -33,6 +40,21 @@ function apiTextNormalizeTextRequest(value) {
     throw new Error('invalid_input: reasoning_effort 不受支持。')
   }
   return {
+    session:
+      options.platform_session &&
+      typeof options.platform_session === 'object' &&
+      !Array.isArray(options.platform_session)
+        ? options.platform_session
+        : null,
+    session_key:
+      typeof options.session_key === 'string'
+        ? options.session_key
+        : typeof value.prompt_cache_key === 'string'
+          ? value.prompt_cache_key
+          : '',
+    ...(Number.isSafeInteger(options.session_input_start)
+      ? { session_input_start: options.session_input_start }
+      : {}),
     model: String(value.model || '').trim(),
     input,
     instructions: String(value.instructions || '').trim(),
@@ -454,4 +476,21 @@ function apiTextUuid() {
     const value = Math.floor(Math.random() * 16)
     return (char === 'x' ? value : (value & 3) | 8).toString(16)
   })
+}
+
+// 平台已经保存前文时仅发送本轮新增消息；新建或失败重试仍使用完整历史。
+function apiTextSessionRequest(request) {
+  let lastUser = -1
+  for (let i = 0; i < request.input.length; i++) if (request.input[i].role === 'user') lastUser = i
+  if (lastUser < 0) throw new Error('invalid_input: 继续对话缺少新的用户消息')
+  const start =
+    request.session_input_start === undefined
+      ? lastUser
+      : request.session_input_start >= 0 && request.session_input_start <= lastUser
+        ? request.session_input_start
+        : 0
+  const currentContext = request.input
+    .slice(0, start)
+    .filter((item) => ['system', 'developer'].includes(item.role))
+  return { ...request, input: [...currentContext, ...request.input.slice(start)] }
 }

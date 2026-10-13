@@ -90,7 +90,9 @@ function grokHeaders(ctx, auth, build = false) {
     })
     if (auth.user_id) headers['x-grok-user-id'] = auth.user_id
     if (ctx.request?.model) headers['x-grok-model-override'] = ctx.request.model
-    const cache = String(ctx.request?.prompt_cache_key || '').trim()
+    const cache = String(
+      ctx.request?.options?.session_key || ctx.request?.prompt_cache_key || ''
+    ).trim()
     if (cache) {
       const hash = host.call('crypto.sha256_hex', { text: 'mediagen:grok:session:' + cache }).value
       const session = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(cache)
@@ -122,6 +124,14 @@ function grokRequest(ctx, auth, path, body, options = {}) {
     ...options,
   })
   if (!result.ok) {
+    if (
+      body === undefined &&
+      /^\/videos\/[^/]+$/.test(path) &&
+      [404, 410].includes(result.status)
+    ) {
+      host.checkpoint({ phase: 'ready' })
+      throw new Error('temporary_unavailable: 原 Grok 视频任务无法查询，将重新提交请求')
+    }
     if (
       result.status >= 400 &&
       result.status < 500 &&

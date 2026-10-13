@@ -1,7 +1,7 @@
 const CHATGPT_API_FALLBACK_POLL_MS = 30000
 
 // 正常链路直接消费 SSE；只有 SSE 缺少最终图片时才低频查询会话作为容错。
-// 查询接口的 429 只代表“暂时不允许继续查询”，不能判定生成任务失败。
+// 上游真实 429 按业务规则结束本轮；宿主合并/排队返回的本地等待不代表平台任务失败。
 function chatgptApiPollRateLimited(response) {
   return Number(response?.status || 0) === 429
 }
@@ -56,6 +56,7 @@ function chatgptApiStreamWithResume(auth, request, onEvent) {
       return null
     })
     chatgptApiRememberCookies(auth, result, next.url.slice(CHATGPT_API_ORIGIN.length).split('?')[0])
+    chatgptApiRequireRetryableRead(result)
     if (!result.ok || !handoff || completed) return result
     if (!conversationId || !token) {
       throw new Error('PROVIDER_SUBMISSION_UNKNOWN: ChatGPT 转交结果缺少恢复凭据，请恢复原任务')
@@ -83,4 +84,83 @@ function chatgptApiResumeRequest(auth, conversationId, token, timeoutMs) {
     retry: { max_attempts: 1 },
     timeout_ms: timeoutMs,
   }
+}
+
+// 404 可能是短暂索引延迟；连续确认不存在后放弃旧编号，允许下一轮重新提交。
+function chatgptApiMissingConversation(response) {
+  const status = Number(response?.status || 0)
+  const saved = host.checkpoint() || {}
+  if (![404, 410].includes(status)) {
+    if (saved.missing_conversation_count)
+      host.checkpoint({ ...saved, missing_conversation_count: 0 })
+    return false
+  }
+  const count = Number(saved.missing_conversation_count || 0) + 1
+  if (status === 410 || count >= 3) {
+    host.checkpoint({
+      phase: 'ready',
+      images: saved.images || [],
+      references: saved.references || [],
+    })
+    throw new Error('temporary_unavailable: 原 ChatGPT 会话已无法查询，将重新提交请求')
+  }
+  host.checkpoint({ ...saved, missing_conversation_count: count })
+  return true
+}
+
+function chatgptApiRetryCheckpoint(reason, delayMs = CHATGPT_API_FALLBACK_POLL_MS) {
+  const saved = chatgptApiCheckpoint()
+  const value = {
+    phase: 'retry_pending',
+    reset_session: true,
+    retry_reason: reason,
+    retry_not_before_ms: Date.now() + Math.max(0, delayMs),
+    failed_conversation_id: saved.conversation_id || saved.failed_conversation_id || '',
+    images: saved.images || [],
+    references: saved.references || [],
+    ...(Array.isArray(saved.attachments) ? { attachments: saved.attachments } : {}),
+  }
+  chatgptApiCheckpoint(value)
+  return value
+}
+
+function chatgptApiFailConversation(reason, delayMs) {
+  chatgptApiRetryCheckpoint(reason, delayMs)
+  throw new Error('temporary_unavailable: 原任务已失败，将新建会话重试：' + reason)
+}
+
+function chatgptApiPrepareConversationAttempt() {
+  let saved = chatgptApiCheckpoint()
+  if (saved.phase === 'completed') return saved
+  if (
+    saved.phase === 'failed' ||
+    ((saved.poll_rate_limited ||
+      (saved.poll_rate_limited === undefined && Number(saved.poll_next_at_ms || 0) > 0)) &&
+      saved.poll_rate_limit_source !== 'local')
+  ) {
+    saved = chatgptApiRetryCheckpoint(
+      saved.phase === 'failed' ? 'upstream_failed' : 'upstream_rate_limited',
+      Math.max(0, Number(saved.poll_next_at_ms || 0) - Date.now())
+    )
+  }
+  if (saved.phase !== 'retry_pending') return saved
+  const remaining = Number(saved.retry_not_before_ms || 0) - Date.now()
+  if (remaining > 0)
+    throw new Error(
+      'temporary_unavailable: 原任务已失败，新会话重试等待 ' + Math.ceil(remaining / 1000) + ' 秒'
+    )
+  const ready = {
+    phase: 'ready',
+    reset_session: true,
+    images: saved.images,
+    references: saved.references,
+    ...(Array.isArray(saved.attachments) ? { attachments: saved.attachments } : {}),
+  }
+  chatgptApiCheckpoint(ready)
+  return ready
+}
+
+function chatgptApiRequireRetryableRead(response) {
+  if (!chatgptApiPollRateLimited(response) || response.coalesced === true) return
+  chatgptApiFailConversation('upstream_rate_limited', chatgptApiPollRetryDelayMs(response))
 }

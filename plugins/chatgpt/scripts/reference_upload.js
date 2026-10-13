@@ -124,8 +124,9 @@ function chatgptApiProcessReference(auth, fileId, reference) {
         entry_surface: 'chat_composer',
         metadata: {
           store_in_library: true,
-          is_temporary_chat: false,
-          library_eligibility_reason: 'eligible',
+          ...(reference.use_case === 'ace_upload'
+            ? {}
+            : { is_temporary_chat: false, library_eligibility_reason: 'eligible' }),
           is_project_thread: false,
         },
       },

@@ -174,6 +174,7 @@ test('Grok 文本保留工具、结构化输出、增量和 incomplete 终态', 
   })
   assert.equal(result.response.status, 'incomplete')
   assert.equal(result.response.output[0].name, 'weather')
+  host.checkpoint({}) // 后续是另一请求，使用独立检查点。
   host.stream = () => ({ ok: true, status: 200 })
   assert.throws(
     () => script.main({ profile_dir: '/profile', request: { model: 'grok-4.6', input: 'hello' } }),
@@ -242,6 +243,7 @@ test('Grok 语音以真实编码返回，转写使用 multipart 不伪装翻译'
   assert.equal(result.mime_type, 'audio/wav')
   assert.equal(result.audio_base64, 'UklGRg==')
   assert.equal(host.requests[0].body.output_format.codec, 'mp3')
+  host.checkpoint({})
   assert.throws(() => speech.main({ request: { speed: 2 } }), /speed/)
   const stt = load(['auth', 'transcribe_audio'], host)
   assert.equal(
