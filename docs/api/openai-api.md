@@ -119,3 +119,13 @@ Chat Completions 使用以下 **MediaGen 扩展字段**，普通 `message.conten
 `store=true` 保存完整 Responses 媒体输出，读取仍受原 API Key 权限限制。`previous_response_id` 和同连接 WebSocket 续接会保留生成图片作为图片输入、生成视频作为地址文本引用；不会因新增生成项而把整轮历史判为非法。Chat 客户端回传助手 `media` 时使用相同规则。平台视频地址可能过期，保存响应不会延长地址有效期。
 
 豆包新登录流程会校验账号续期协议是否采集完整。缺少这些协议时报告 `AUTH_PROTOCOL_INCOMPLETE`；需要在账号页面重新登录完成采集。
+
+## 音频附件与上下文更新
+
+ChatGPT 聊天的音频附件通过文件表单上传到转写接口，保留文件名和 MIME 类型。同一请求中，历史消息和本轮引用完全相同的音频字节时只转写一次；同名但内容不同的音频分别处理。TTS 同时识别完整消息与后续增量，只有最终文本逐字符合输入时才生成音频。
+
+Codex 将 `system` 消息转换成 `developer` 消息一次，显式 `instructions` 保留。上游明确拒绝超长上下文（包括 instructions 字符超限）时，返回带 `context_length_exceeded` 的参数错误并重置提交标记，调用方可压缩上下文后重试。
+
+网页文本插件不再把 `max_output_tokens` 改写成提示词中的字数要求。该参数是否有硬性限制效果取决于模型的原生能力。
+
+ChatGPT 的 `options.fixed_video_analysis: true` 是可选扩展，用于固定视频分析。首次提交和任务恢复共用 20 分钟等待预算；恢复时优先读取原会话已有结果。仅本机查询排队继续等待，真实上游 429 按 `Retry-After` 转为重试并保留已上传附件。默认关闭；已有会话续接仍遵守原会话边界，不会静默换成其他会话。

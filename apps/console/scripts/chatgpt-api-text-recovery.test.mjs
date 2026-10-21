@@ -54,6 +54,8 @@ beforeEach(() => {
     vm.runInContext(readFileSync(path.join(scriptDirectory, `${name}.js`), 'utf8'), context)
   }
   context.actualWaitForText = context.chatgptApiWaitForText
+  context.actualWaitForRichText = context.chatgptApiWaitForRichText
+  context.actualStreamTextConversation = context.chatgptApiStreamTextConversation
   Object.assign(context, {
     chatgptApiReadAuth: () => ({}),
     chatgptApiBootstrap: () => ({
@@ -82,6 +84,50 @@ const run = () =>
   vm.runInContext(`main({ request: { input: '提取资产', model: 'gpt-5-6-instant' } })`, context)
 
 describe('ChatGPT 文本提交与恢复', () => {
+  it('新会话被 429 拒绝时保留安全换号边界，不提前输出响应事件', () => {
+    context.host.emit = vi.fn()
+    stream.mockReturnValue({ ok: false, status: 429 })
+    expect(run).toThrow('HTTP 429')
+    expect(checkpoint.phase).toBe('ready')
+    expect(checkpoint.conversation_id).toBeUndefined()
+    expect(context.host.emit).not.toHaveBeenCalled()
+  })
+
+  it('续聊提交被 429 拒绝后仍在原会话和父消息下重试', () => {
+    context.host.emit = vi.fn()
+    stream.mockReturnValueOnce({ ok: false, status: 429 })
+    const continueRun = () =>
+      vm.runInContext(
+        `main({request:{model:'gpt-5-6-instant',input:'继续',options:{
+        session_key:'window',platform_session:{conversation_id:'original',parent_message_id:'parent'}
+      }}})`,
+        context
+      )
+    expect(continueRun).toThrow('HTTP 429')
+    expect(checkpoint).toMatchObject({ phase: 'ready', continuation_id: 'original' })
+    expect(checkpoint.conversation_id).toBeUndefined()
+    expect(checkpoint.reset_session).toBe(false)
+    expect(context.host.emit).not.toHaveBeenCalled()
+    stream.mockImplementation((_auth, _prompt, prepared, _headers, _attachments, onEvent) => {
+      expect(prepared.conversation_id).toBe('original')
+      expect(prepared.parent_message_id).toBe('parent')
+      onEvent({
+        conversation_id: 'original',
+        message: {
+          id: 'answer',
+          author: { role: 'assistant' },
+          channel: 'final',
+          content: { content_type: 'text', parts: ['继续完成'] },
+          status: 'finished_successfully',
+        },
+      })
+      return { ok: true, status: 200 }
+    })
+    expect(continueRun().response.output_text).toBe('继续完成')
+    expect(checkpoint.conversation_id).toBe('original')
+    expect(stream).toHaveBeenCalledTimes(2)
+  })
+
   it('标题和正文一起持久化并可恢复，保留平台会话', () => {
     checkpoint = { phase: 'accepted', conversation_id: 'original' }
     context.chatgptApiFetchTextConversation = vi.fn(() => ({ title: '杯子广告' }))
@@ -144,7 +190,7 @@ describe('ChatGPT 文本提交与恢复', () => {
       'client-created-root',
       expect.any(Object),
       expect.any(Object),
-      expect.any(Object)
+      undefined
     )
     expect(stream).toHaveBeenCalledTimes(1)
     expect(context.chatgptApiInitializeConversation).toHaveBeenCalledTimes(1)
@@ -166,10 +212,10 @@ describe('ChatGPT 文本提交与恢复', () => {
       'client-created-root',
       expect.any(Object),
       expect.any(Object),
-      expect.any(Object)
+      undefined
     )
     expect(stream).not.toHaveBeenCalled()
-    expect(writes.some((value) => value.resume_token === '')).toBe(true)
+    expect(context.chatgptApiStreamWithResume).not.toHaveBeenCalled()
   })
 
   it('首次发送已取得会话编号但接续流过期时仍找回同一会话', () => {
@@ -191,7 +237,8 @@ describe('ChatGPT 文本提交与恢复', () => {
 
   it('恢复时认证失败仍明确报错，不吞掉账号问题', () => {
     checkpoint = { phase: 'accepted', conversation_id: 'original', resume_token: 'expired' }
-    context.chatgptApiStreamWithResume = () => ({ ok: false, status: 401 })
+    context.chatgptApiWaitForRichText = context.actualWaitForRichText
+    context.chatgptApiTextConversationResponse = () => ({ ok: false, status: 401 })
     expect(run).toThrow('LOGIN_EXPIRED')
     expect(poll).not.toHaveBeenCalled()
   })
@@ -204,28 +251,31 @@ describe('ChatGPT 文本提交与恢复', () => {
     expect(stream).toHaveBeenCalledTimes(1)
   })
 
-  it('前端流事件投递失败前已保存同一事件中的会话编号', () => {
-    context.host.emit = (event) => {
-      if (event.type === 'response.output_text.delta') throw new Error('event delivery failed')
-    }
-    stream.mockImplementation((_auth, _prompt, _prepared, _headers, _attachments, onEvent) => {
-      onEvent({
-        v: {
-          conversation_id: 'event-original',
-          message: {
-            id: 'message-1',
-            author: { role: 'assistant' },
-            channel: 'final',
-            content: { parts: ['完整文本'] },
-            end_turn: true,
+  it.each(['response.created', 'response.output_text.delta'])(
+    '投递 %s 失败前已保存同一事件中的会话编号',
+    (type) => {
+      context.host.emit = (event) => {
+        if (event.type === type) throw new Error('event delivery failed')
+      }
+      stream.mockImplementation((_auth, _prompt, _prepared, _headers, _attachments, onEvent) => {
+        onEvent({
+          v: {
+            conversation_id: 'event-original',
+            message: {
+              id: 'message-1',
+              author: { role: 'assistant' },
+              channel: 'final',
+              content: { parts: ['完整文本'] },
+              end_turn: true,
+            },
           },
-        },
+        })
       })
-    })
-    expect(run).toThrow('event delivery failed')
-    expect(checkpoint.phase).toBe('accepted')
-    expect(checkpoint.conversation_id).toBe('event-original')
-  })
+      expect(run).toThrow('event delivery failed')
+      expect(checkpoint.phase).toBe('accepted')
+      expect(checkpoint.conversation_id).toBe('event-original')
+    }
+  )
 
   it('已完成结果不再认证和请求平台，也不发送隐藏会话请求', () => {
     checkpoint = { phase: 'accepted', conversation_id: 'original', model: 'auto' }
@@ -353,4 +403,122 @@ describe('ChatGPT 文本提交与恢复', () => {
       vm.runInContext("chatgptApiWaitForText({}, 'original', 'baseline')", context)
     ).toThrow('401')
   })
+})
+
+it('固定视频宿主策略只在当前执行启用，不污染后续普通对话', () => {
+  checkpoint = { phase: 'accepted', conversation_id: 'video-original' }
+  poll.mockImplementationOnce(() => {
+    context.chatgptApiRequireRetryableRead({ status: 429, headers: { 'retry-after': '120' } })
+  })
+  expect(() =>
+    vm.runInContext(
+      `main({ fixed_video_analysis: true,
+    request: { input: '反推完整视频', model: 'gpt-5-6-instant' } })`,
+      context
+    )
+  ).toThrow('upstream_rate_limited')
+  expect(checkpoint.phase).toBe('retry_pending')
+  checkpoint = { phase: 'accepted', conversation_id: 'ordinary-original' }
+  poll.mockImplementationOnce(() => {
+    context.chatgptApiRequireRetryableRead({ status: 429, headers: { 'retry-after': '120' } })
+    return '原对话完整结果'
+  })
+  expect(run).not.toThrow()
+})
+
+it.each(['empty', 'complete', 'local_queue'])(
+  '固定视频恢复保留等待预算并优先回收已有结果：%s',
+  (outcome) => {
+    let now = 1300000
+    context.Date = class extends Date {
+      static now() {
+        return now
+      }
+    }
+    checkpoint = {
+      phase: 'accepted',
+      conversation_id: 'old-video',
+      fixed_video_wait_started_at_ms: 0,
+      user_message_id: 'user-1',
+    }
+    context.chatgptApiWaitForRichText = context.actualWaitForRichText
+    context.chatgptApiTryOpenTextUpdates = () => null
+    context.host.call = (_name, params) => {
+      now += params.ms || params.milliseconds || 0
+      return {}
+    }
+    context.chatgptApiTextConversationResponse = vi.fn(() =>
+      outcome === 'local_queue'
+        ? { status: 429, coalesced: true, headers: { 'retry-after': '1200' } }
+        : {
+            status: 200,
+            ok: true,
+            body: {
+              messages: [
+                {
+                  id: 'user-1',
+                  author: { role: 'user' },
+                  content: { content_type: 'text', parts: ['完整视频'] },
+                },
+                ...(outcome === 'complete'
+                  ? [
+                      {
+                        id: 'reply',
+                        author: { role: 'assistant' },
+                        channel: 'final',
+                        end_turn: true,
+                        status: 'finished_successfully',
+                        content: { content_type: 'text', parts: ['已完成的完整反推稿'] },
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          }
+    )
+    const resume = () =>
+      vm.runInContext(
+        `main({ fixed_video_analysis: true,
+      request: { input: '反推原视频', model: 'gpt-5-6-instant' } })`,
+        context
+      )
+    if (outcome === 'complete') expect(resume().response.output_text).toBe('已完成的完整反推稿')
+    else {
+      expect(resume).toThrow(outcome === 'empty' ? 'generation_timeout' : '本机查询仍在排队')
+      expect(checkpoint.phase).toBe(outcome === 'empty' ? 'retry_pending' : 'accepted')
+      if (outcome === 'empty')
+        expect(context.chatgptApiTextConversationResponse).toHaveBeenCalledTimes(1)
+      else expect(checkpoint.fixed_video_wait_started_at_ms).toBe(0)
+    }
+    expect(stream).not.toHaveBeenCalled()
+  }
+)
+
+it('固定视频首次流与恢复共用二十分钟预算，普通对话保留三小时', () => {
+  const request = vi.fn(() => ({ ok: true }))
+  Object.assign(context, {
+    chatgptApiBaseHeaders: () => ({}),
+    chatgptApiCompactObject: (value) => value,
+    chatgptApiEchoLogs: () => '',
+    chatgptApiTextConversationPayload: () => ({}),
+    chatgptApiStreamWithResume: request,
+  })
+  for (const enabled of [false, true]) {
+    vm.runInContext(`chatgptApiFixedVideoAnalysis = ${enabled}`, context)
+    context.actualStreamTextConversation({}, '原视频', {}, {}, [], () => {})
+    expect(request.mock.lastCall[1].timeout_ms).toBe(enabled ? 1200000 : 10800000)
+    expect(request.mock.lastCall[1].retry).toEqual({ max_attempts: 1 })
+  }
+})
+
+it('固定视频在首次提交前保存等待起点，流中断后仍可恢复该预算', () => {
+  expect(() =>
+    vm.runInContext(
+      `main({ fixed_video_analysis: true,
+    request: { input: '原视频', model: 'gpt-5-6-instant' } })`,
+      context
+    )
+  ).toThrow('connection reset')
+  expect(checkpoint.fixed_video_wait_started_at_ms).toBeTypeOf('number')
+  expect(checkpoint.fixed_video_wait_started_at_ms).toBeLessThanOrEqual(Date.now())
 })

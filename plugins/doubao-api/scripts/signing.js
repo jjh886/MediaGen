@@ -162,7 +162,13 @@ function doubaoPersistSecurityStorage(session) {
 }
 
 function doubaoSecuritySend(session, request) {
-  if (!/^https:\/\/mssdk\.bytedance\.com\/web\/(?:r\/token|common)(?:\?|$)/.test(request.url))
+  const monitoring =
+    request.method === 'POST' &&
+    /^https:\/\/mon\.zijieapi\.com\/monitor_browser\/collect\/batch\/(?:\?|$)/.test(request.url)
+  if (
+    !monitoring &&
+    !/^https:\/\/mssdk\.bytedance\.com\/web\/(?:r\/token|common)(?:\?|$)/.test(request.url)
+  )
     throw new Error(
       'unsupported_protocol: 豆包安全 SDK 使用了尚未适配的请求接口 ' +
         String(request.url).split('?')[0].slice(0, 160)
@@ -173,7 +179,12 @@ function doubaoSecuritySend(session, request) {
     accept: '*/*',
     'sec-fetch-site': 'cross-site',
   })
-  if (request.with_credentials) {
+  if (monitoring) {
+    for (const key of Object.keys(headers)) {
+      if (['cookie', 'authorization', 'proxy-authorization'].includes(key.toLowerCase()))
+        delete headers[key]
+    }
+  } else if (request.with_credentials) {
     const cookie = apiSessionCookies(session, 'mssdk.bytedance.com', '/web/')
     if (cookie) headers.cookie = cookie
   }
@@ -187,6 +198,7 @@ function doubaoSecuritySend(session, request) {
     retry: { max_attempts: 1 },
   })
   if (
+    !monitoring &&
     request.with_credentials &&
     apiSessionUpdateCookies(
       session,

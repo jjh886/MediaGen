@@ -1,7 +1,9 @@
 const CHATGPT_API_FALLBACK_POLL_MS = 30000
+// 仅固定视频反推启用；普通对话和图片继续沿用已受理会话的恢复策略。
+let chatgptApiFixedVideoAnalysis = false
 
 // 正常链路直接消费 SSE；只有 SSE 缺少最终图片时才低频查询会话作为容错。
-// 上游真实 429 按业务规则结束本轮；宿主合并/排队返回的本地等待不代表平台任务失败。
+// 已有会话的查询限流只等待原结果；新提交被 429 拒绝后才允许换号。
 function chatgptApiPollRateLimited(response) {
   return Number(response?.status || 0) === 429
 }
@@ -97,6 +99,8 @@ function chatgptApiMissingConversation(response) {
   }
   const count = Number(saved.missing_conversation_count || 0) + 1
   if (status === 410 || count >= 3) {
+    if (saved.continuation_id)
+      throw new Error('invalid_input: 原会话已无法查询，请明确新建对话后重试')
     host.checkpoint({
       phase: 'ready',
       images: saved.images || [],
@@ -112,7 +116,8 @@ function chatgptApiRetryCheckpoint(reason, delayMs = CHATGPT_API_FALLBACK_POLL_M
   const saved = chatgptApiCheckpoint()
   const value = {
     phase: 'retry_pending',
-    reset_session: true,
+    reset_session: !saved.continuation_id,
+    ...(saved.continuation_id ? { continuation_id: saved.continuation_id } : {}),
     retry_reason: reason,
     retry_not_before_ms: Date.now() + Math.max(0, delayMs),
     failed_conversation_id: saved.conversation_id || saved.failed_conversation_id || '',
@@ -125,17 +130,26 @@ function chatgptApiRetryCheckpoint(reason, delayMs = CHATGPT_API_FALLBACK_POLL_M
 }
 
 function chatgptApiFailConversation(reason, delayMs) {
-  chatgptApiRetryCheckpoint(reason, delayMs)
-  throw new Error('temporary_unavailable: 原任务已失败，将新建会话重试：' + reason)
+  const saved = chatgptApiRetryCheckpoint(reason, delayMs)
+  throw new Error(
+    'temporary_unavailable: 原任务已失败，' +
+      (saved.continuation_id ? '将在原会话重试：' : '将新建会话重试：') +
+      reason
+  )
 }
 
-function chatgptApiPrepareConversationAttempt() {
+function chatgptApiPrepareConversationAttempt(session) {
   let saved = chatgptApiCheckpoint()
   if (saved.phase === 'completed') return saved
+  if (session?.conversation_id) {
+    saved = { ...saved, continuation_id: session.conversation_id, reset_session: false }
+    chatgptApiCheckpoint(saved)
+  }
   if (
     saved.phase === 'failed' ||
-    ((saved.poll_rate_limited ||
-      (saved.poll_rate_limited === undefined && Number(saved.poll_next_at_ms || 0) > 0)) &&
+    (!saved.conversation_id &&
+      (saved.poll_rate_limited ||
+        (saved.poll_rate_limited === undefined && Number(saved.poll_next_at_ms || 0) > 0)) &&
       saved.poll_rate_limit_source !== 'local')
   ) {
     saved = chatgptApiRetryCheckpoint(
@@ -147,11 +161,12 @@ function chatgptApiPrepareConversationAttempt() {
   const remaining = Number(saved.retry_not_before_ms || 0) - Date.now()
   if (remaining > 0)
     throw new Error(
-      'temporary_unavailable: 原任务已失败，新会话重试等待 ' + Math.ceil(remaining / 1000) + ' 秒'
+      'temporary_unavailable: 原任务已失败，重试等待 ' + Math.ceil(remaining / 1000) + ' 秒'
     )
   const ready = {
     phase: 'ready',
-    reset_session: true,
+    reset_session: !saved.continuation_id,
+    ...(saved.continuation_id ? { continuation_id: saved.continuation_id } : {}),
     images: saved.images,
     references: saved.references,
     ...(Array.isArray(saved.attachments) ? { attachments: saved.attachments } : {}),
@@ -160,7 +175,21 @@ function chatgptApiPrepareConversationAttempt() {
   return ready
 }
 
-function chatgptApiRequireRetryableRead(response) {
+function chatgptApiRequireRetryableRead(response, conversationId) {
   if (!chatgptApiPollRateLimited(response) || response.coalesced === true) return
-  chatgptApiFailConversation('upstream_rate_limited', chatgptApiPollRetryDelayMs(response))
+  const saved = chatgptApiCheckpoint()
+  if (saved.phase === 'completed') return
+  if (
+    chatgptApiFixedVideoAnalysis &&
+    !saved.continuation_id &&
+    (conversationId || saved.conversation_id)
+  ) {
+    chatgptApiFailConversation(
+      'upstream_rate_limited',
+      chatgptApiPollRetryDelayMs(response, saved.poll_retry_ms)
+    )
+  }
+  if (conversationId || saved.conversation_id || saved.continuation_id) return
+  chatgptApiCheckpoint({ ...saved, phase: 'ready' })
+  throw new Error('rate_limit_exceeded: HTTP 429 新会话未被受理，允许换号重试')
 }

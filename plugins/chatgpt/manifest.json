@@ -11,7 +11,7 @@
       "model_id": "ChatGPT",
       "display_name": "ChatGPT 生图",
       "task_kind": "image",
-      "aliases": ["chatgpt", "gpt-image-1-chatgpt"],
+      "aliases": ["chatgpt"],
       "alias_priority": 20
     },
     {
@@ -610,7 +610,7 @@
         "key": "model",
         "type": "text",
         "label": "模型标识",
-        "hint": "留空最稳妥，例如 gpt-5-5",
+        "hint": "留空最稳妥，例如 gpt-5-6",
         "placeholder": "留空，跟随 ChatGPT 自动选择",
         "default": ""
       },
@@ -903,7 +903,7 @@
     "enabled": false
   },
   "http_profile": "chrome_149",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "schema_version": 1,
   "task_recovery": {
     "media_types": ["text", "image"],

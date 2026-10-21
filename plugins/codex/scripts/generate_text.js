@@ -6,14 +6,14 @@ function main(ctx) {
   codexApplyReasoning(ctx, auth, normalized.payload)
   host.checkpoint({ phase: 'submitting' })
   let execution = codexExecuteResponses(auth, normalized.payload, ctx)
-  if (execution.status >= 400 && execution.status < 500) {
+  if ((execution.status >= 400 && execution.status < 500) || execution.contextRejected) {
     host.checkpoint({ phase: 'ready' })
   }
   if (!execution.response && execution.status === 401) {
     auth = codexRefreshAuth(ctx, auth, '文本接口返回 401')
     host.checkpoint({ phase: 'submitting' })
     execution = codexExecuteResponses(auth, normalized.payload, ctx)
-    if (execution.status >= 400 && execution.status < 500) {
+    if ((execution.status >= 400 && execution.status < 500) || execution.contextRejected) {
       host.checkpoint({ phase: 'ready' })
     }
   }

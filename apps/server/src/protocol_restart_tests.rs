@@ -3,6 +3,66 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 #[actix_web::test]
+async fn rate_limited_new_turn_can_failover_but_bound_conversation_keeps_account() {
+    for continued in [false, true] {
+        let state = crate::protocol_api_tests::state();
+        let root = state.store.path.parent().unwrap().to_owned();
+        let second = crate::test_fixtures::account_record("second", "test", "Second", "");
+        let second_profile = second.profile_dir.clone();
+        state.store.insert_account(second);
+        let mut account = state.store.account_by_id("account").unwrap();
+        let first_profile = account.profile_dir.clone();
+        let directory = state.plugin_loader.get_plugin_dir("test").unwrap();
+        std::fs::write(
+            directory.join("scripts/text.js"),
+            r#"function main(ctx) {
+            host.checkpoint({phase:'ready'});
+            if (ctx.account_id === 'account') throw new Error('rate_limit_exceeded: HTTP 429');
+            return {response:{output_text:'OK'}};
+        }"#,
+        )
+        .unwrap();
+        let (manifest, _) = state.plugin_loader.resolve_model("text-model").unwrap();
+        let mut manifest = manifest.clone();
+        manifest.extra.insert(
+            "failure_strategy".into(),
+            json!([{
+                "contains_any":["rate_limit_exceeded"], "category":"account_rate_limited",
+                "retry_action":"failover", "usage_consumed":false
+            }]),
+        );
+        let mut request = json!({"model":"text-model","input":"继续"});
+        if continued {
+            request["options"] = json!({"platform_session":{"conversation_id":"original"}});
+        }
+        let (events, _receiver) = tokio::sync::mpsc::channel(4);
+        let result = crate::protocol_task::run_with_failover(
+            &state,
+            &manifest,
+            &mut account,
+            "generate_text",
+            request,
+            Some(events),
+            "rate-limit-test",
+            Value::Null,
+            "key-a",
+        )
+        .await;
+        if continued {
+            assert!(result.unwrap_err().contains("HTTP 429"));
+            assert_eq!(account.id, "account");
+        } else {
+            assert_eq!(result.unwrap()["response"]["output_text"], "OK");
+            assert_eq!(account.id, "second");
+        }
+        drop(state);
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(first_profile);
+        let _ = std::fs::remove_dir_all(second_profile);
+    }
+}
+
+#[actix_web::test]
 async fn interrupted_protocol_reopens_store_and_cipher_then_queries_once_in_both_stream_modes() {
     for stream in [false, true] {
         let initial = crate::protocol_api_tests::state();

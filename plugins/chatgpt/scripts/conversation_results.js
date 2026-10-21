@@ -12,7 +12,7 @@ function chatgptApiWaitForImage(auth, conversationId) {
       timeout_ms: 60000,
     })
     if (chatgptApiMissingConversation(response)) continue
-    chatgptApiRequireRetryableRead(response)
+    chatgptApiRequireRetryableRead(response, conversationId)
     waitingForReadSlot = chatgptApiPollRateLimited(response) && response.coalesced === true
     if (response.ok) {
       const error = chatgptApiConversationError(response.body)

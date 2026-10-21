@@ -151,6 +151,15 @@ function chatgptApiResolveTextImages(auth, conversationId, state, writer) {
 function chatgptApiWaitForRichText(auth, conversationId, parentId, state, writer, connection) {
   const deadline = Date.now() + CHATGPT_API_TEXT_TIMEOUT_MS
   const saved = chatgptApiCheckpoint()
+  // 固定视频跨重启保留等待预算；仍须实际读到原会话后才判断超时。
+  // 本机排队不代表上游失败，不能仅因恢复次数增加而重投。
+  const recordedStart = saved.fixed_video_wait_started_at_ms ?? saved.history_probe?.checked_at_ms
+  const waitStarted =
+    Number.isFinite(recordedStart) && recordedStart <= Date.now() ? recordedStart : Date.now()
+  const videoDeadline = waitStarted + CHATGPT_API_TEXT_TIMEOUT_MS
+  if (chatgptApiFixedVideoAnalysis)
+    chatgptApiCheckpoint({ ...saved, fixed_video_wait_started_at_ms: waitStarted })
+  let freshHistoryRead = false
   let delay = chatgptApiClampPollDelay(saved.poll_retry_ms || CHATGPT_API_TEXT_POLL_MS, 3600000)
   let nextPoll = connection
     ? Math.max(Number(saved.poll_next_at_ms || 0), Date.now() + CHATGPT_API_TEXT_POLL_MS)
@@ -169,7 +178,7 @@ function chatgptApiWaitForRichText(auth, conversationId, parentId, state, writer
           host.call('time.sleep', { ms: 1000 })
           continue
         }
-        chatgptApiRequireRetryableRead(response)
+        chatgptApiRequireRetryableRead(response, conversationId)
         if (chatgptApiPollRateLimited(response)) {
           delay = chatgptApiPollRetryDelayMs(response, delay)
           nextPoll = Date.now() + delay
@@ -184,6 +193,7 @@ function chatgptApiWaitForRichText(auth, conversationId, parentId, state, writer
           continue
         }
         const conversation = chatgptApiRequireOk(response, '读取 ChatGPT 对话结果').body || {}
+        freshHistoryRead = true
         const error = chatgptApiTextConversationError(conversation)
         if (error) chatgptApiFailConversation('upstream_failed')
         const messages = chatgptApiCurrentTurnMessages(conversation, userId, parentId)
@@ -238,6 +248,8 @@ function chatgptApiWaitForRichText(auth, conversationId, parentId, state, writer
           apiTextUpdateReasoning(writer, id, '', true)
         return state.final_text || ''
       }
+      if (chatgptApiFixedVideoAnalysis && freshHistoryRead && Date.now() >= videoDeadline)
+        chatgptApiFailConversation('generation_timeout')
       if (!connected) {
         connected = true
         connection = chatgptApiTryOpenTextUpdates(auth)

@@ -5,7 +5,7 @@ import { existsSync } from 'fs'
 import { mkdir, readFile, stat, writeFile } from 'fs/promises'
 import { dirname, extname, resolve } from 'path'
 
-const DEFAULT_MODEL = 'gpt-5.5'
+const DEFAULT_MODEL = 'gpt-6.1-sol'
 const DEFAULT_REASONING_EFFORT = 'low'
 const DEFAULT_SIZE = '1440x2560'
 const DEFAULT_QUALITY = 'high'

@@ -126,7 +126,7 @@ function grokQuota(ctx, auth) {
   let headerWindows = grokHeaderWindows(weekly?.headers || monthly?.headers)
   if (!windows.length && !headerWindows.length && ctx.refresh_quota) {
     const probe = get('/responses', {
-      model: 'grok-4.5',
+      model: 'grok-4.7',
       input: 'Reply OK.',
       stream: false,
       max_output_tokens: 8,

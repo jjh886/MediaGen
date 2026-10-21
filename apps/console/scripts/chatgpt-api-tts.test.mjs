@@ -92,6 +92,36 @@ describe('ChatGPT API TTS 协议', () => {
     )
   })
 
+  it('完整消息之后的增量文本保留消息编号，并核对最终朗读原文', () => {
+    const events = [
+      {
+        v: {
+          conversation_id: 'speech-stream',
+          message: {
+            id: 'assistant-stream',
+            author: { role: 'assistant' },
+            content: { parts: [''] },
+          },
+        },
+      },
+      { p: '/message/content/parts/0', o: 'append', v: '你好，' },
+      { p: '/message/content/parts/0', o: 'append', v: '模型连接正常。' },
+    ]
+    expect(
+      evaluate(`chatgptApiSpeechMessageIds(__events, '你好，模型连接正常。')`, {
+        __events: events,
+      })
+    ).toEqual({ conversation_id: 'speech-stream', message_id: 'assistant-stream' })
+    expect(
+      evaluate(`chatgptApiSpeechMessageIds(__events, '你好，模型连接正常。')`, {
+        __events: [
+          ...events,
+          { p: '/message/content/parts/0', o: 'append', v: '还有什么需要帮助？' },
+        ],
+      })
+    ).toEqual({ conversation_id: 'speech-stream', message_id: '' })
+  })
+
   it('复用网页文本提交，再朗读已确认逐字一致的回复', () => {
     vm.runInContext(
       `

@@ -142,7 +142,13 @@ export const responseRequest = [
       '结构化输出；type 可为 text、json_object、json_schema。',
     ],
     ['text.format.schema', 'object', 'JSON Schema 模式必填', '—', '用于约束输出的 JSON Schema。'],
-    ['max_output_tokens', 'integer', '否', '由模型决定', '正整数，输出 token 上限。'],
+    [
+      'max_output_tokens',
+      'integer',
+      '否',
+      '由模型决定',
+      '正整数，仅原生支持的模型执行上限；网页文本插件不会把此值拼入提示词或保证硬性截断。',
+    ],
     ['max_tool_calls', 'integer', '否', '由模型决定', '工具调用次数上限，仅模型支持时生效。'],
     ['background', 'boolean', '否', 'false', '当前只接受 false；true 返回 400。'],
     ['include', 'array<string>', '否', '未设置', '额外输出字段；按模型能力校验。'],
@@ -165,6 +171,13 @@ export const responseRequest = [
     ['top_logprobs', 'integer', '否', '由模型决定', '输出候选 token 概率数量，仅支持的模型可用。'],
     ['stream_options', 'object', '否', '未设置', '流输出选项，支持范围取决于模型。'],
     ['options', 'object', '否', '{}', '插件声明的扩展选项；不属于 OpenAI 标准字段。'],
+    [
+      'options.fixed_video_analysis',
+      'boolean',
+      '否',
+      'false',
+      'ChatGPT 视频分析扩展：提交与恢复共用 20 分钟等待预算；上游明确限流后按 Retry-After 进入重试，本机查询排队继续原任务。',
+    ],
   ]),
 ]
 export const chatRequest = [

@@ -3,9 +3,52 @@ import codex from '../../../plugins/codex/manifest.json'
 import chatgpt from '../../../plugins/chatgpt/manifest.json'
 import doubao from '../../../plugins/doubao-api/manifest.json'
 import deepseek from '../../../plugins/deepseek-api/manifest.json'
+import grok from '../../../plugins/grok/manifest.json'
 import { scripts } from './platform-api-test-helper.mjs'
 
 describe('新版插件装配与协议', () => {
+  it('模型目录不再声明停用型号，保留无日期的图片型号和 Seedream 5', () => {
+    const retired = [
+      'gpt-image-1.5',
+      'gpt-image-1-chatgpt',
+      'gpt-image-2.5-sunburst-2026-09-08',
+      'gpt-image-2.5-flare-2026-09-08',
+      'doubao-seedream-4-5',
+      'doubao-seedream-4-0',
+      'grok-4.5',
+      'grok-4.6',
+      'grok-build-0.1',
+      'grok-imagine-image',
+    ]
+    const ids = [chatgpt, codex, doubao, grok].flatMap((plugin) =>
+      plugin.models.flatMap((model) => [model.model_id, ...(model.aliases || [])])
+    )
+    for (const id of retired) expect(ids).not.toContain(id)
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'gpt-image-2.5-flare',
+        'gpt-image-2.5-sunburst',
+        'doubao-seedream-5-pro',
+        'doubao-seedream-5-flash',
+        'grok-4.7',
+        'grok-imagine-image-quality',
+        'grok-imagine-image-2.0',
+      ])
+    )
+  })
+
+  it('ChatGPT 刷新目录不会重新引入 5.6 之前的文本型号', () => {
+    const retained = ['gpt-5-6', 'gpt-5-6-mini', 'gpt-5.6-pro', 'gpt-6-pro', 'gpt-6.1-sol']
+    const retired = ['gpt-3.5', 'gpt-4', 'gpt-4o', 'gpt-5', 'gpt-5-5', 'gpt-5.5-pro', 'o3']
+    const models = [...retained, ...retired, 'gpt-6-pro-wm', 'research'].map((slug) => ({ slug }))
+    const run = scripts(['chatgpt/scripts/list_models.js'])
+    run(
+      'chatgptApiReadAuth=()=>({});chatgptApiRefreshSession=auth=>auth;chatgptApiRequireOk=value=>value;chatgptApiRequest=()=>({body:{models}});chatgptApiDiscoveredReasoning=()=>({})',
+      { models: [...models, {}, null] }
+    )
+    expect(run('main({}).models').map((model) => model.model_id)).toEqual(retained)
+  })
+
   it('生成流程包含续期、保活和 TTS 文本依赖，权限覆盖新增原子', () => {
     for (const name of ['generate_text', 'generate_image', 'generate_video'])
       expect(doubao.flows[name].steps[0].script_files).toContain('passport.js')
@@ -46,11 +89,13 @@ describe('新版插件装配与协议', () => {
   })
 
   it('Codex 目录和请求保持一致，6.1 不接受 none，fast 使用 priority', () => {
-    const models = ['gpt-6.1-sol', 'gpt-6-sol', 'old-model'].map((slug) => ({
-      slug,
-      supported_reasoning_levels: [{ effort: 'none' }, { effort: 'low' }, { effort: 'ultra' }],
-      default_reasoning_level: 'low',
-    }))
+    const models = ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.5', 'gpt-5.4', 'gpt-4o', 'old-model'].map(
+      (slug) => ({
+        slug,
+        supported_reasoning_levels: [{ effort: 'none' }, { effort: 'low' }, { effort: 'ultra' }],
+        default_reasoning_level: 'low',
+      })
+    )
     const run = scripts(
       ['codex/scripts/auth.js', 'codex/scripts/text_responses.js', 'codex/scripts/list_models.js'],
       {
@@ -77,6 +122,12 @@ describe('新版插件装配与协议', () => {
     const image = scripts(['codex/scripts/direct_images.js'])
     expect(image('codexImageModel({model_id:"codex"})')).toBe('gpt-image-2.5-flare')
     expect(() => image('codexImageModel({model_id:"gpt-image-1.5"})')).toThrow('unsupported_model')
+    for (const model of ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']) {
+      expect(image('codexImageModel({model_id:model})', { model })).toBe(model)
+      expect(() => image('codexImageModel({model_id:model+"-2026-09-08"})', { model })).toThrow(
+        'unsupported_model'
+      )
+    }
   })
 
   it('文本启动不访问图片启动接口，挑战页进入人工验证状态', () => {
@@ -120,5 +171,52 @@ describe('新版插件装配与协议', () => {
     }
     run('host.call=()=>{throw new Error("转码失败")}')
     expect(() => run('main({request:{input:"台词",response_format:"wav"}})')).toThrow('转码失败')
+  })
+})
+
+describe('Codex 长上下文处理', () => {
+  it('系统上下文只转换为 developer 一次，显式 instructions 保留', () => {
+    const run = scripts(['codex/scripts/auth.js', 'codex/scripts/text_responses.js'])
+    const content = '材料'.repeat(540000)
+    const payload = run('codexNormalizeResponsesRequest(request, {}).payload', {
+      request: {
+        model: 'gpt-6-sol',
+        instructions: '用户指定指令',
+        input: [
+          { role: 'system', content },
+          { role: 'user', content: '继续' },
+        ],
+      },
+    })
+    expect(payload.instructions).toBe('用户指定指令')
+    expect(payload.input[0]).toMatchObject({ role: 'developer', content })
+  })
+  it.each([200, 400])('上下文被明确拒绝时重置提交标记，HTTP %s 不影响分类', (status) => {
+    const checkpoints = []
+    const run = scripts(
+      [
+        'codex/scripts/auth.js',
+        'codex/scripts/text_responses.js',
+        'codex/scripts/generate_text.js',
+      ],
+      {
+        checkpoint: (value) => {
+          if (value) checkpoints.push(value)
+          return {}
+        },
+        stream: (_action, _request, emit) => {
+          emit({
+            type: 'error',
+            error: { code: 'context_length_exceeded', message: 'input exceeds the context window' },
+          })
+          return { ok: status === 200, status }
+        },
+      }
+    )
+    run('codexEnsureFreshAuth=()=>({});codexApplyReasoning=()=>{}')
+    expect(() => run('main({request:{input:"继续"}})')).toThrow(
+      'invalid_input: context_length_exceeded:'
+    )
+    expect(checkpoints.map((item) => item.phase)).toEqual(['submitting', 'ready'])
   })
 })

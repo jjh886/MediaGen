@@ -129,7 +129,10 @@ function chatgptApiApplySpeechEvent(state, event, input) {
     return
   }
   const value = event.v && typeof event.v === 'object' ? event.v : event
-  if (value.message) chatgptApiRememberSpeechMessage(state, value.message, input)
+  if (value.message) {
+    state.message = value.message
+    chatgptApiRememberSpeechMessage(state, state.message, input)
+  }
 }
 
 function chatgptApiApplySpeechPatch(state, operation, input) {

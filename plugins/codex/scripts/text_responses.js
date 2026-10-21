@@ -175,19 +175,16 @@ function codexNormalizeTextFile(part) {
 }
 
 function codexPromoteSystemInstructions(payload) {
-  const instructions = []
   const input = []
   for (const item of payload.input) {
     if (item.type === 'message' && item.role === 'system') {
-      const text = codexResponsesText(item.content).trim()
-      if (text) instructions.push(text)
+      // 系统消息按上游支持的 developer 角色发送一次；不能同时复制到
+      // instructions，否则长任务既重复消耗上下文，也会命中该字段的字符上限。
       input.push({ ...item, role: 'developer' })
     } else {
       input.push(item)
     }
   }
-  const existing = String(payload.instructions || '').trim()
-  payload.instructions = [...instructions, existing].filter(Boolean).join('\n\n')
   payload.input = input
 }
 
@@ -285,7 +282,12 @@ function codexExecuteResponses(auth, payload, ctx) {
     const snapshotText = codexResponsesOutputText(completed)
     completed.output_text = snapshotText || streamedText
   }
-  return { response: completed, error: terminalError, status }
+  const contextRejected =
+    /context_length_exceeded|input exceeds the context window|maximum context length|Invalid ['"]instructions['"]: string too long/i.test(
+      terminalError
+    )
+  if (contextRejected) terminalError = 'invalid_input: context_length_exceeded: ' + terminalError
+  return { response: completed, error: terminalError, status, contextRejected }
 }
 
 function codexResponsesOutputText(response) {

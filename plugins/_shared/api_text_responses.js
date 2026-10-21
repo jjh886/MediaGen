@@ -178,9 +178,6 @@ function apiTextBuildResponsesPrompt(request) {
   const sections = []
   if (request.tools.length) sections.push(apiTextToolInstructions(request))
   if (request.instructions) sections.push('# INSTRUCTIONS\n' + request.instructions)
-  if (request.max_output_tokens > 0) {
-    sections.push('Limit the response to at most ' + request.max_output_tokens + ' tokens.')
-  }
   const format = request.text?.format
   if (format?.type === 'json_object') sections.push('Return only one valid JSON object.')
   if (format?.type === 'json_schema') {

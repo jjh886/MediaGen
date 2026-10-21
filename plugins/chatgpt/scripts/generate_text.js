@@ -1,14 +1,14 @@
 function main(ctx) {
+  const fixedVideoAnalysis = ctx.fixed_video_analysis ?? ctx.request?.options?.fixed_video_analysis
+  if (fixedVideoAnalysis !== undefined && typeof fixedVideoAnalysis !== 'boolean')
+    throw new Error('invalid_input: fixed_video_analysis 必须是布尔值')
+  chatgptApiFixedVideoAnalysis = fixedVideoAnalysis === true
   let request = apiTextNormalizeTextRequest(ctx.request)
-  const saved = chatgptApiPrepareConversationAttempt()
+  const saved = chatgptApiPrepareConversationAttempt(request.session)
   if (saved.phase === 'completed' && saved.result?.response) return saved.result
   if (request.session?.conversation_id && !saved.reset_session)
     request = apiTextSessionRequest(request)
-  if (saved.phase === 'submitting' && !saved.conversation_id) {
-    saved.phase = 'ready'
-    chatgptApiCheckpoint(saved)
-  }
-  if (!saved.phase) chatgptApiCheckpoint({ phase: 'ready' })
+  if (!saved.phase) chatgptApiCheckpoint({ ...saved, phase: 'ready' })
   if (saved.reset_session && request.session && !saved.session_attachments_rebuilt)
     delete saved.attachments
   const auth = chatgptApiRefreshSession(chatgptApiReadAuth(ctx))
@@ -25,7 +25,7 @@ function main(ctx) {
         item.attachments?.some((attachment) => attachment.mime_type.startsWith('audio/'))
       )
     )
-      chatgptApiTranscribeAttachments(auth, request.input)
+      chatgptApiTranscribeAttachments(auth, request.input, ctx)
     request.attachments = Array.isArray(saved.attachments)
       ? saved.attachments
       : chatgptApiUploadTextAttachments(ctx, auth, request.input)
@@ -55,6 +55,13 @@ function chatgptApiGenerateTextConversation(auth, request) {
     throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原文本会话提交状态待核对')
   }
   const writer = apiTextCreateResponseWriter(request)
+  let started = false
+  const start = () => {
+    if (!started) {
+      started = true
+      apiTextStartResponse(writer)
+    }
+  }
   let connection
   try {
     if (!saved.conversation_id) connection = chatgptApiTryOpenTextUpdates(auth)
@@ -64,7 +71,7 @@ function chatgptApiGenerateTextConversation(auth, request) {
     let parentId = saved.parent_message_id || continued?.parent_message_id || 'client-created-root'
     if (!saved.conversation_id && continued && !continued.parent_message_id) {
       const snapshot = chatgptApiTextConversationResponse(auth, continued.conversation_id)
-      chatgptApiRequireRetryableRead(snapshot)
+      chatgptApiRequireRetryableRead(snapshot, continued.conversation_id)
       const conversation = chatgptApiRequireOk(snapshot, '读取原会话最后回复').body || {}
       parentId =
         conversation.current_node ||
@@ -79,7 +86,7 @@ function chatgptApiGenerateTextConversation(auth, request) {
     const state = chatgptApiCreateTextStreamState()
     if (conversationId) {
       writer.request.model = saved.model || request.model
-      apiTextStartResponse(writer)
+      start()
       // 恢复先查询原会话快照；旧实时流可能已经关闭，不能先等待过期流。
     } else {
       chatgptApiCheckpoint({ ...chatgptApiCheckpoint(), phase: 'ready' })
@@ -91,7 +98,6 @@ function chatgptApiGenerateTextConversation(auth, request) {
       const init = chatgptApiInitializeConversation(auth)
       const options = chatgptApiTextOptions(init, request)
       writer.request.model = options.model
-      apiTextStartResponse(writer)
       const sentinelHeaders = chatgptApiSentinelHeaders(auth)
       const prepared = chatgptApiPrepareTextConversation(
         auth,
@@ -103,6 +109,8 @@ function chatgptApiGenerateTextConversation(auth, request) {
       )
       const checkpoint = {
         phase: 'submitting',
+        ...(chatgptApiFixedVideoAnalysis ? { fixed_video_wait_started_at_ms: Date.now() } : {}),
+        ...(continued ? { continuation_id: continued.conversation_id } : {}),
         reset_session: saved.reset_session === true,
         ...(continued ? { conversation_id: continued.conversation_id } : {}),
         model: options.model,
@@ -111,6 +119,13 @@ function chatgptApiGenerateTextConversation(auth, request) {
         attachments: request.attachments || saved.attachments || [],
       }
       chatgptApiCheckpoint(checkpoint)
+      const rememberConversation = (id) => {
+        if (continued && id !== continued.conversation_id)
+          throw new Error('invalid_response: 平台返回的会话与当前窗口绑定不一致')
+        if (conversationId) return
+        conversationId = id
+        chatgptApiCheckpoint({ ...checkpoint, phase: 'accepted', conversation_id: id })
+      }
       const result = chatgptApiStreamTextConversation(
         auth,
         prompt,
@@ -118,19 +133,20 @@ function chatgptApiGenerateTextConversation(auth, request) {
         sentinelHeaders,
         request.attachments || saved.attachments || [],
         (event) => {
-          chatgptApiConsumeTextStreamEvent(state, writer, event, (id) => {
-            if (continued && id !== continued.conversation_id)
-              throw new Error('invalid_response: 平台返回的会话与当前窗口绑定不一致')
-            if (conversationId) return
-            conversationId = id
-            chatgptApiCheckpoint({
-              ...checkpoint,
-              phase: 'accepted',
-              conversation_id: conversationId,
-            })
-          })
+          const receivedId =
+            chatgptApiFindConversationId(event) ||
+            (event?.p === '/conversation_id' && typeof event.v === 'string' ? event.v : '')
+          if (receivedId) rememberConversation(receivedId)
+          start()
+          chatgptApiConsumeTextStreamEvent(state, writer, event, rememberConversation)
         }
       )
+      if (chatgptApiPollRateLimited(result) && chatgptApiCheckpoint().phase === 'submitting') {
+        const retry = { ...chatgptApiCheckpoint(), phase: 'ready' }
+        delete retry.conversation_id
+        chatgptApiCheckpoint(retry)
+        throw new Error('rate_limit_exceeded: HTTP 429 当前消息未被受理，请重试')
+      }
       if (!(state.finished && chatgptApiIsFinalText(state) && state.text.trim())) {
         chatgptApiRequireRetryableRead(result)
         chatgptApiRequireTextStreamOrPoll(result, '发送 ChatGPT 文本消息', conversationId)
@@ -149,6 +165,7 @@ function chatgptApiGenerateTextConversation(auth, request) {
         phase: 'accepted',
         conversation_id: conversationId,
       })
+      start()
     }
     const streamedImages = chatgptApiResolveTextImages(auth, conversationId, state, writer)
     const finalText =
@@ -183,7 +200,7 @@ function chatgptApiGenerateTextConversation(auth, request) {
     })
     return response
   } catch (error) {
-    apiTextFailResponse(writer, error)
+    if (started) apiTextFailResponse(writer, error)
     throw error
   } finally {
     chatgptApiCloseTextUpdates(connection)
@@ -192,8 +209,8 @@ function chatgptApiGenerateTextConversation(auth, request) {
 
 // 已接收会话的流可能在完成后过期；读取原会话正文，不重新提交消息。
 function chatgptApiRequireTextStreamOrPoll(result, operation, conversationId) {
-  chatgptApiRequireRetryableRead(result)
-  if (!result?.ok && Number(result?.status) === 404 && conversationId) {
+  chatgptApiRequireRetryableRead(result, conversationId)
+  if (!result?.ok && [404, 429].includes(Number(result?.status)) && conversationId) {
     chatgptApiCheckpoint({ ...chatgptApiCheckpoint(), resume_token: '' })
     return
   }

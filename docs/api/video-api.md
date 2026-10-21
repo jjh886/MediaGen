@@ -144,3 +144,5 @@ curl "$BASE_URL/v1/videos/$VIDEO_ID/content" \
 豆包平台生成完成后，创作目录或无水印下载地址可能尚未同步。插件最多等待 5 分钟，每 5 秒查询原视频下载地址并执行账号心跳；此期间本地任务仍可能为 `in_progress`。等待不会重新提交生成。到时仍未就绪则报告 `download_pending`；登录失效或需要人工验证时立即返回相应错误。
 
 平台明确返回额度耗尽时报告 `quota_exhausted`，有有效重置时间时错误原因包含 `retry after N seconds`；订阅权限不足报告 `platform_rejected`。这些提示不会作为成功视频结果返回，客户端应检查任务的 `status` 和 `error`。
+
+插件视频结果兼容 `download: {url, authorization: "url"}` 下载描述符与已有 URL 字段。对调用方仍通过 `/v1/videos/{video_id}/content` 下载，账号及 API Key 权限要求保持一致；未支持的下载鉴权方式不会被当作可用结果。

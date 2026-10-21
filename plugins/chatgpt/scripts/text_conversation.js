@@ -122,7 +122,7 @@ function chatgptApiStreamTextConversation(
       body: chatgptApiTextConversationPayload(auth, prompt, prepared, attachments),
       stop_condition: "type == 'message_stream_complete'",
       retry: { max_attempts: 1 },
-      timeout_ms: 3 * 60 * 60 * 1000,
+      timeout_ms: chatgptApiFixedVideoAnalysis ? CHATGPT_API_TEXT_TIMEOUT_MS : 3 * 60 * 60 * 1000,
     },
     (event) => {
       onEvent(event)
@@ -263,7 +263,7 @@ function chatgptApiWaitForText(auth, conversationId, baselineParentId) {
       if (Date.now() - started >= CHATGPT_API_TEXT_TIMEOUT_MS) break
     }
     const response = chatgptApiTextConversationResponse(auth, conversationId)
-    chatgptApiRequireRetryableRead(response)
+    chatgptApiRequireRetryableRead(response, conversationId)
     waitingForReadSlot = chatgptApiPollRateLimited(response) && response.coalesced === true
     if (chatgptApiPollRateLimited(response)) {
       delay = chatgptApiPollRetryDelayMs(response, delay)

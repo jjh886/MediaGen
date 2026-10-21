@@ -78,8 +78,13 @@ describe('ChatGPT 图片默认模型与参考图', () => {
 describe('ChatGPT 聊天音频转写', () => {
   it('提交前重试复用已上传文件时，不能丢失音频转写', () => {
     const run = scripts(
-      ['chatgpt/scripts/reference_upload.js', 'chatgpt/scripts/generate_text.js'],
-      { checkpoint: () => ({ phase: 'ready', attachments: [] }) }
+      [
+        '_shared/api_text_attachments.js',
+        'chatgpt/scripts/poll_retry.js',
+        'chatgpt/scripts/reference_upload.js',
+        'chatgpt/scripts/generate_text.js',
+      ],
+      { checkpoint: () => ({ phase: 'ready', attachments: [] }), call: () => ({ size: 3 }) }
     )
     run(`apiTextNormalizeTextRequest=request=>request;
       chatgptApiCheckpoint=()=>({phase:'ready',attachments:[]});
@@ -89,15 +94,18 @@ describe('ChatGPT 聊天音频转写', () => {
       chatgptApiGenerateTextConversation=(_auth,request)=>({text:request.input[0].text});
       chatgptApiUploadTextAttachments=()=>{throw new Error('不应重复上传文件')}`)
     expect(
-      run(`main({request:{input:[{text:'读取录音',attachments:[{
-        name:'a.wav',mime_type:'audio/wav',base64:'YWJj'
+      run(`main({workspace_dir:'/workspace',request:{input:[{text:'读取录音',attachments:[{
+        name:'a.wav',mime_type:'audio/wav',base64:'YWJj',size:3
       }]}]}}).response.text`)
     ).toContain('427')
   })
 
   it('使用真实音频字节转写，不再把音频作为普通文件上传', () => {
     const requests = []
-    const run = scripts(['chatgpt/scripts/reference_upload.js'])
+    const run = scripts(
+      ['_shared/api_text_attachments.js', 'chatgpt/scripts/reference_upload.js'],
+      { call: () => ({ size: 3 }) }
+    )
     run('chatgptApiRequireOk=result=>result; chatgptApiRequest=request', {
       request: (_auth, method, path, options) => {
         requests.push({ method, path, ...options })
@@ -107,13 +115,18 @@ describe('ChatGPT 聊天音频转写', () => {
     run(`input=[{text:'读取数字',attachments:[{
       name:'录音.wav',mime_type:'audio/wav',base64:'YWJj',size:3
     }]}]`)
-    expect(run('chatgptApiUploadTextAttachments({}, {}, input)')).toEqual([])
+    expect(run(`chatgptApiUploadTextAttachments({workspace_dir:"/workspace"}, {}, input)`)).toEqual(
+      []
+    )
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({
       method: 'POST',
       path: '/backend-api/transcribe',
-      body_format: 'multipart',
-      body: { file: { filename: '录音.wav', mime_type: 'audio/wav', base64: 'YWJj' } },
+      body_format: 'multipart_file',
+      body_file: '/workspace/text-attachment-0.wav',
+      body_file_name: '录音.wav',
+      body_file_mime: 'audio/wav',
+      body_file_size: 3,
     })
     expect(run('input[0].text')).toContain('读取数字')
     expect(run('input[0].text')).toContain('识别到的数字为427')
@@ -121,19 +134,26 @@ describe('ChatGPT 聊天音频转写', () => {
   })
 
   it('保留同一消息中的图片、文档，空转写和上游失败不得静默丢弃音频', () => {
-    const run = scripts(['chatgpt/scripts/reference_upload.js'])
+    const run = scripts(
+      ['_shared/api_text_attachments.js', 'chatgpt/scripts/reference_upload.js'],
+      { call: () => ({ size: 3 }) }
+    )
     run(`chatgptApiRequireOk=result=>result;
       chatgptApiRequest=()=>({body:'427'});
-      input=[{attachments:[{name:'a.mp3',mime_type:'audio/mpeg'},
+      input=[{attachments:[{name:'a.mp3',mime_type:'audio/mpeg',base64:'YWJj',size:3},
       {name:'a.pdf',mime_type:'application/pdf'},{name:'a.png',mime_type:'image/png'}]}];
-      chatgptApiTranscribeAttachments({},input)`)
+      chatgptApiTranscribeAttachments({},input,{workspace_dir:'/workspace'})`)
     expect(run('input[0].attachments.map(item=>item.name)')).toEqual(['a.pdf', 'a.png'])
-    run(`input=[{attachments:[{name:'b.mp3',mime_type:'audio/mpeg'}]}];
+    run(`input=[{attachments:[{name:'b.mp3',mime_type:'audio/mpeg',base64:'YWJj',size:3}]}];
       chatgptApiRequest=()=>({body:{text:''}})`)
-    expect(() => run('chatgptApiTranscribeAttachments({},input)')).toThrow('未返回有效转写')
+    expect(() =>
+      run(`chatgptApiTranscribeAttachments({},input,{workspace_dir:"/workspace"})`)
+    ).toThrow('未返回有效转写')
     expect(run('input[0].attachments')).toHaveLength(1)
     run(`chatgptApiRequest=()=>{throw new Error('LOGIN_EXPIRED')}`)
-    expect(() => run('chatgptApiTranscribeAttachments({},input)')).toThrow('LOGIN_EXPIRED')
+    expect(() =>
+      run(`chatgptApiTranscribeAttachments({},input,{workspace_dir:"/workspace"})`)
+    ).toThrow('LOGIN_EXPIRED')
   })
 })
 
@@ -448,7 +468,10 @@ describe('DeepSeek 断流恢复', () => {
 
 describe('ChatGPT 音视频附件完成回执', () => {
   it('没有索引阶段时使用处理完成事件中的资料库身份', () => {
-    const run = scripts(['chatgpt/scripts/reference_upload.js'])
+    const run = scripts(
+      ['_shared/api_text_attachments.js', 'chatgpt/scripts/reference_upload.js'],
+      { call: () => ({ size: 3 }) }
+    )
     const bodies = []
     run('chatgptApiRequireOk=(result)=>result; chatgptApiRequest=request', {
       request: (_auth, _method, _path, options) => {

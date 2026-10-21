@@ -16,6 +16,7 @@ beforeEach(() => {
     '../../_shared/api_text_attachments',
     '../../_shared/api_text_responses',
     '../../_shared/api_text_media',
+    'text_updates',
     'text_media',
     'text_conversation',
   ]) {

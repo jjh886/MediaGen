@@ -1,8 +1,6 @@
 const DOUBAO_MEDIA_MODELS = {
   'doubao-seedream-5-pro': { kind: 'image', value: 'Seedream 5.0 Pro' },
   'doubao-seedream-5-flash': { kind: 'image', value: 'Seedream 5.0 Flash' },
-  'doubao-seedream-4-5': { kind: 'image', value: 'Seedream 4.5' },
-  'doubao-seedream-4-0': { kind: 'image', value: 'Seedream 4.0' },
   'doubao-seedance-2-5': { kind: 'video', value: 'seedance_v2.5' },
   'doubao-seedance-2': { kind: 'video', value: 'seedance_v2.0_std' },
   'doubao-seedance-2-fast': { kind: 'video', value: 'seedance_v2.0' },

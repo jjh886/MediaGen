@@ -7,6 +7,7 @@ function main(ctx) {
         (item) =>
           typeof item?.id === 'string' &&
           item.id.trim() &&
+          !['grok-4.5', 'grok-4.6', 'grok-build-0.1'].includes(item.id.trim()) &&
           !/imagine|voice|transcri|tts|stt/i.test(item.id)
       )
       .map((item) => ({

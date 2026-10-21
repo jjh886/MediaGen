@@ -12,7 +12,7 @@ for (const legacy of [
   { phase: 'accepted', poll_rate_limited: true },
   { phase: 'accepted', poll_next_at_ms: 1 },
 ]) {
-  test(`历史失败记录重启后必须准备新会话：${JSON.stringify(legacy)}`, () => {
+  test(`重启后仅重置明确失败的新会话，限流中的已受理会话保留：${JSON.stringify(legacy)}`, () => {
     const dir = mkdtempSync(join(tmpdir(), 'failed-conversation-'))
     const path = join(dir, 'checkpoint.json')
     const initial = {
@@ -36,10 +36,10 @@ for (const legacy of [
     }
     try {
       const first = reopen().chatgptApiPrepareConversationAttempt()
-      assert.equal(first.phase, 'ready')
-      assert.equal(first.conversation_id, undefined)
+      assert.equal(first.phase, legacy.phase === 'failed' ? 'ready' : 'accepted')
+      assert.equal(first.conversation_id, legacy.phase === 'failed' ? undefined : 'failed')
       const restarted = reopen().chatgptApiPrepareConversationAttempt()
-      assert.equal(restarted.phase, 'ready')
+      assert.equal(restarted.phase, legacy.phase === 'failed' ? 'ready' : 'accepted')
       assert.equal(restarted.attachments[0].file_id, 'video')
       assert.equal(restarted.images.length, 1)
     } finally {
@@ -48,7 +48,7 @@ for (const legacy of [
   })
 }
 
-test('原任务遇到真实限流会持久化失败和等待时间，本机排队与已完成结果不重投', () => {
+test('已受理会话限流保留原编号，新会话的拒绝允许宿主换号，完成结果不重投', () => {
   let saved = {
     phase: 'accepted',
     conversation_id: 'original',
@@ -72,17 +72,19 @@ test('原任务遇到真实限流会持久化失败和等待时间，本机排�
     vm.runInContext(readFileSync(join(scripts, file), 'utf8'), context)
   context.chatgptApiRequireRetryableRead({ status: 429, coalesced: true })
   assert.equal(saved.conversation_id, 'original')
-  assert.throws(
-    () =>
-      context.chatgptApiRequireRetryableRead({ status: 429, headers: { 'retry-after': '120' } }),
-    /原任务已失败/
+  assert.doesNotThrow(() =>
+    context.chatgptApiRequireRetryableRead({ status: 429, headers: { 'retry-after': '120' } })
   )
-  assert.equal(saved.failed_conversation_id, 'original')
+  assert.equal(saved.conversation_id, 'original')
+  assert.equal(saved.phase, 'accepted')
+  saved = { phase: 'submitting', images: saved.images }
+  assert.throws(
+    () => context.chatgptApiRequireRetryableRead({ status: 429 }),
+    /rate_limit_exceeded/
+  )
   assert.equal(saved.conversation_id, undefined)
-  assert.equal(saved.retry_not_before_ms, 121000)
+  assert.equal(saved.phase, 'ready')
   assert.equal(saved.attachments, undefined)
-  assert.throws(() => context.chatgptApiPrepareConversationAttempt(), /重试等待/)
-  now = 121001
   assert.equal(context.chatgptApiPrepareConversationAttempt().phase, 'ready')
   assert.equal(saved.images.length, 1)
   saved = {
@@ -91,4 +93,53 @@ test('原任务遇到真实限流会持久化失败和等待时间，本机排�
     result: { response: { output_text: '已完成' } },
   }
   assert.equal(context.chatgptApiPrepareConversationAttempt().result.response.output_text, '已完成')
+})
+
+test('固定视频反推的真实429结束本轮，附件保留并在Retry-After后重试；本机排队不重投', () => {
+  let now = 1000
+  let saved = {
+    phase: 'accepted',
+    conversation_id: 'video-original',
+    attachments: [{ file_id: 'full-video', mime_type: 'video/mp4' }],
+  }
+  const context = vm.createContext({
+    Date: class extends Date {
+      static now() {
+        return now
+      }
+    },
+    host: {
+      checkpoint(value) {
+        if (value !== undefined) saved = JSON.parse(JSON.stringify(value))
+        return saved
+      },
+    },
+  })
+  for (const file of ['conversation.js', 'poll_retry.js'])
+    vm.runInContext(readFileSync(join(scripts, file), 'utf8'), context)
+  vm.runInContext('chatgptApiFixedVideoAnalysis = true', context)
+  context.chatgptApiRequireRetryableRead({ status: 429, coalesced: true })
+  assert.equal(saved.conversation_id, 'video-original')
+  assert.throws(
+    () =>
+      context.chatgptApiRequireRetryableRead({
+        status: 429,
+        headers: { 'retry-after': '120' },
+      }),
+    /upstream_rate_limited/
+  )
+  assert.equal(saved.phase, 'retry_pending')
+  assert.equal(saved.conversation_id, undefined)
+  assert.equal(saved.failed_conversation_id, 'video-original')
+  assert.equal(saved.retry_not_before_ms, 121000)
+  assert.equal(saved.attachments[0].file_id, 'full-video')
+  assert.throws(() => context.chatgptApiPrepareConversationAttempt(), /重试等待/)
+  now = 121000
+  const next = context.chatgptApiPrepareConversationAttempt()
+  assert.equal(next.phase, 'ready')
+  assert.equal(next.reset_session, true)
+  assert.equal(next.attachments[0].file_id, 'full-video')
+  saved = { phase: 'completed', result: { response: { output_text: '完整反推稿' } } }
+  context.chatgptApiRequireRetryableRead({ status: 429 })
+  assert.equal(saved.phase, 'completed')
 })

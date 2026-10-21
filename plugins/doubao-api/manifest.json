@@ -96,7 +96,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "2.2.1",
+  "version": "2.2.3",
   "platform_id": "doubao-api",
   "display_name": "豆包",
   "sort_order": 50,
@@ -133,7 +133,8 @@
       "ibytedtos.com",
       "snssdk.com",
       "bytedancevod.com",
-      "mssdk.bytedance.com"
+      "mssdk.bytedance.com",
+      "mon.zijieapi.com"
     ],
     "context_fields": [
       "profile_dir",
@@ -226,30 +227,6 @@
     {
       "model_id": "doubao-seedream-5-flash",
       "display_name": "Seedream 5.0 Flash",
-      "task_kind": "image",
-      "aliases": [],
-      "capabilities": {
-        "input_types": ["text", "image"],
-        "input_modalities": ["text", "image"],
-        "output_modalities": ["image"],
-        "streaming": false
-      }
-    },
-    {
-      "model_id": "doubao-seedream-4-5",
-      "display_name": "Seedream 4.5",
-      "task_kind": "image",
-      "aliases": [],
-      "capabilities": {
-        "input_types": ["text", "image"],
-        "input_modalities": ["text", "image"],
-        "output_modalities": ["image"],
-        "streaming": false
-      }
-    },
-    {
-      "model_id": "doubao-seedream-4-0",
-      "display_name": "Seedream 4.0",
       "task_kind": "image",
       "aliases": [],
       "capabilities": {

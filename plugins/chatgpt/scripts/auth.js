@@ -256,7 +256,17 @@ function chatgptApiRequest(auth, method, path, options) {
   }
   if (config.body !== undefined) request.body = config.body
   if (config.body_format) request.body_format = config.body_format
-  if (config.body_format === 'multipart') delete request.headers['content-type']
+  if (config.body_format === 'multipart' || config.body_format === 'multipart_file')
+    delete request.headers['content-type']
+  for (const key of [
+    'body_file',
+    'body_file_field',
+    'body_file_name',
+    'body_file_mime',
+    'body_file_size',
+  ]) {
+    if (config[key] !== undefined) request[key] = config[key]
+  }
   if (config.response_body_format) request.response_body_format = config.response_body_format
   if (config.retry) request.retry = config.retry
   if (config.sse && typeof config.on_event === 'function' && typeof host.stream === 'function') {
@@ -301,8 +311,22 @@ function chatgptApiRequireOk(result, operation) {
 function chatgptApiHttpSummary(result) {
   const status = Number(result?.status || 0)
   const body = result?.body
-  const message =
+  const detail =
     body?.detail || body?.error?.message || body?.error || body?.message || result?.body_text || ''
+  const message = Array.isArray(detail)
+    ? detail
+        .map((item) =>
+          [
+            Array.isArray(item?.loc) ? item.loc.join('.') : '',
+            item?.msg || item?.type || '字段无效',
+          ]
+            .filter(Boolean)
+            .join(': ')
+        )
+        .join('; ')
+    : typeof detail === 'object'
+      ? detail?.message || detail?.msg || '上游返回结构化错误'
+      : detail
   const cooldownSeconds = chatgptApiCooldownSeconds(result)
   return (
     (status ? 'HTTP ' + status + ' ' : '') +

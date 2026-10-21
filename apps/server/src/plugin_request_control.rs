@@ -160,7 +160,8 @@ impl ServerPluginHost {
                     params["url"],
                     vary,
                     params["cookies"],
-                    params["response_body_format"]
+                    params["response_body_format"],
+                    params["include_final_url"]
                 ])
                 .to_string()
                 .as_bytes()
@@ -274,9 +275,14 @@ mod tests {
         let second = engine.execute("http.request", &request).await.unwrap();
         assert_eq!(first, second);
         assert_eq!(count.load(Ordering::SeqCst), 1);
+        request["include_final_url"] = json!(true);
+        let with_url = engine.execute("http.request", &request).await.unwrap();
+        assert_eq!(with_url["final_url"], format!("{url}/conversation"));
+        assert!(first.get("final_url").is_none());
+        assert_eq!(count.load(Ordering::SeqCst), 2);
         request["headers"]["authorization"] = json!("Bearer different-session");
         engine.execute("http.request", &request).await.unwrap();
-        assert_eq!(count.load(Ordering::SeqCst), 2);
+        assert_eq!(count.load(Ordering::SeqCst), 3);
         server.abort();
     }
     #[test]

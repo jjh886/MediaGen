@@ -98,8 +98,9 @@ test('ChatGPT 两轮对话复用原编号及父消息，只发送新增输入，
     retry_not_before_ms: 0,
     failed_conversation_id: 'upstream-1',
   })
-  assert.equal(submitted[2].conversation_id, '')
-  assert.ok(submitted[2].prompt.includes('我的暗号是青山'))
+  assert.equal(submitted[2].conversation_id, 'upstream-1')
+  assert.equal(submitted[2].parent_message_id, 'assistant-1')
+  assert.ok(!submitted[2].prompt.includes('我的暗号是青山'))
   run([history[0]], null)
   assert.equal(submitted[3].conversation_id, '')
   assert.throws(() => run(history, cursor, {}, 'unexpected-session'), /绑定不一致/)

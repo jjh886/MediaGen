@@ -74,6 +74,7 @@ it('接续失败保留上游状态，不再次发送生成请求', () => {
   })
   const context = vm.createContext({
     chatgptApiTlsProfile: () => 'chrome_149',
+    chatgptApiCheckpoint: () => ({ phase: 'accepted', conversation_id: 'original' }),
     host: { stream },
   })
   vm.runInContext(source, context)

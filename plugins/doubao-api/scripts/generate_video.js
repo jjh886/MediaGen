@@ -26,7 +26,7 @@ function main(ctx) {
     const video = item.video
     const url = doubaoVideoDownload(session, video.vid)
     return {
-      video_url: url,
+      download: { url, authorization: 'url' },
       duration: Number(video.duration),
       cover_url: video.cover?.image_ori?.url || video.cover?.image_thumb?.url || '',
       video_id: video.vid,

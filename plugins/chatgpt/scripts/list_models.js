@@ -7,7 +7,14 @@ function main(ctx) {
   if (!Array.isArray(result.body?.models)) throw new Error('模型目录响应无效')
   return {
     models: result.body.models
-      .filter((item) => !String(item.slug).endsWith('-wm') && item.slug !== 'research')
+      .filter((item) => {
+        if (typeof item?.slug !== 'string' || item.slug.endsWith('-wm')) return false
+        const version = /^gpt-(\d+)(?:[.-](\d+))?(?:$|-)/.exec(item.slug)
+        return (
+          version &&
+          (Number(version[1]) > 5 || (Number(version[1]) === 5 && Number(version[2]) >= 6))
+        )
+      })
       .map((item) => ({
         model_id: item.slug,
         display_name: item.title || item.slug,

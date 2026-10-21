@@ -403,7 +403,7 @@ describe('豆包多图的持久恢复', () => {
     )
     run(
       `apiSessionRead=()=>({auth:{}}); doubaoStartHeartbeats=()=>{}; doubaoRequest=()=>({}); doubaoUploadReferences=()=>[];
-      doubaoMediaOptions=()=>({model:'Seedream 4.5',ratio:'auto'});
+      doubaoMediaOptions=()=>({model:'Seedream 5.0 Pro',ratio:'auto'});
       doubaoReferenceBlocks=()=>[]; doubaoPayload=(prompt)=>({prompt});
       doubaoSubmit=submit; doubaoCreations=()=>[]; doubaoWaitForResult=history;
       doubaoMarkConversationRead=()=>{}`,
@@ -531,5 +531,41 @@ describe('豆包媒体终态', () => {
       ],
     })
     expect(() => run(`doubaoWaitForResult({},'123',kind)`, { kind })).toThrow(error)
+  })
+})
+
+describe('豆包 SDK 监控兼容', () => {
+  it('SDK 监控请求使用真实传输且不携带账号凭据，未知地址仍拒绝', () => {
+    const calls = []
+    const run = scripts(['doubao-api/scripts/signing.js'], {
+      call: (_action, request) => {
+        calls.push(request)
+        return { ok: true, status: 204, headers: {}, body_text: '' }
+      },
+    })
+    run(`DOUBAO_ORIGIN='https://www.doubao.com';
+      apiSessionHeaders=()=>({cookie:'private',authorization:'private',origin:DOUBAO_ORIGIN});`)
+    const request = {
+      method: 'POST',
+      url: 'https://mon.zijieapi.com/monitor_browser/collect/batch/',
+      headers: { Cookie: 'private', Authorization: 'private' },
+      with_credentials: true,
+      body: '{"events":[]}',
+    }
+    expect(run('doubaoSecuritySend({},request)', { request }).status).toBe(204)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].headers).toMatchObject({ origin: 'https://www.doubao.com' })
+    expect(Object.keys(calls[0].headers).some((key) => /cookie|authorization/i.test(key))).toBe(
+      false
+    )
+    expect(calls[0].body).toBe(request.body)
+    for (const url of [
+      'https://mon.zijieapi.com/other',
+      'https://mon.zijieapi.com.example.com/monitor_browser/collect/batch/',
+    ]) {
+      expect(() => run('doubaoSecuritySend({},request)', { request: { ...request, url } })).toThrow(
+        'unsupported_protocol'
+      )
+    }
   })
 })

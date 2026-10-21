@@ -55,11 +55,7 @@ pub(crate) fn completed_video_metadata(
 }
 
 pub(crate) fn result_has_video(result: &Value) -> bool {
-    first_video(result).is_some_and(|video| {
-        ["url", "video_url", "download_url"]
-            .iter()
-            .any(|field| video.get(*field).and_then(Value::as_str).is_some())
-    })
+    first_video(result).is_some_and(|video| video_download_url(&video).is_some())
 }
 
 pub(crate) fn openai_video(task: &TaskRecord) -> Value {
@@ -104,6 +100,9 @@ pub(crate) fn task_owned_by(task: &TaskRecord, owner_hash_value: &str) -> bool {
 pub(crate) fn video_asset_url(task: &TaskRecord, variant: &str) -> Option<String> {
     let metadata = task_metadata(task);
     let video = metadata.get("video")?;
+    if matches!(variant, "video" | "") {
+        return video_download_url(video);
+    }
     let field_names: &[&str] = match variant {
         "thumbnail" => &["cover_url", "thumbnail_url"],
         "video" | "" => &["url", "video_url", "download_url"],
@@ -115,6 +114,27 @@ pub(crate) fn video_asset_url(task: &TaskRecord, variant: &str) -> Option<String
             .and_then(Value::as_str)
             .map(ToOwned::to_owned)
     })
+}
+
+fn video_download_url(video: &Value) -> Option<String> {
+    let value = if let Some(download) = video.get("download") {
+        if download["authorization"] != "url" {
+            return None;
+        }
+        download["url"].as_str()?
+    } else {
+        ["url", "video_url", "download_url"]
+            .iter()
+            .find_map(|field| video[*field].as_str())?
+    };
+    let url = reqwest::Url::parse(value).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+    Some(value.to_owned())
 }
 
 fn task_metadata(task: &TaskRecord) -> Value {
@@ -140,11 +160,7 @@ fn first_video(result: &Value) -> Option<Value> {
     {
         return Some(video.clone());
     }
-    let url = result
-        .get("video_url")
-        .or_else(|| result.get("download_url"))
-        .or_else(|| result.get("url"))
-        .and_then(Value::as_str)?;
+    let url = video_download_url(result)?;
     Some(json!({
         "url": url,
         "cover_url": result.get("cover_url").cloned(),
@@ -191,6 +207,37 @@ fn unix_time(value: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn download_descriptors_preserve_video_and_thumbnail_without_accepting_unsupported_auth() {
+        let request = OpenAiVideoRequest::empty();
+        let manifest =
+            serde_json::from_value(json!({"platform_id":"test","display_name":"Test"})).unwrap();
+        let mut task = new_video_task("video-1", &manifest, "video-model", &request, "a", "owner");
+        let video = json!({"download":{"url":"https://example.test/video.mp4?sig=abc","authorization":"url"},"cover_url":"https://example.test/cover.png","duration":10});
+        for result in [json!({"videos":[video]}), video.clone()] {
+            assert!(result_has_video(&result));
+            task.result_data = Some(completed_video_metadata(&task, &request, &result).to_string());
+            assert_eq!(
+                video_asset_url(&task, "video").as_deref(),
+                Some("https://example.test/video.mp4?sig=abc")
+            );
+            assert_eq!(
+                video_asset_url(&task, "thumbnail").as_deref(),
+                Some("https://example.test/cover.png")
+            );
+            assert!(task_owned_by(&task, "owner"));
+        }
+        for descriptor in [
+            json!({"url":"https://example.test/video.mp4","authorization":"cookie"}),
+            json!({"url":"file:///private/video.mp4","authorization":"url"}),
+            json!({"url":"https://user:pass@example.test/video.mp4","authorization":"url"}),
+        ] {
+            assert!(!result_has_video(
+                &json!({"videos":[{"download":descriptor}]})
+            ));
+        }
+    }
 
     #[test]
     fn completed_task_maps_to_openai_video_and_content_url() {

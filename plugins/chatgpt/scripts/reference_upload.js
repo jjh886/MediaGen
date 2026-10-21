@@ -152,7 +152,7 @@ function chatgptApiProcessReference(auth, fileId, reference) {
 }
 
 function chatgptApiUploadTextAttachments(ctx, auth, input) {
-  chatgptApiTranscribeAttachments(auth, input)
+  chatgptApiTranscribeAttachments(auth, input, ctx)
   const attachments = input.flatMap((item) => item.attachments || [])
   if (!attachments.length) return []
   if (typeof ctx.workspace_dir !== 'string' || !ctx.workspace_dir) {
@@ -178,7 +178,9 @@ function chatgptApiUploadTextAttachments(ctx, auth, input) {
   })
 }
 
-function chatgptApiTranscribeAttachments(auth, input) {
+function chatgptApiTranscribeAttachments(auth, input, ctx) {
+  let audioIndex = 0
+  const transcriptions = new Map()
   for (const item of input) {
     const retained = []
     for (const attachment of item.attachments || []) {
@@ -187,23 +189,29 @@ function chatgptApiTranscribeAttachments(auth, input) {
         continue
       }
       // 普通文件上传不会把音频交给听觉模型；复用平台已有的语音转写入口。
-      const response = chatgptApiRequireOk(
-        chatgptApiRequest(auth, 'POST', '/backend-api/transcribe', {
-          body_format: 'multipart',
-          body: {
-            file: {
-              base64: attachment.base64,
-              filename: attachment.name,
-              mime_type: attachment.mime_type,
-            },
-          },
-          timeout_ms: 300000,
-        }),
-        '转写 ChatGPT 音频附件'
-      )
-      const text = typeof response.body === 'string' ? response.body : response.body?.text
-      if (typeof text !== 'string' || !text.trim())
-        throw new Error('invalid_response: ChatGPT 音频附件未返回有效转写')
+      // 历史消息与本轮可能引用同一音轨；同一请求内按真实字节复用，避免重复转写产生相互矛盾的版本。
+      let cache = transcriptions.get(attachment.mime_type)
+      if (!cache) transcriptions.set(attachment.mime_type, (cache = new Map()))
+      let text = cache.get(attachment.base64)
+      if (text === undefined) {
+        const file = apiTextMaterializeAttachment(ctx, attachment, audioIndex++)
+        const response = chatgptApiRequireOk(
+          chatgptApiRequest(auth, 'POST', '/backend-api/transcribe', {
+            body_format: 'multipart_file',
+            body_file: file.path,
+            body_file_field: 'file',
+            body_file_name: file.name,
+            body_file_mime: file.mime_type,
+            body_file_size: file.size,
+            timeout_ms: 300000,
+          }),
+          '转写 ChatGPT 音频附件'
+        )
+        text = typeof response.body === 'string' ? response.body : response.body?.text
+        if (typeof text !== 'string' || !text.trim())
+          throw new Error('invalid_response: ChatGPT 音频附件未返回有效转写')
+        cache.set(attachment.base64, text)
+      }
       item.text =
         (item.text || '') +
         '\n\n音频附件 ' +

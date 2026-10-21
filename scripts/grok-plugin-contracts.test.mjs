@@ -102,7 +102,7 @@ test('Grok 请求标识对应公共标识，缓存会话仅在指定稳定键时
   const auth = host.files.get('/profile/auth.json')
   const ctx = {
     request_id: 'req_0123456789abcdef0123456789abcdef',
-    request: { model: 'grok-4.6', prompt_cache_key: 'my-session' },
+    request: { model: 'grok-4.7', prompt_cache_key: 'my-session' },
   }
   const headers = script.grokHeaders(ctx, auth, true)
   assert.equal(headers['x-grok-client-version'], '1.0.13')
@@ -165,7 +165,7 @@ test('Grok 文本保留工具、结构化输出、增量和 incomplete 终态', 
     profile_dir: '/profile',
     request_id: 'request-test',
     request: {
-      model: 'grok-4.6',
+      model: 'grok-4.7',
       input: 'hello',
       metadata: { test: 'local-only' },
       tools: [{ type: 'function', name: 'weather' }],
@@ -177,7 +177,7 @@ test('Grok 文本保留工具、结构化输出、增量和 incomplete 终态', 
   host.checkpoint({}) // 后续是另一请求，使用独立检查点。
   host.stream = () => ({ ok: true, status: 200 })
   assert.throws(
-    () => script.main({ profile_dir: '/profile', request: { model: 'grok-4.6', input: 'hello' } }),
+    () => script.main({ profile_dir: '/profile', request: { model: 'grok-4.7', input: 'hello' } }),
     /未正常完成/
   )
 })
@@ -205,7 +205,7 @@ test('Grok 多轮历史保留文本、图片和文件，清除上游不接受的
   })
   assert.equal(input.content[0].detail, 'auto')
   assert.equal(input.content[1].filename, 'a.pdf')
-  assert.ok(script.grokTextCapabilities('grok-4.6').input_modalities.includes('file'))
+  assert.ok(script.grokTextCapabilities('grok-4.7').input_modalities.includes('file'))
 })
 
 test('Grok 图片编辑保留参考图并把上游 URL 转换成内容', () => {
@@ -217,7 +217,7 @@ test('Grok 图片编辑保留参考图并把上游 URL 转换成内容', () => {
   const script = load(['auth', 'generate_image'], host)
   const result = script.main({
     profile_dir: '/profile',
-    model_id: 'grok-imagine-image',
+    model_id: 'grok-imagine-image-2.0',
     prompt: 'edit',
     ref_image_dataurls: ['data:image/png;base64,aA=='],
   })
@@ -438,7 +438,16 @@ test('Grok 4.7 动态目录保留上游档位、默认值、上下文与搜索�
   }
   const host = fixture(() => ({
     ok: true,
-    body: { data: [catalog, { id: 'grok-imagine-image' }, null] },
+    body: {
+      data: [
+        catalog,
+        { id: 'grok-imagine-image' },
+        { id: 'grok-4.5' },
+        { id: ' grok-4.6 ' },
+        { id: 'grok-build-0.1' },
+        null,
+      ],
+    },
   }))
   const script = load(['auth', 'text', 'list_models'], host)
   const models = script.main({ profile_dir: '/profile' }).models

@@ -208,6 +208,8 @@ describe('ChatGPT API 文本协议', () => {
       })
     ).toEqual({
       model: 'chatgpt-web',
+      session: null,
+      session_key: '',
       input: [{ role: 'user', text: '已由业务侧渲染的输入' }],
       instructions: '',
       max_output_tokens: 12000,
@@ -229,7 +231,7 @@ describe('ChatGPT API 文本协议', () => {
     ).toThrow('invalid_input')
   })
 
-  it('按网页准备 sent、读取能力，并保持发送状态和流编码一致', () => {
+  it('按网页准备 success、读取能力，并保持发送状态和流编码一致', () => {
     vm.runInContext(
       `
       globalThis.__requests = []
@@ -271,7 +273,7 @@ describe('ChatGPT API 文本协议', () => {
     expect(payload).toMatchObject({
       parent_message_id: 'parent-1',
       conversation_id: 'conversation-1',
-      client_prepare_state: 'sent',
+      client_prepare_state: 'success',
       is_do_not_remember: false,
       thinking_effort: 'standard',
       supported_encodings: ['v1'],
@@ -629,4 +631,80 @@ describe('ChatGPT API 文本协议', () => {
       flow: 'device-1',
     })
   })
+})
+
+it('音频转写使用宿主支持的文件表单而非退化为JSON的multipart值', () => {
+  vm.runInContext(
+    'chatgptApiBaseHeaders = () => ({"content-type":"application/json"}); chatgptApiTlsProfile = () => "chrome_131"; chatgptApiRememberCookies = (_auth, response) => response;',
+    context
+  )
+  const requests = []
+  context.host.call = (action, params) => {
+    if (action === 'file.write_base64') return { size: 3 }
+    requests.push(params)
+    return { ok: true, status: 200, body: { text: '真实转写结果' } }
+  }
+  const input = [
+    {
+      text: '核对原音',
+      attachments: [{ name: 'audio.wav', mime_type: 'audio/wav', base64: 'YWJj', size: 3 }],
+    },
+  ]
+  evaluate(
+    '(chatgptApiTranscribeAttachments({}, __input, {workspace_dir:"/workspace"}), __input)',
+    { __input: input }
+  )
+  expect(requests[0]).toMatchObject({
+    body_format: 'multipart_file',
+    body_file: '/workspace/text-attachment-0.wav',
+    body_file_field: 'file',
+    body_file_name: 'audio.wav',
+    body_file_mime: 'audio/wav',
+    body_file_size: 3,
+  })
+  expect(requests[0].headers).not.toHaveProperty('content-type')
+  expect(requests[0]).not.toHaveProperty('body')
+  expect(input[0].text).toContain('真实转写结果')
+  expect(input[0].attachments).toEqual([])
+})
+
+it('结构化表单错误显示字段但不输出回显输入', () => {
+  const summary = evaluate(
+    'chatgptApiHttpSummary({status:422,body:{detail:[{loc:["body","file"],msg:"Field required",input:"private-base64"}]}})'
+  )
+  expect(summary).toContain('body.file: Field required')
+  expect(summary).not.toContain('private-base64')
+})
+
+it('同一音轨的历史引用只转写一次，不把同名的不同音轨错误合并', () => {
+  vm.runInContext(
+    'chatgptApiBaseHeaders=()=>({}); chatgptApiTlsProfile=()=>"chrome_131"; chatgptApiRememberCookies=(_auth,response)=>response;',
+    context
+  )
+  let requests = 0
+  context.host.call = (action) =>
+    action === 'file.write_base64'
+      ? { size: 3 }
+      : { ok: true, status: 200, body: { text: `转写${++requests}` } }
+  const attachment = (base64) => ({ name: 'audio.wav', mime_type: 'audio/wav', base64, size: 3 })
+  const input = [
+    { text: '历史引用', attachments: [attachment('YWJj')] },
+    { text: '本轮再次引用', attachments: [attachment('YWJj')] },
+    { text: '不同音轨', attachments: [attachment('ZGVm')] },
+  ]
+  evaluate('(chatgptApiTranscribeAttachments({},__input,{workspace_dir:"/workspace"}),__input)', {
+    __input: input,
+  })
+  expect(requests).toBe(2)
+  expect(input[0].text).toContain('转写1')
+  expect(input[1].text).toContain('转写1')
+  expect(input[2].text).toContain('转写2')
+})
+
+it('输出 token 参数不改写网页请求提示词', () => {
+  const prompt = evaluate(
+    'apiTextBuildResponsesPrompt(apiTextNormalizeTextRequest({input:"完整分析", max_output_tokens:12}))'
+  )
+  expect(prompt).toContain('完整分析')
+  expect(prompt).not.toContain('Limit the response')
 })

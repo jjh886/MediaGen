@@ -4,6 +4,7 @@ use futures_util::stream::BoxStream;
 pub(super) struct TransportResponse {
     pub status: u16,
     pub headers: HashMap<String, String>,
+    pub final_url: Option<String>,
     pub body: BoxStream<'static, Result<bytes::Bytes, String>>,
 }
 
@@ -64,6 +65,8 @@ impl ServerPluginHost {
             return Ok(TransportResponse {
                 status: response.status().as_u16(),
                 headers: response_headers(response.headers()),
+                final_url: (params["include_final_url"] == true)
+                    .then(|| response.url().to_string()),
                 body: response
                     .bytes_stream()
                     .map(|chunk| chunk.map_err(|error| error.without_url().to_string()))
@@ -144,6 +147,7 @@ impl ServerPluginHost {
         Ok(TransportResponse {
             status: response.status().as_u16(),
             headers: response_headers(response.headers()),
+            final_url: (params["include_final_url"] == true).then(|| response.uri().to_string()),
             body: response
                 .bytes_stream()
                 .map(|chunk| chunk.map_err(|_| "读取 TLS 指纹响应失败".into()))
