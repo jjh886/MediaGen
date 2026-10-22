@@ -20,6 +20,13 @@ export function imageRequest(edit: boolean, variation: boolean): ApiField[] {
     ['output_format', 'string', '否', 'png', 'png / jpeg / webp。'],
     ['output_compression', 'integer', '否', '由编码器决定', '0–100；仅 JPEG / WebP 接受此字段。'],
     ['moderation', 'string', '否', '由模型决定', '内容审核等级；按模型支持值校验。'],
+    [
+      'reasoning_effort',
+      'string',
+      '否',
+      '由模型决定',
+      '思考深度；仅接受 capabilities.reasoning.efforts 声明的值，不支持时明确拒绝，不自动降档。',
+    ],
     ['input_fidelity', 'string', '否', '由模型决定', '参考图保真度；仅模型声明支持时可用。'],
     ['stream', 'boolean', '否', 'false', '是否返回图片 SSE 事件。'],
     ['partial_images', 'integer', '否', '未设置', '0–3；大于 0 时须 stream=true 且模型支持预览。'],
