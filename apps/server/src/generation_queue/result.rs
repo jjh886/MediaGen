@@ -13,7 +13,7 @@ pub(crate) async fn save(state: &ServerState, id: &str, value: &Value) -> Result
     crate::account_login_credentials::write_private_file(&path(state, id), encrypted.as_bytes())
         .await
 }
-pub(super) async fn read(state: &ServerState, id: &str) -> Result<Option<Value>, String> {
+pub(crate) async fn read(state: &ServerState, id: &str) -> Result<Option<Value>, String> {
     let bytes = match tokio::fs::read(path(state, id)).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),

@@ -78,6 +78,7 @@ fn converts_prompt_arrays_and_flow_request() {
         n: Some(9),
         size: Some("1536x1024".to_string()),
         quality: Some("high".to_string()),
+        reasoning_effort: Some("extended".to_string()),
         output_format: Some("webp".to_string()),
         background: Some("transparent".to_string()),
         images: vec![OpenAiImageRef {
@@ -102,6 +103,7 @@ fn converts_prompt_arrays_and_flow_request() {
     assert_eq!(flow.max_images, 4);
     assert_eq!(flow.output_format, "webp");
     assert_eq!(flow.quality, "high");
+    assert_eq!(flow.reasoning_effort.as_deref(), Some("extended"));
     assert_eq!(flow.background, "transparent");
     assert_eq!(flow.image_aspect_ratio, "3:2");
     assert_eq!(flow.action, "edit");
@@ -165,4 +167,17 @@ fn validates_async_callback_url_extension() {
         Some("https://example.test/hook")
     );
     assert!(aliased.validate(ImageEndpoint::Generation).is_ok());
+}
+
+#[test]
+fn omitted_reasoning_keeps_existing_recovery_identity_shape() {
+    let original = serde_json::to_value(OpenAiImageRequest::empty()).unwrap();
+    assert!(original.get("reasoning_effort").is_none());
+    let mut body = original.clone();
+    body["reasoning_effort"] = json!("extended");
+    let parsed: OpenAiImageRequest = serde_json::from_value(body).unwrap();
+    assert_eq!(
+        serde_json::to_value(parsed).unwrap()["reasoning_effort"],
+        "extended"
+    );
 }
