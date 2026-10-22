@@ -10,6 +10,18 @@
 
 图片模型 `ChatGPT` 使用控制台中的平台模型配置；未配置或选择自动时，采用该账号会话初始化返回的默认模型。`chatgpt-image-*` 则使用明确指定的模型，不会把账号不支持的型号静默替换成其他型号。图片编辑中的本地参考图会先完成上传与处理，再提交编辑请求。
 
+## 会话与账号绑定
+
+同一聊天窗口每轮传相同的 `metadata.session_id`，不同窗口使用不同值，并保持同一 API Key。`/v1/responses` 也可通过 `previous_response_id` 延续已保存的响应；同时传入时，以显式窗口标识为准，二者必须属于同一聊天。
+
+已保存平台会话游标的请求严格绑定原账号。原账号并发占满时排队；登录失效、模型不可用或无授权时返回错误，不会把旧会话交给其他账号。首次请求遇到 `account_model_unavailable` 时，可在尚未提交上游的前提下切换支持同一型号的账号，不会自动换模型。
+
+## 用量与模型预算
+
+Responses 的实际用量位于 `usage`，流式请求应读取 `response.completed` 或 `response.incomplete` 中的 `response.usage`；Chat Completions 流式用量需开启 `stream_options.include_usage`。上游没有提供用量时保持缺失或 `null`，不能按文本长度估算结算，也不应因此重新生成。
+
+`/v1/models` 使用 `capabilities.context_window`、`capabilities.max_context_window` 和 `capabilities.max_output_tokens` 表示已知预算。Codex 动态目录的上下文字段来自上游同名字段；ChatGPT 的 `context_window` 来自上游目录的 `max_tokens`。插件静态声明可以补充预算，未提供的字段表示未知，不表示无限。预算字段不代表请求支持设置 `max_output_tokens`，还需查看 `unsupported_parameters`。
+
 ## 聊天附件
 
 豆包图片识别回复同时支持内容区块与旧版文本协议。流式增量和完整快照会去重；若上游改写已经输出的正文，返回 `generation_incomplete` 并保留原会话供恢复。恢复时也可读取旧版文本正文。平台额度或订阅限制作为失败报告，不会把限制提示混入成功回复。
