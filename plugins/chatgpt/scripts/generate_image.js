@@ -3,6 +3,7 @@ function main(ctx) {
   if (!prompt) throw new Error('缺少图片提示词。')
 
   const saved = chatgptApiPrepareConversationAttempt()
+  if (!saved.phase) chatgptApiCheckpoint({ ...saved, phase: 'ready' })
   const auth = chatgptApiRefreshSession(chatgptApiReadAuth(ctx))
   const bootstrap = chatgptApiBootstrap(auth)
   const init = chatgptApiInitializeConversation(auth)

@@ -281,22 +281,11 @@ function doubaoSecurityRuntime(input) {
     devicePixelRatio: fp.device_pixel_ratio,
   })
   document.location = scope.location
+  // 每次只读取当前资源注册的模块，避免复用其他账号/旧版本的全局入口。
+  scope.__LOADABLE_LOADED_CHUNKS__ = []
+  delete scope.bdms
   ;(0, eval)(input.sdk)
-  // 新版直接注册 bdms；旧版资源通过异步模块注册。使用实际采集的资源对应的入口。
-  const modules = scope.__LOADABLE_LOADED_CHUNKS__?.[0]?.[1]
-  const cache = {}
-  function requireModule(id) {
-    if (cache[id]) return cache[id].exports
-    const module = { exports: {} }
-    cache[id] = module
-    if (!modules[id]) throw new Error('安全 SDK 依赖缺失')
-    modules[id](module, module.exports, requireModule)
-    return module.exports
-  }
-  if (!scope.bdms?.init) {
-    if (!modules) throw new Error('invalid_response: 豆包安全 SDK 未注册初始化入口')
-    requireModule('ISb')
-  }
+  if (!scope.bdms?.init) doubaoInitializeSecurityModule(scope)
   if (typeof scope.bdms?.init !== 'function')
     throw new Error('invalid_response: 豆包安全 SDK 初始化入口无效')
   scope.bdms.init(input.config)
@@ -319,4 +308,34 @@ function doubaoSecurityRuntime(input) {
       return signed
     },
   }
+}
+
+// 模块 ID 是构建产物（旧版 ISb，新版 Pf），不能作为稳定协议写死。
+function doubaoInitializeSecurityModule(scope) {
+  const modules = Object.create(null)
+  for (const chunk of scope.__LOADABLE_LOADED_CHUNKS__ || []) {
+    if (chunk?.[1] && typeof chunk[1] === 'object') Object.assign(modules, chunk[1])
+  }
+  const entries = Object.keys(modules).filter(
+    (id) =>
+      typeof modules[id] === 'function' &&
+      /(?:window|self|globalThis)\.bdms\s*=/.test(Function.prototype.toString.call(modules[id]))
+  )
+  if (entries.length !== 1) throw new Error('invalid_response: 豆包安全 SDK 初始化模块无法唯一确定')
+  const cache = Object.create(null)
+  function requireModule(id) {
+    if (Object.hasOwn(cache, id)) return cache[id].exports
+    if (typeof modules[id] !== 'function')
+      throw new Error('invalid_response: 豆包安全 SDK 依赖缺失，请更新插件或重新采集登录资料')
+    const module = { exports: {} }
+    cache[id] = module
+    try {
+      modules[id](module, module.exports, requireModule)
+      return module.exports
+    } catch (error) {
+      delete cache[id]
+      throw error
+    }
+  }
+  requireModule(entries[0])
 }

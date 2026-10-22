@@ -143,3 +143,88 @@ test('固定视频反推的真实429结束本轮，附件保留并在Retry-After
   context.chatgptApiRequireRetryableRead({ status: 429 })
   assert.equal(saved.phase, 'completed')
 })
+
+test('图片提交结果不明时 ChatGPT 与 Codex 都不重投，已收到图片仍可恢复', () => {
+  let saved = { phase: 'submitting' }
+  const ctx = vm.createContext({
+    host: {
+      checkpoint(value) {
+        if (value) saved = value
+        return saved
+      },
+    },
+  })
+  for (const file of [
+    join(scripts, 'conversation.js'),
+    join(scripts, '../../codex/scripts/generate_image.js'),
+  ])
+    vm.runInContext(readFileSync(file, 'utf8'), ctx)
+  assert.throws(
+    () => ctx.chatgptApiGenerateConversation({}, 'draw', '', [], {}, {}),
+    /PROVIDER_SUBMISSION_UNKNOWN/
+  )
+  assert.throws(
+    () => ctx.requestImageWithRetry('token', 'account', {}, {}),
+    /PROVIDER_SUBMISSION_UNKNOWN/
+  )
+  saved = { phase: 'image_ready', pending_image: { image: 'saved-image' } }
+  assert.equal(ctx.requestImageWithRetry('token', 'account', {}, {}).image, 'saved-image')
+})
+
+test('Codex 图片明确 4xx 拒绝可重试，408 和 5xx 保持提交未确认', () => {
+  for (const status of [400, 401, 404, 408, 429, 500]) {
+    let saved = { phase: 'ready' }
+    const ctx = vm.createContext({
+      host: {
+        checkpoint(value) {
+          if (value) saved = value
+          return saved
+        },
+        stream() {
+          assert.equal(saved.phase, 'submitting')
+          return { ok: false, status, body: { error: { message: 'upstream failure' } } }
+        },
+      },
+    })
+    for (const file of [
+      'auth.js',
+      'retry.js',
+      'image_response.js',
+      'direct_images.js',
+      'generate_image.js',
+    ])
+      vm.runInContext(readFileSync(join(scripts, '../../codex/scripts', file), 'utf8'), ctx)
+    ctx.requestImageStream({}, 'https://example.test/images', {})
+    assert.equal(saved.phase, status < 500 && status !== 408 ? 'ready' : 'submitting')
+  }
+})
+
+test('ChatGPT 图片逐请求思考深度覆盖默认值，账号不支持时拒绝而不降档', () => {
+  const ctx = vm.createContext({})
+  for (const file of ['conversation.js', 'generate_image.js'])
+    vm.runInContext(readFileSync(join(scripts, file), 'utf8'), ctx)
+  const request = {
+    model_id: 'chatgpt-image-gpt-6-pro',
+    reasoning_effort: 'standard',
+    platform_config: { thinking_effort: 'extended' },
+    model_capabilities: { reasoning: { efforts: ['standard'], default_effort: 'standard' } },
+  }
+  const bootstrap = {
+    '/backend-api/models': {
+      models: [
+        {
+          slug: 'gpt-6-pro',
+          thinking_efforts: ['standard'],
+          default_thinking_effort: 'standard',
+        },
+      ],
+    },
+  }
+  const result = ctx.chatgptApiGenerationConfig(request, bootstrap, {})
+  assert.equal(result.model, 'gpt-6-pro')
+  assert.equal(result.thinking_effort, 'standard')
+  assert.throws(
+    () => ctx.chatgptApiGenerationConfig({ ...request, reasoning_effort: 'high' }, bootstrap, {}),
+    /不支持思考深度 high/
+  )
+})

@@ -269,3 +269,48 @@ test('沿用平台历史时仍发送本轮更新的页面上下文和用户指�
     ['当前页面已经切换为 B', '这个页面是什么']
   )
 })
+
+test('豆包 SDK 从实际模块注册识别入口，支持改名和多分块依赖，拒绝缺失依赖', () => {
+  for (const entry of ['ISb', 'Pf']) {
+    const ctx = vm.createContext({})
+    vm.runInContext(
+      readFileSync(join(plugins, 'doubao-api/scripts/signing_environment.js'), 'utf8'),
+      ctx
+    )
+    vm.runInContext(
+      `
+      globalThis.window = globalThis;
+      globalThis.__LOADABLE_LOADED_CHUNKS__ = [
+        [['dependency'], {YC2: function(module) { module.exports = { version: 'actual' } }}],
+        [['sdk'], {${entry}: function(module, exports, require) {
+          const dependency = require('YC2');
+          window.bdms = { init() {}, version: dependency.version };
+        }}]
+      ];
+      doubaoInitializeSecurityModule(globalThis);
+    `,
+      ctx
+    )
+    assert.equal(ctx.bdms.version, 'actual')
+  }
+  const missing = vm.createContext({})
+  vm.runInContext(
+    readFileSync(join(plugins, 'doubao-api/scripts/signing_environment.js'), 'utf8'),
+    missing
+  )
+  assert.throws(
+    () =>
+      vm.runInContext(
+        `
+    globalThis.window=globalThis;
+    globalThis.__LOADABLE_LOADED_CHUNKS__ = [[[], {Pf: function(m,e,r) {
+      r('missing'); window.bdms={init(){}};
+    }}]];
+    doubaoInitializeSecurityModule(globalThis);
+  `,
+        missing
+      ),
+    /依赖缺失/
+  )
+  assert.throws(() => missing.doubaoInitializeSecurityModule({}), /无法唯一确定/)
+})

@@ -96,7 +96,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "2.2.3",
+  "version": "2.2.4",
   "platform_id": "doubao-api",
   "display_name": "豆包",
   "sort_order": 50,

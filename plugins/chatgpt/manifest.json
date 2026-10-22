@@ -521,6 +521,7 @@
     },
     {
       "model_id": "chatgpt-image-gpt-5-6",
+      "account_model": "gpt-5-6",
       "display_name": "GPT-5.6 Sol",
       "task_kind": "image",
       "aliases": [],
@@ -536,6 +537,7 @@
     },
     {
       "model_id": "chatgpt-image-gpt-5-6-pro",
+      "account_model": "gpt-5-6-pro",
       "display_name": "GPT-5.6 Pro",
       "task_kind": "image",
       "aliases": [],
@@ -551,6 +553,7 @@
     },
     {
       "model_id": "chatgpt-image-gpt-6-pro",
+      "account_model": "gpt-6-pro",
       "display_name": "GPT-6 Pro",
       "task_kind": "image",
       "aliases": [],
@@ -659,6 +662,12 @@
     }
   ],
   "failure_strategy": [
+    {
+      "contains_any": ["account_model_unavailable"],
+      "category": "account_model_unavailable",
+      "retry_action": "failover",
+      "usage_consumed": false
+    },
     {
       "contains_any": ["verification_required"],
       "category": "verification_required",
@@ -903,7 +912,7 @@
     "enabled": false
   },
   "http_profile": "chrome_149",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "schema_version": 1,
   "task_recovery": {
     "media_types": ["text", "image"],

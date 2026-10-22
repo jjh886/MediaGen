@@ -21,7 +21,9 @@ function chatgptApiGenerateConversation(
       result: chatgptApiWaitForImage(auth, saved.conversation_id),
     }
   }
-  // 没有上游会话编号可供查询时，重新提交这一张；已完成图片由外层检查点复用。
+  if (saved.phase === 'submitting')
+    throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 图片提交结果尚未确认，请勿重复生成')
+  // 仅首次提交或明确拒绝后重试；已有上游编号时只查询原会话。
   const init = initialized || chatgptApiInitializeConversation(auth)
   chatgptApiAssertImageAvailable(init)
   const options = chatgptApiConversationOptions(init, generationConfig)
@@ -423,7 +425,7 @@ function chatgptApiModelSelection(model, requested, models, fallback) {
     }
   }
   if (Array.isArray(models) && !models.some((item) => item.slug === model)) {
-    throw new Error('invalid_input: 当前 ChatGPT 账号不支持所选模型或思考模式，请重新选择')
+    throw new Error('account_model_unavailable: 当前 ChatGPT 账号不支持所选模型或思考模式')
   }
   return {
     model,

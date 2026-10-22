@@ -197,7 +197,9 @@ function codexImageCheckpoint(value) {
 function requestImageWithRetry(accessToken, accountId, payload, ctx) {
   const saved = codexImageCheckpoint()
   if (saved.pending_image?.image && !saved.pending_image.error) return saved.pending_image
-  // 上游 store:false 无查询接口；复用已保存图片，仅重试尚未收到的这一张。
+  // store:false 没有查询接口，未收到结果不代表上游未执行，禁止盲目重投。
+  if (saved.phase === 'submitting')
+    throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 图片提交结果尚未确认，请勿重复生成')
   codexImageCheckpoint({ ...saved, phase: 'submitting' })
   const result = requestImage(accessToken, accountId, payload, ctx)
   if (result.error || !result.image) throw new Error(resultError(result))
@@ -215,6 +217,7 @@ function requestImage(accessToken, accountId, payload, ctx) {
 }
 
 function requestImageStream(headers, url, payload) {
+  codexImageCheckpoint({ ...codexImageCheckpoint(), phase: 'submitting' })
   const result = newImageResult()
   const options = payload.tools?.find((tool) => tool.type === 'image_generation') || payload
   const types = []
@@ -262,7 +265,12 @@ function requestImageStream(headers, url, payload) {
   if (sse.ok === false) applyHttpError(result, sse)
   finalizeImageResult(result, types)
   if (result.error) {
-    codexImageCheckpoint({ ...codexImageCheckpoint(), phase: 'submitting', pending_image: null })
+    const rejected = sse.ok === false && sse.status >= 400 && sse.status < 500 && sse.status !== 408
+    codexImageCheckpoint({
+      ...codexImageCheckpoint(),
+      phase: rejected ? 'ready' : 'submitting',
+      pending_image: null,
+    })
   } else if (result.image) {
     codexImageCheckpoint({ ...codexImageCheckpoint(), phase: 'image_ready', pending_image: result })
   }

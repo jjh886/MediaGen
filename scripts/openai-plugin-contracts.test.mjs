@@ -440,3 +440,53 @@ test('Codex 发现保留新模型及账号能力，生成按目录校验权限',
     /invalid_input/
   )
 })
+
+test('Codex 保留上游真实 usage 明细，缺失时不伪造用量', () => {
+  const usage = {
+    input_tokens: 100,
+    output_tokens: 17,
+    total_tokens: 117,
+    input_tokens_details: { cached_tokens: 80 },
+    output_tokens_details: { reasoning_tokens: 9 },
+  }
+  for (const reported of [usage, null]) {
+    const ctx = context('codex', ['auth.js', 'text_responses.js'], {
+      stream(action, request, callback) {
+        callback({
+          type: 'response.completed',
+          response: {
+            id: 'resp_usage',
+            status: 'completed',
+            output: [],
+            usage: reported,
+          },
+        })
+        return { ok: true, status: 200 }
+      },
+    })
+    const result = ctx.codexExecuteResponses({ tokens: { access_token: 'test' } }, {})
+    assert.deepEqual(result.response.usage, reported)
+  }
+})
+
+test('ChatGPT 账号缺少型号属于账号能力错误，不能改用其他型号', () => {
+  const ctx = context('chatgpt', ['conversation.js'])
+  assert.throws(
+    () => ctx.chatgptApiModelSelection('gpt-6-pro', undefined, [{ slug: 'gpt-5-6-pro' }]),
+    /account_model_unavailable/
+  )
+  assert.throws(
+    () =>
+      ctx.chatgptApiModelSelection('gpt-6-pro', 'invalid', [
+        { slug: 'gpt-6-pro', thinking_efforts: ['standard'] },
+      ]),
+    /invalid_input/
+  )
+  const manifest = JSON.parse(readFileSync('plugins/chatgpt/manifest.json', 'utf8'))
+  assert.equal(
+    manifest.failure_strategy.find((rule) =>
+      rule.contains_any.includes('account_model_unavailable')
+    ).retry_action,
+    'failover'
+  )
+})
