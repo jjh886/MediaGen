@@ -23,6 +23,7 @@ pub struct ImageFlowRequest {
     pub partial_images: Option<u32>,
     pub moderation: Option<String>,
     pub input_fidelity: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub size: String,
     pub image_aspect_ratio: String,
     pub action: String,
@@ -69,6 +70,8 @@ pub struct OpenAiImageRequest {
     pub moderation: Option<String>,
     #[serde(default)]
     pub input_fidelity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
     #[serde(default)]
     pub user: Option<String>,
     #[serde(default)]
@@ -104,6 +107,7 @@ impl OpenAiImageRequest {
             output_compression: None,
             moderation: None,
             input_fidelity: None,
+            reasoning_effort: None,
             user: None,
             images: Vec::new(),
             mask: None,
@@ -136,6 +140,13 @@ impl OpenAiImageRequest {
             .map_err(|message| (400, "invalid_request_error", message))?;
         if self.model.trim().is_empty() {
             return request_error("model 不能为空");
+        }
+        if self
+            .reasoning_effort
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return request_error("reasoning_effort 必须是非空字符串");
         }
         if self.n.is_some_and(|n| !(1..=4).contains(&n)) {
             return request_error("n 必须在 1 到 4 之间");
@@ -211,6 +222,7 @@ impl OpenAiImageRequest {
             partial_images: self.partial_images,
             moderation: self.moderation.clone(),
             input_fidelity: self.input_fidelity.clone(),
+            reasoning_effort: self.reasoning_effort.clone(),
             size: self.requested_size(),
             image_aspect_ratio: self.image_aspect_ratio(),
             action: if endpoint == ImageEndpoint::Generation {

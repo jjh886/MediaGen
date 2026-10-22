@@ -152,6 +152,7 @@ fn apply_text_field(
         }
         "moderation" => request.moderation = Some(value.to_string()),
         "input_fidelity" => request.input_fidelity = Some(value.to_string()),
+        "reasoning_effort" => request.reasoning_effort = Some(value.to_string()),
         "user" => request.user = Some(value.to_string()),
         "image_aspect_ratio" => request.image_aspect_ratio = Some(value.to_string()),
         "callback_url" | "webhook_url" => request.callback_url = Some(value.to_string()),
@@ -207,6 +208,8 @@ mod tests {
         apply_text_field(&mut request, "model", " gpt-image-1 ").unwrap();
         apply_text_field(&mut request, "prompt", " draw ").unwrap();
         apply_text_field(&mut request, "n", "2").unwrap();
+        apply_text_field(&mut request, "reasoning_effort", "extended").unwrap();
+        assert_eq!(request.reasoning_effort.as_deref(), Some("extended"));
         apply_text_field(&mut request, "stream", "1").unwrap();
         apply_text_field(&mut request, "async", "true").unwrap();
         apply_text_field(&mut request, "partial_images", "3").unwrap();

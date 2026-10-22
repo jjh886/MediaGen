@@ -314,7 +314,7 @@ fn verification_state() -> ServerState {
     state
 }
 
-fn queue_state(prefix: &str) -> ServerState {
+pub(crate) fn queue_state(prefix: &str) -> ServerState {
     let name = format!("{prefix}-{}", uuid::Uuid::new_v4());
     let plugins_dir = write_failover_plugin(&name);
     let state = server_state(
@@ -331,7 +331,7 @@ fn queue_state(prefix: &str) -> ServerState {
     state
 }
 
-fn image_request() -> actix_web::test::TestRequest {
+pub(crate) fn image_request() -> actix_web::test::TestRequest {
     image_request_with_key("image-key")
 }
 

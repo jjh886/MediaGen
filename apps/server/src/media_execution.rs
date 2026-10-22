@@ -70,9 +70,10 @@ pub(crate) fn resolve_media_flow_context<'a>(
             .account_with_required_runtime_proxy(account)
             .map_err(|message| (409, "proxy_unavailable", message))?
     } else {
+        let excluded = unavailable_model_accounts(state, manifest, &model.model_id);
         state
             .store
-            .first_available_account_for_key(&manifest.platform_id, caller_key)
+            .first_available_account_for_key_excluding(&manifest.platform_id, caller_key, &excluded)
             .map(|account| state.store.account_with_required_runtime_proxy(account))
             .transpose()
             .map_err(|message| (409, "proxy_unavailable", message))?
@@ -93,6 +94,26 @@ pub(crate) fn resolve_media_flow_context<'a>(
         account,
         task_id,
     })
+}
+
+fn unavailable_model_accounts(
+    state: &ServerState,
+    manifest: &PluginManifest,
+    model: &str,
+) -> Vec<String> {
+    state
+        .store
+        .list_accounts(Some(&manifest.platform_id))
+        .into_iter()
+        .filter(|account| {
+            crate::model_api::account_model(state, manifest, model, &account.id).is_none()
+                || state
+                    .store
+                    .account_with_required_runtime_proxy(account.clone())
+                    .is_err()
+        })
+        .map(|account| account.id)
+        .collect()
 }
 
 pub(crate) fn ensure_task_not_cancelled(
@@ -177,10 +198,16 @@ pub(crate) fn next_failover_context<'a>(
     excluded: &[String],
 ) -> Result<Option<MediaFlowContext<'a>>, ApiError> {
     let selected = state.store.with_account_dispatch(|| {
+        let mut excluded = excluded.to_vec();
+        excluded.extend(unavailable_model_accounts(
+            state,
+            current.manifest,
+            &current.model.model_id,
+        ));
         let account = state.store.first_available_account_for_key_excluding(
             &current.manifest.platform_id,
             caller_key,
-            excluded,
+            &excluded,
         )?;
         let account = state.store.account_with_required_runtime_proxy(account);
         if let Ok(account) = &account {

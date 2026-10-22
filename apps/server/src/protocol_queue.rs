@@ -58,12 +58,14 @@ pub(crate) async fn reserve_affinity_wait(
             return Ok(value);
         }
     }
+    let bound = crate::protocol_task::bound_account(state, id, requirements, preferred)?;
     let eligible = state
         .store
         .list_accounts(Some(&manifest.platform_id))
         .into_iter()
         .any(|account| {
-            crate::store_helpers::account_ready_for_kind(&account, &[], kind)
+            bound.as_ref().is_none_or(|id| id == &account.id)
+                && crate::store_helpers::account_ready_for_kind(&account, &[], kind)
                 && (state.store.global_api_key_allowed(key)
                     || crate::access_control::account_key_allowed(&account.api_key, key))
                 && state
@@ -167,6 +169,97 @@ pub(crate) async fn reserve_affinity_wait(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[actix_web::test]
+    async fn bound_session_never_uses_another_available_account() {
+        let state = crate::protocol_api_tests::state();
+        let mut other = state.store.account_by_id("account").unwrap();
+        other.id = "other".into();
+        state.store.insert_account(other);
+        state.store.mark_account_state("account", "login_expired");
+        let (manifest, _, _) = crate::model_api::resolve(&state, "text-model", "key-a").unwrap();
+        let request = json!({"options":{"platform_session":{"conversation_id":"original"}}});
+        for preferred in [Some("account"), Some("deleted"), None] {
+            let result = tokio::time::timeout(
+                Duration::from_millis(100),
+                reserve_affinity_wait(
+                    &state,
+                    &manifest,
+                    "text-model",
+                    "text",
+                    "key-a",
+                    "bound",
+                    Some(&request),
+                    preferred,
+                ),
+            )
+            .await
+            .unwrap();
+            assert!(result.is_err());
+            assert!(state.store.task_by_id("bound").is_none());
+        }
+        let (selected, _lease) = reserve_affinity(
+            &state,
+            &manifest,
+            "text-model",
+            "text",
+            "key-a",
+            "fresh",
+            None,
+            Some("account"),
+        )
+        .unwrap();
+        assert_eq!(selected.id, "other");
+    }
+
+    #[actix_web::test]
+    async fn busy_bound_session_waits_for_original_even_when_another_is_idle() {
+        let state = crate::protocol_api_tests::state();
+        let mut other = state.store.account_by_id("account").unwrap();
+        other.id = "other".into();
+        state.store.insert_account(other);
+        state.store.update_account(
+            "account",
+            crate::store::AccountUpdate {
+                text_concurrency_limit: Some(1),
+                ..Default::default()
+            },
+        );
+        let (manifest, _, _) = crate::model_api::resolve(&state, "text-model", "key-a").unwrap();
+        let (_, busy) = reserve_affinity(
+            &state,
+            &manifest,
+            "text-model",
+            "text",
+            "key-a",
+            "busy-bound",
+            None,
+            Some("account"),
+        )
+        .unwrap();
+        let request = json!({"options":{"platform_session":{"conversation_id":"original"}}});
+        let wait = reserve_affinity_wait(
+            &state,
+            &manifest,
+            "text-model",
+            "text",
+            "key-a",
+            "continued",
+            Some(&request),
+            Some("account"),
+        );
+        let release = async {
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            assert_eq!(
+                state.store.task_by_id("continued").unwrap().status,
+                "queued"
+            );
+            state.store.complete_task("busy-bound", json!({}));
+            drop(busy);
+        };
+        let (result, _) = tokio::join!(wait, release);
+        assert_eq!(result.unwrap().0.id, "account");
+    }
+
     #[actix_web::test]
     async fn cancelled_wait_releases_queue_and_unconfigured_accounts_do_not_wait() {
         let state = crate::protocol_api_tests::state();

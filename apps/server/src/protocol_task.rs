@@ -53,6 +53,24 @@ pub(crate) fn reserve(
     reserve_affinity(state, manifest, model_id, kind, key, id, requirements, None)
 }
 
+/// 平台游标属于原账号，不能降级成可换号的缓存亲和提示。
+pub(crate) fn bound_account(
+    state: &crate::ServerState,
+    id: &str,
+    requirements: Option<&serde_json::Value>,
+    preferred: Option<&str>,
+) -> Result<Option<String>, String> {
+    let original = state.store.task_by_id(id).and_then(|task| task.account_id);
+    if requirements.is_some_and(|request| request["options"]["platform_session"].is_object()) {
+        let bound = preferred.ok_or("原会话缺少账号绑定，无法安全续聊")?;
+        if original.as_deref().is_some_and(|id| id != bound) {
+            return Err("原任务与会话账号不一致，无法安全续聊".into());
+        }
+        return Ok(Some(bound.into()));
+    }
+    Ok(original)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn reserve_affinity(
     state: &crate::ServerState,
@@ -65,7 +83,7 @@ pub(crate) fn reserve_affinity(
     preferred: Option<&str>,
 ) -> Result<(crate::store::AccountRecord, Lease), String> {
     let account = state.store.with_account_dispatch(|| {
-        let original = state.store.task_by_id(id).and_then(|task| task.account_id);
+        let original = bound_account(state, id, requirements, preferred)?;
         if let Some(original) = &original {
             if state.store.account_by_id(original).is_none() {
                 return Err("原任务账号不存在，无法读取恢复凭据".into());

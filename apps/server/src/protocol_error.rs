@@ -24,6 +24,13 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
     if message == "task_cancelled" {
         return (409, "task_cancelled", "请求已取消".into());
     }
+    if message.contains("account_model_unavailable") {
+        return (
+            409,
+            "account_model_unavailable",
+            "当前账号不支持所选模型，请刷新账号模型目录；已有会话需恢复原账号能力".into(),
+        );
+    }
     if message.contains("invalid_input")
         || message.contains("missing_input")
         || message.contains("unsupported_")

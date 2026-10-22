@@ -358,3 +358,78 @@ async fn previous_response_continues_platform_session_after_restart_and_keeps_wi
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[actix_web::test]
+async fn sync_image_request_id_recovers_checkpoint_and_replays_result_without_regeneration() {
+    let mut state = crate::image_api_tests::queue_state("image-sync-recovery");
+    let directory = state.plugin_loader.get_plugin_dir("fake").unwrap();
+    let path = directory.join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let script = manifest["flows"]["generate_image"]["steps"][0]["script"]
+        .as_str()
+        .unwrap();
+    manifest["flows"]["generate_image"]["steps"][0]["script"] = json!(script.replacen(
+        "function main(ctx) {", "function main(ctx) { const saved=host.checkpoint(); if(!saved.phase){host.checkpoint({phase:'accepted',upstream:'one'});throw new Error('temporary_unavailable: still running')} if(saved.upstream!=='one')throw new Error('lost checkpoint');", 1));
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    state.plugin_loader = std::sync::Arc::new(
+        mediagen_plugin_runtime::PluginLoader::load_from(directory.parent().unwrap()).unwrap(),
+    );
+    let mut account = state.store.account_by_id("acc-queue").unwrap();
+    account.profile_dir = state.file_root.join("profile").to_string_lossy().into();
+    state.store.delete_account("acc-queue");
+    state.store.insert_account(account);
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .configure(crate::configure_routes),
+    )
+    .await;
+    let first = test::call_service(
+        &app,
+        crate::image_api_tests::image_request()
+            .insert_header(("x-client-request-id", "original-image"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(first.status(), 503);
+    let task = state.store.list_tasks(None)[0].clone();
+    assert_eq!(task.status, "failed");
+    assert_ne!(task.status, "cancelled");
+    let next = test::call_service(
+        &app,
+        crate::image_api_tests::image_request()
+            .insert_header(("x-client-request-id", "original-image"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(next.status(), 200);
+    let next: serde_json::Value = test::read_body_json(next).await;
+    // 结果已保存后，账号不可用也只能回放原结果，不能重新调度。
+    state.store.mark_account_state("acc-queue", "login_expired");
+    let replay = test::call_service(
+        &app,
+        crate::image_api_tests::image_request()
+            .insert_header(("x-client-request-id", "original-image"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(replay.status(), 200);
+    let replay: serde_json::Value = test::read_body_json(replay).await;
+    assert_eq!(next, replay);
+    assert_eq!(
+        state.store.account_by_id("acc-queue").unwrap().used_total,
+        1
+    );
+    assert!(state
+        .store
+        .task_by_id(&task.id)
+        .unwrap()
+        .error_message
+        .is_none());
+    assert_eq!(state.store.list_tasks(None).len(), 1);
+    assert_eq!(
+        state.store.task_by_id(&task.id).unwrap().account_id,
+        task.account_id
+    );
+}

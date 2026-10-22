@@ -34,6 +34,7 @@ impl FailureDecision {
             "permission_denied" => (403, "account_permission_denied"),
             "adult_sensual_policy_blocked" => (422, "adult_sensual_policy_blocked"),
             "unsafe_other" => (422, "unsafe_other"),
+            "account_model_unavailable" => (409, "account_model_unavailable"),
             "invalid_request" => (422, "invalid_request"),
             "account_rate_limited" | "quota_exhausted" => (429, "rate_limited"),
             "temporary_unavailable" | "transient_network" | "platform_busy" | "login_expired" => {
@@ -288,6 +289,10 @@ mod tests {
             ),
             ("unsafe_other", (422, "unsafe_other")),
             ("invalid_request", (422, "invalid_request")),
+            (
+                "account_model_unavailable",
+                (409, "account_model_unavailable"),
+            ),
             ("temporary_unavailable", (503, "temporary_unavailable")),
             ("account_rate_limited", (429, "rate_limited")),
             ("unknown", (502, "plugin_execution_failed")),

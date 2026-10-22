@@ -67,6 +67,7 @@ pub(crate) fn build_image_flow_context(
         "partial_images": input.partial_images,
         "moderation": input.moderation,
         "input_fidelity": input.input_fidelity,
+        "reasoning_effort": input.reasoning_effort,
         "size": input.size,
         "action": input.action,
     }))

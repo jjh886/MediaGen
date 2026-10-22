@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 #[path = "model_catalog_cache.rs"]
 mod cache;
-use cache::CachedModels;
 pub(crate) use cache::Catalog;
+use cache::{merge_capabilities, CachedModels};
 
 #[derive(Deserialize)]
 pub(crate) struct Query {
@@ -103,7 +103,10 @@ pub(crate) fn account_model(
         return Some(model.clone());
     }
     let declared = declared?;
-    if declared.task_kind == mediagen_core::TaskKind::Text && cache.contains_key(account_id) {
+    if cache
+        .get(account_id)
+        .is_some_and(|entry| !entry.supports_declared(declared))
+    {
         return None;
     }
     manifest
@@ -263,6 +266,18 @@ fn catalog(state: &ServerState, key: &str) -> Vec<Value> {
         if model.task_kind == mediagen_core::TaskKind::Text && refreshed(&manifest.platform_id) {
             continue;
         }
+        if model.extra.contains_key("account_model")
+            && accounts
+                .iter()
+                .filter(|account| account.platform == manifest.platform_id)
+                .all(|account| {
+                    cache
+                        .get(&account.id)
+                        .is_some_and(|entry| !entry.supports_declared(model))
+                })
+        {
+            continue;
+        }
         entries
             .entry(model.model_id.clone())
             .or_insert_with(|| model_value(manifest, model, &model.model_id));
@@ -282,9 +297,7 @@ fn catalog(state: &ServerState, key: &str) -> Vec<Value> {
         }
     }
     for (alias, manifest, model) in state.plugin_loader.model_aliases() {
-        if model.task_kind == mediagen_core::TaskKind::Text
-            && !entries.contains_key(&model.model_id)
-        {
+        if !entries.contains_key(&model.model_id) {
             continue;
         }
         entries
@@ -415,7 +428,11 @@ pub(crate) async fn account_models(
     let mut models = manifest
         .models
         .iter()
-        .filter(|model| entry.is_none() || model.task_kind != mediagen_core::TaskKind::Text)
+        .filter(|model| {
+            entry.is_none_or(|entry| {
+                model.task_kind != mediagen_core::TaskKind::Text && entry.supports_declared(model)
+            })
+        })
         .map(|model| model_value(manifest, model, &model.model_id))
         .collect::<Vec<_>>();
     if let Some(entry) = entry {
@@ -427,63 +444,4 @@ pub(crate) async fn account_models(
         );
     }
     HttpResponse::Ok().json(json!({"data":{"models":models,"refreshed_at":entry.map(|entry| entry.refreshed_at),"refresh_error":failure,"discovery_supported":manifest.flows.contains_key("list_models")}}))
-}
-
-fn merge_capabilities(variants: &[Value]) -> Value {
-    let mut merged = variants.first().cloned().unwrap_or(json!({}));
-    for field in [
-        "input_modalities",
-        "output_modalities",
-        "endpoints",
-        "voices",
-        "response_formats",
-        "image_sources",
-    ] {
-        let mut values = Vec::new();
-        for value in variants
-            .iter()
-            .flat_map(|variant| variant[field].as_array().into_iter().flatten())
-        {
-            if !values.contains(value) {
-                values.push(value.clone());
-            }
-        }
-        if !values.is_empty() {
-            merged[field] = json!(values);
-        }
-    }
-    for field in ["streaming", "tool_calling"] {
-        if variants.iter().any(|variant| variant[field] == true) {
-            merged[field] = json!(true);
-        }
-    }
-    let unsupported = merged["unsupported_parameters"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|value| {
-            variants.iter().all(|variant| {
-                variant["unsupported_parameters"]
-                    .as_array()
-                    .is_some_and(|list| list.contains(value))
-            })
-        })
-        .collect::<Vec<_>>();
-    merged["unsupported_parameters"] = json!(unsupported);
-    let mut efforts = Vec::new();
-    for effort in variants.iter().flat_map(|variant| {
-        variant["reasoning"]["efforts"]
-            .as_array()
-            .into_iter()
-            .flatten()
-    }) {
-        if !efforts.contains(effort) {
-            efforts.push(effort.clone());
-        }
-    }
-    if !efforts.is_empty() {
-        merged["reasoning"]["efforts"] = json!(efforts);
-    }
-    merged
 }

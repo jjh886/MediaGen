@@ -14,9 +14,23 @@ use crate::ServerState;
 pub(crate) async fn prepare_flow_request(
     body: &OpenAiImageRequest,
     model: &ModelDef,
+    manifest: &PluginManifest,
     endpoint: ImageEndpoint,
     proxy_url: &str,
 ) -> Result<(ImageFlowRequest, Vec<String>), String> {
+    // 队列恢复也按当前插件声明校验，不能因绕过 HTTP 入队校验而忽略参数。
+    crate::image_parameters::validate(
+        body,
+        endpoint,
+        &crate::image_parameters::model_limits(
+            manifest
+                .extra
+                .get("image_capabilities")
+                .unwrap_or(&Value::Null),
+            model.extra.get("capabilities").unwrap_or(&Value::Null),
+        ),
+    )
+    .map_err(|message| format!("invalid_input: {message}"))?;
     let ref_urls = body.reference_urls();
     let ref_dataurls = fetch_ref_images_as_data_urls(&ref_urls, proxy_url).await;
     if ref_dataurls.len() != ref_urls.len() {

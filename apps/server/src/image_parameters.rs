@@ -4,15 +4,20 @@ use crate::image_request::{ImageEndpoint, OpenAiImageRequest};
 
 pub(crate) fn model_limits(limits: &Value, capabilities: &Value) -> Value {
     let mut limits = limits.as_object().cloned().unwrap_or_default();
+    let mut parameters = limits
+        .get("parameter_values")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
     if let Some(values) = capabilities["parameter_values"].as_object() {
-        let mut parameters = limits
-            .get("parameter_values")
-            .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default();
         parameters.extend(values.clone());
-        limits.insert("parameter_values".into(), Value::Object(parameters));
     }
+    if let Some(efforts) = capabilities["reasoning"]["efforts"].as_array() {
+        parameters.insert("reasoning_effort".into(), json!(efforts));
+    }
+    // 未声明支持时明确拒绝，防止插件忽略后按默认档位生成。
+    parameters.entry("reasoning_effort").or_insert(json!([]));
+    limits.insert("parameter_values".into(), Value::Object(parameters));
     Value::Object(limits)
 }
 
@@ -28,6 +33,7 @@ pub(crate) fn schema(limits: &Value) -> Value {
         "stream":{"type":"boolean"}, "partial_images":{"type":"integer","minimum":0,"maximum":3},
         "moderation":{"type":"string","enum":["auto","low"]},
         "input_fidelity":{"type":"string","enum":["low","high"]}, "user":{"type":"string"},
+        "reasoning_effort":{"type":"string","minLength":1},
         "images":{"type":"array","items":{"type":"object","properties":{"image_url":{"type":"string"},"file_id":{"type":"string"}}}},
         "mask":{"type":"object","properties":{"image_url":{"type":"string"},"file_id":{"type":"string"}}}
     });
@@ -103,5 +109,120 @@ mod tests {
             .unwrap_err()
             .contains("quality"));
         assert!(validate(&body, ImageEndpoint::Generation, &Value::Null).is_ok());
+    }
+
+    #[test]
+    fn reasoning_effort_uses_declared_values_and_never_downgrades() {
+        for capabilities in [
+            json!({}),
+            json!({"reasoning":{"efforts":[]}}),
+            json!({"reasoning":{"efforts":["standard","extended"]}}),
+        ] {
+            let limits = model_limits(&json!({}), &capabilities);
+            let supports = capabilities["reasoning"]["efforts"]
+                .as_array()
+                .is_some_and(|values| !values.is_empty());
+            let schema = schema(&limits);
+            assert_eq!(
+                schema["properties"]["reasoning_effort"].is_object(),
+                supports
+            );
+            for effort in [
+                None,
+                Some("standard"),
+                Some("extended"),
+                Some("high"),
+                Some("none"),
+                Some(""),
+            ] {
+                let mut body = OpenAiImageRequest::empty();
+                body.reasoning_effort = effort.map(str::to_string);
+                let expected = effort.is_none()
+                    || (supports && matches!(effort, Some("standard" | "extended")));
+                assert_eq!(
+                    validate(&body, ImageEndpoint::Generation, &limits).is_ok(),
+                    expected
+                );
+                assert_eq!(body.reasoning_effort.as_deref(), effort);
+            }
+        }
+    }
+
+    #[actix_web::test]
+    async fn http_image_reasoning_reaches_plugin_and_survives_queue_storage() {
+        use actix_web::{test, web, App};
+        let mut state = crate::image_api_tests::queue_state("image-reasoning");
+        let directory = state.plugin_loader.get_plugin_dir("fake").unwrap();
+        let path = directory.join("manifest.json");
+        let mut manifest: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        manifest["models"][0]["capabilities"] =
+            json!({"reasoning":{"efforts":["standard","extended"],"default_effort":"standard"}});
+        let script = manifest["flows"]["generate_image"]["steps"][0]["script"]
+            .as_str()
+            .unwrap();
+        manifest["flows"]["generate_image"]["steps"][0]["script"] = json!(script.replacen("function main(ctx) {", "function main(ctx) { if(ctx.reasoning_effort!=='extended')throw new Error('lost effort');",1));
+        std::fs::write(&path, manifest.to_string()).unwrap();
+        state.plugin_loader = std::sync::Arc::new(
+            mediagen_plugin_runtime::PluginLoader::load_from(directory.parent().unwrap()).unwrap(),
+        );
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state.clone()))
+                .configure(crate::configure_routes),
+        )
+        .await;
+        let body = json!({"model":"fake-image","prompt":"draw","reasoning_effort":"extended"});
+        for effort in [json!("high"), json!(""), json!(42)] {
+            let mut invalid = body.clone();
+            invalid["reasoning_effort"] = effort;
+            let response = test::call_service(
+                &app,
+                crate::image_api_tests::image_request()
+                    .set_json(invalid)
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), 400);
+            assert!(state.store.list_tasks(None).is_empty());
+        }
+        let response = test::call_service(
+            &app,
+            crate::image_api_tests::image_request()
+                .set_json(&body)
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+        let mut queued = body.clone();
+        queued["async"] = json!(true);
+        let response = test::call_service(
+            &app,
+            crate::image_api_tests::image_request()
+                .set_json(queued)
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 202);
+        let response: Value = test::read_body_json(response).await;
+        let job = state
+            .store
+            .generation_job(response["data"]["taskId"].as_str().unwrap(), None)
+            .unwrap();
+        let restored: OpenAiImageRequest = serde_json::from_str(&job.request_json).unwrap();
+        assert_eq!(restored.reasoning_effort.as_deref(), Some("extended"));
+        let (manifest, model) = state.plugin_loader.resolve_model("fake-image").unwrap();
+        let mut changed = model.clone();
+        changed.extra.insert("capabilities".into(), json!({}));
+        let error = crate::image_flow_execution::prepare_flow_request(
+            &restored,
+            &changed,
+            manifest,
+            ImageEndpoint::Generation,
+            "",
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("reasoning_effort"));
     }
 }

@@ -110,6 +110,8 @@ impl AppStore {
     pub fn start_task(&self, id: &str) -> Option<TaskRecord> {
         self.update_task(id, |task| {
             task.status = "processing".to_string();
+            task.error_message = None;
+            task.completed_at = None;
         })
     }
 
