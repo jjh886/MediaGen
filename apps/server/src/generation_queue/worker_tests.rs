@@ -402,3 +402,40 @@ async fn image_recovery_cannot_bypass_original_account_quota_or_concurrency() {
         crate::image_api::run_queued_image_flow(state.clone(), body, key.into(), &id).await;
     assert_eq!(result.unwrap_err().1, "account_unavailable");
 }
+
+#[actix_web::test]
+async fn upstream_quota_with_reset_time_preserves_job_for_retry_instead_of_failing() {
+    for kind in ["image", "text"] {
+        let (state, key, model, account) = scheduling_state(kind, 1);
+        let id = enqueue(&state, kind, key, model).await;
+        let now = Utc::now();
+        state
+            .store
+            .claim_next_generation_job(now, now + ChronoDuration::hours(6))
+            .unwrap();
+        state.store.set_task_account(&id, account);
+        state
+            .store
+            .mark_account_state_for_seconds(account, "daily_quota_exhausted", 60);
+        state.store.record_account_failure(account, "quota", kind);
+        state.store.fail_task(&id, "insufficient_quota".into());
+        finish_execution(
+            &state,
+            &id,
+            None,
+            Err((429, "insufficient_quota".into(), "quota".into())),
+        )
+        .await;
+        let job = state.store.generation_job(&id, None).unwrap();
+        assert_eq!(job.state, GenerationJobState::RetryWait);
+        assert_eq!(
+            job.last_failure_category.as_deref(),
+            Some("account_limited")
+        );
+        assert_eq!(state.store.task_by_id(&id).unwrap().status, "pending");
+        assert_eq!(
+            state.store.task_by_id(&id).unwrap().account_id.as_deref(),
+            Some(account)
+        );
+    }
+}

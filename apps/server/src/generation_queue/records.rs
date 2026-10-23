@@ -77,7 +77,6 @@ pub(super) fn runnable(state: &crate::ServerState, job: &GenerationJobRecord) ->
             waiting.id != task.id
                 && waiting.status == "queued"
                 && waiting.task_kind == task.task_kind
-                && waiting.model_id == task.model_id
                 && state.store.generation_job(&waiting.id, None).is_none()
         })
     {

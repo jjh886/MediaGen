@@ -230,6 +230,67 @@ mod tests {
     }
 
     #[actix_web::test]
+    async fn unbound_sync_request_uses_the_next_freed_account_instead_of_waiting_for_preference() {
+        let state = crate::protocol_api_tests::state();
+        state.store.update_account(
+            "account",
+            crate::store::AccountUpdate {
+                text_concurrency_limit: Some(1),
+                ..Default::default()
+            },
+        );
+        let mut other = state.store.account_by_id("account").unwrap();
+        other.id = "other".into();
+        state.store.insert_account(other);
+        let manifest = state.plugin_loader.get_plugin("test").unwrap();
+        let (_, first) = reserve_affinity(
+            &state,
+            manifest,
+            "text-model",
+            "text",
+            "key-a",
+            "first",
+            None,
+            Some("account"),
+        )
+        .unwrap();
+        let (_, second) = reserve_affinity(
+            &state,
+            manifest,
+            "text-model",
+            "text",
+            "key-a",
+            "second",
+            None,
+            Some("other"),
+        )
+        .unwrap();
+        let waiting = reserve_affinity_wait(
+            &state,
+            manifest,
+            "text-model",
+            "text",
+            "key-a",
+            "next",
+            None,
+            Some("account"),
+        );
+        let release = async {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            assert_eq!(state.store.task_by_id("next").unwrap().status, "queued");
+            state.store.complete_task("second", json!({}));
+            drop(second);
+        };
+        let (result, _) = tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::join!(waiting, release)
+        })
+        .await
+        .unwrap();
+        assert_eq!(result.unwrap().0.id, "other");
+        drop(first);
+    }
+
+    #[actix_web::test]
     async fn busy_bound_session_waits_for_original_even_when_another_is_idle() {
         let state = crate::protocol_api_tests::state();
         let mut other = state.store.account_by_id("account").unwrap();
