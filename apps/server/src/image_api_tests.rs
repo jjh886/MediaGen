@@ -268,9 +268,10 @@ async fn needs_verification_marks_account_state() {
 }
 
 fn failover_state() -> ServerState {
-    let plugins_dir = write_failover_plugin("image-failover");
+    let name = format!("image-failover-{}", uuid::Uuid::new_v4());
+    let plugins_dir = write_failover_plugin(&name);
     let state = server_state(
-        test_root("image-failover"),
+        test_root(&name),
         PluginLoader::load_from(&plugins_dir).unwrap(),
     );
     state.store.update_settings(SettingsUpdate {
