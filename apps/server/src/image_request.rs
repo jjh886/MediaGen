@@ -285,19 +285,8 @@ impl OpenAiImageRequest {
                 "callback_url 只在 /v1/images/generations 且 async=true 时生效".to_string(),
             ));
         }
-        if url.len() > 2048 {
-            return request_error("callback_url 长度不能超过 2048");
-        }
-        let parsed = reqwest::Url::parse(&url).map_err(|_| {
-            (
-                400,
-                "invalid_request_error",
-                "callback_url 格式无效".to_string(),
-            )
-        })?;
-        if !matches!(parsed.scheme(), "http" | "https") {
-            return request_error("callback_url 只支持 http 或 https");
-        }
+        crate::generation_queue::callback::validate_url(&url)
+            .map_err(|message| (400, "invalid_request_error", message))?;
         Ok(())
     }
 

@@ -17,6 +17,7 @@ pub(crate) fn validate_request(body: &Value, endpoint: &str) -> Result<(), Strin
         ],
         "chat" => &[
             "async",
+            "callback_url",
             "model",
             "messages",
             "audio",
@@ -62,6 +63,7 @@ pub(crate) fn validate_request(body: &Value, endpoint: &str) -> Result<(), Strin
         ],
         _ => &[
             "async",
+            "callback_url",
             "model",
             "input",
             "instructions",
@@ -121,6 +123,14 @@ pub(crate) fn validate_request(body: &Value, endpoint: &str) -> Result<(), Strin
     }
     if body["async"] == true && body["stream"] == true {
         return Err("async 排队模式通过任务接口查询结果，不能同时启用 stream".into());
+    }
+    if let Some(url) = body.get("callback_url") {
+        if body["async"] != true {
+            return Err("callback_url 仅在 async=true 时生效".into());
+        }
+        crate::generation_queue::callback::validate_url(
+            url.as_str().ok_or("callback_url 必须是字符串")?.trim(),
+        )?;
     }
     if body["background"] == true {
         return Err("当前插件不支持 background".into());

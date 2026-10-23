@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::access_control::hash_account_keys;
 use crate::store::SettingsUpdate;
-use crate::test_fixtures::{account_record, server_state};
+use crate::test_fixtures::{account_record, callback_receiver, read_callback_json, server_state};
 use crate::ServerState;
 
 #[actix_web::test]
@@ -428,71 +428,4 @@ fn verification_manifest() -> &'static str {
 
 fn test_root(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("mediagen-image-api-test-{name}"))
-}
-
-async fn callback_receiver() -> (String, tokio::sync::oneshot::Receiver<String>) {
-    use tokio::io::AsyncWriteExt;
-
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .unwrap();
-    let url = format!("http://{}/callback", listener.local_addr().unwrap());
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.unwrap();
-        let body = read_callback_body(&mut stream).await;
-        let _ = stream
-            .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
-            .await;
-        let _ = tx.send(body);
-    });
-    (url, rx)
-}
-
-async fn read_callback_json(received: tokio::sync::oneshot::Receiver<String>) -> serde_json::Value {
-    let body = tokio::time::timeout(std::time::Duration::from_secs(5), received)
-        .await
-        .unwrap()
-        .unwrap();
-    serde_json::from_str(&body).unwrap()
-}
-
-async fn read_callback_body(stream: &mut tokio::net::TcpStream) -> String {
-    use tokio::io::AsyncReadExt;
-
-    let mut buffer = Vec::new();
-    let mut header_len = None;
-    let mut content_len = 0usize;
-    loop {
-        let mut chunk = [0u8; 1024];
-        let read = stream.read(&mut chunk).await.unwrap();
-        if read == 0 {
-            return String::new();
-        }
-        buffer.extend_from_slice(&chunk[..read]);
-        if header_len.is_none() {
-            if let Some(index) = header_end(&buffer) {
-                header_len = Some(index + 4);
-                content_len = content_length(&buffer[..index]);
-            }
-        }
-        if let Some(start) = header_len {
-            if buffer.len() >= start + content_len {
-                return String::from_utf8_lossy(&buffer[start..start + content_len]).to_string();
-            }
-        }
-    }
-}
-
-fn header_end(buffer: &[u8]) -> Option<usize> {
-    buffer.windows(4).position(|window| window == b"\r\n\r\n")
-}
-
-fn content_length(headers: &[u8]) -> usize {
-    String::from_utf8_lossy(headers)
-        .lines()
-        .filter_map(|line| line.split_once(':'))
-        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
-        .and_then(|(_, value)| value.trim().parse().ok())
-        .unwrap_or(0)
 }

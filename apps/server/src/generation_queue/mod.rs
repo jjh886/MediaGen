@@ -1,5 +1,5 @@
 mod api;
-mod callback;
+pub(crate) mod callback;
 mod credential;
 mod records;
 pub(crate) mod result;

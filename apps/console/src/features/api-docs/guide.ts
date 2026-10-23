@@ -215,7 +215,16 @@ export const guideSections: GuideSection[] = [
         kind: 'code',
         title: '提交文本任务 · JSON 请求体',
         language: 'json',
-        value: JSON.stringify({ model: 'gpt-6-luna', input: '请总结剧本。', async: true }, null, 2),
+        value: JSON.stringify(
+          {
+            model: 'gpt-6-luna',
+            input: '请总结剧本。',
+            async: true,
+            callback_url: 'https://your-app.example/callback',
+          },
+          null,
+          2
+        ),
       },
       {
         kind: 'paragraph',
@@ -236,7 +245,7 @@ export const guideSections: GuideSection[] = [
       },
       {
         kind: 'paragraph',
-        text: '图片任务也可以在提交时设置 `callback_url`，完成后接收以下回调。接收端应按 `task_id` 去重，回调失败会重试。',
+        text: '图片与文本异步任务均可设置 `callback_url`，终态后向该地址 POST JSON。文本事件为 `text_generation.completed`、`text_generation.failed`、`text_generation.cancelled`，图片使用 `image_generation` 前缀。完成结果在 `data` 中，失败或取消原因在 `error` 中。接收端保存结果后返回 2xx，并按 `task_id` 去重。每次回调超时 15 秒，失败最多尝试 3 次，间隔 1 秒、2 秒；服务重启不补发通知，通知失败不改变生成结果，可查询兜底。',
       },
       {
         kind: 'code',
@@ -256,7 +265,7 @@ export const guideSections: GuideSection[] = [
       },
       {
         kind: 'note',
-        text: '不配置回调也能通过查询接口取回结果。新生成的队列图片加密保存在本地，服务重启后仍可读取；旧版本未保存的图片不能追溯补回。',
+        text: '不配置回调也能通过查询接口取回结果。新生成的队列结果加密保存在本地，服务重启后仍可读取；旧版本未保存的结果不能追溯补回。',
       },
     ],
   },

@@ -17,7 +17,7 @@ async fn wait_job(state: &ServerState, id: &str, expected: crate::store::Generat
 
 #[actix_web::test]
 async fn async_text_reuses_image_queue_results_and_owner_isolation_for_both_endpoints() {
-    for (endpoint, body) in [
+    for (endpoint, mut body) in [
         (
             "responses",
             json!({"model":"text-model","input":"测试","async":true}),
@@ -27,7 +27,19 @@ async fn async_text_reuses_image_queue_results_and_owner_isolation_for_both_endp
             json!({"model":"text-model","messages":[{"role":"user","content":"测试"}],"async":true}),
         ),
     ] {
+        let (callback_url, received) = crate::test_fixtures::callback_receiver().await;
+        body["callback_url"] = json!(callback_url);
         let state = crate::protocol_api_tests::state();
+        let script = state
+            .plugin_loader
+            .get_plugin_dir("test")
+            .unwrap()
+            .join("scripts/text.js");
+        let source = std::fs::read_to_string(&script).unwrap().replace(
+            "function main(ctx) {",
+            "function main(ctx) { if ('callback_url' in ctx.request || 'async' in ctx.request) throw new Error('local parameters leaked');",
+        );
+        std::fs::write(script, source).unwrap();
         let app = test::init_service(
             App::new()
                 .app_data(state.clone())
@@ -94,6 +106,11 @@ async fn async_text_reuses_image_queue_results_and_owner_isolation_for_both_endp
             assert_eq!(result["object"], "chat.completion");
             assert_eq!(result["choices"][0]["message"]["content"], "你好");
         }
+        let callback = crate::test_fixtures::read_callback_json(received).await;
+        assert_eq!(callback["event"], "text_generation.completed");
+        assert_eq!(callback["task_id"], id);
+        assert_eq!(callback["model"], "text-model");
+        assert_eq!(&callback["data"], result);
         let denied = test::call_service(
             &app,
             test::TestRequest::get()
@@ -237,6 +254,7 @@ async fn account_config_changes_queue_capacity_without_fixed_ceiling() {
 
 #[actix_web::test]
 async fn cancelled_async_text_never_starts_and_remains_owned() {
+    let (callback_url, received) = crate::test_fixtures::callback_receiver().await;
     let state = crate::protocol_api_tests::state();
     let app = test::init_service(
         App::new()
@@ -249,7 +267,7 @@ async fn cancelled_async_text_never_starts_and_remains_owned() {
         test::TestRequest::post()
             .uri("/v1/responses")
             .insert_header(("authorization", "Bearer key-a"))
-            .set_json(json!({"model":"text-model","input":"cancel","async":true}))
+            .set_json(json!({"model":"text-model","input":"cancel","async":true,"callback_url":callback_url}))
             .to_request(),
     )
     .await;
@@ -275,6 +293,10 @@ async fn cancelled_async_text_never_starts_and_remains_owned() {
     )
     .await;
     assert_eq!(cancelled.status(), 200);
+    let callback = crate::test_fixtures::read_callback_json(received).await;
+    assert_eq!(callback["event"], "text_generation.cancelled");
+    assert_eq!(callback["task_id"], id);
+    assert_eq!(callback["error"]["code"], "task_cancelled");
     super::super::worker::dispatch_available(&state).await;
     assert_eq!(
         state.store.generation_job(id, None).unwrap().state,
@@ -409,4 +431,40 @@ async fn admin_reads_completed_text_without_exposing_result_through_public_queue
     let result: Value = test::read_body_json(response).await;
     assert_eq!(result["data"]["output"][0]["content"][0]["text"], "你好");
     assert!(result["data"].get("owner").is_none());
+}
+
+#[actix_web::test]
+async fn text_callback_requires_async_and_valid_http_url() {
+    for endpoint in ["responses", "chat"] {
+        let base = if endpoint == "chat" {
+            json!({"model":"text-model","messages":[{"role":"user","content":"test"}]})
+        } else {
+            json!({"model":"text-model","input":"test"})
+        };
+        for url in [
+            json!(null),
+            json!(42),
+            json!(""),
+            json!(" "),
+            json!("file:///tmp/result"),
+            json!("https://user:pass@example.test/callback"),
+            json!("x".repeat(2049)),
+        ] {
+            let mut body = base.clone();
+            body["async"] = json!(true);
+            body["callback_url"] = url;
+            assert!(crate::protocol_request::validate_request(&body, endpoint).is_err());
+        }
+        for flag in [None, Some(false), Some(true)] {
+            let mut body = base.clone();
+            body["callback_url"] = json!(" https://example.test/callback?token=secret ");
+            if let Some(flag) = flag {
+                body["async"] = json!(flag);
+            }
+            assert_eq!(
+                crate::protocol_request::validate_request(&body, endpoint).is_ok(),
+                flag == Some(true)
+            );
+        }
+    }
 }

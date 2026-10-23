@@ -112,6 +112,13 @@ const input = fields([
 ])
 const asyncRequest = fields([
   [
+    'callback_url',
+    'string',
+    '否',
+    '未设置',
+    '仅 async=true 可用；HTTP/HTTPS 地址，最多 2048 字符。完成、失败或取消后 POST JSON 通知，成功结果在 data 中；接收端保存结果后返回 2xx，并按 task_id 去重。',
+  ],
+  [
     'async',
     'boolean',
     '否',

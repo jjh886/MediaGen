@@ -83,7 +83,10 @@ function endpointContract(doc: ApiExample): ApiContract {
       [
         ...fields([['type', 'string', '是', 'response.create', '客户端事件类型。']], 'event'),
         ...responseRequest
-          .filter((f) => !['stream', 'background', 'stream_options', 'async'].includes(f.name))
+          .filter(
+            (f) =>
+              !['stream', 'background', 'stream_options', 'async', 'callback_url'].includes(f.name)
+          )
           .map((f) => ({
             ...f,
             location: 'event' as const,

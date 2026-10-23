@@ -194,9 +194,6 @@ export default function GenerationQueueList() {
           void setTaskKind(key).catch(() => undefined)
         }}
       />
-      <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-        图片与文本独立排队、互不占用并发。这里只显示等待任务；执行中和已完成任务可在“任务列表”查询。
-      </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <KtButton

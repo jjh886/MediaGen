@@ -212,6 +212,13 @@ describe('对外接口文档', () => {
 it('文本异步示例与图片共用查询管理契约，全文复制包含类型筛选', () => {
   const asyncText = documents.find((doc) => doc.path === '/v1/responses' && doc.status === 202)!
   expect(asyncText.body?.async).toBe(true)
+  expect(asyncText.body?.callback_url).toBe('https://your-app.example/callback')
+  for (const path of ['/v1/responses', '/v1/chat/completions']) {
+    const http = documents.find((doc) => doc.path === path && doc.method === 'POST')!
+    expect(http.requestFields.some((field) => field.name === 'callback_url')).toBe(true)
+  }
+  const ws = documents.find((doc) => doc.path === '/v1/responses' && doc.method === 'WS')!
+  expect(ws.requestFields.some((field) => field.name.endsWith('callback_url'))).toBe(false)
   expect(asyncText.responseFields.some((field) => field.name === 'data.taskId')).toBe(true)
   expect(asyncText.streamFields).toBeUndefined()
   const query = documents.find((doc) => doc.path === '/api/v2/generation-queue')!
@@ -219,6 +226,7 @@ it('文本异步示例与图片共用查询管理契约，全文复制包含类�
   const markdown = fullDocumentation()
   expect(markdown).toContain('文本异步排队')
   expect(markdown).toContain('taskKind=text')
+  expect(markdown).toContain('text_generation.completed')
   expect(markdown).not.toContain('对文本、音频接口无效')
   expect(markdown).not.toContain('排队只适用于图片生成')
 })

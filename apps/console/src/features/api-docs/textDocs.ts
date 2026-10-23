@@ -69,7 +69,12 @@ export const textDocs: ApiExample[] = [
     title: '文本异步排队',
     description: '默认同步，显式传入 async=true 才排队。复用图片队列的管理接口，两类队列独立运行。',
     notes: textNotes,
-    body: { model: 'gpt-6-luna', input: '请总结这段剧本的主要冲突。', async: true },
+    body: {
+      model: 'gpt-6-luna',
+      input: '请总结这段剧本的主要冲突。',
+      async: true,
+      callback_url: 'https://your-app.example/callback',
+    },
     status: 202,
     response: {
       success: true,

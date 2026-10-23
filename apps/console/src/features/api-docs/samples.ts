@@ -47,7 +47,7 @@ export const video = {
   size: '1280x720',
 }
 export const textNotes = [
-  'HTTP 文本接口默认同步；async=true 返回 HTTP 202 和 data.taskId，使用 /api/v2/generation-tasks/{task_id} 查询结果。不能同时 stream=true；此扩展不适用于 WebSocket、compact 或音频接口。',
+  'HTTP 文本接口默认同步；async=true 返回 HTTP 202 和 data.taskId，可传 callback_url 接收结果，或使用 /api/v2/generation-tasks/{task_id} 查询结果。不能同时 stream=true；此扩展不适用于 WebSocket、compact 或音频接口。',
   '图片和文本队列独立运行。文本并发在账号配置调整，默认 3，填 0 使用默认值；临时失败由队列等待重试，取消和插队复用 generation-queue/actions。',
   '聊天可返回媒体：ChatGPT 支持图片，豆包支持图片和视频，实际能力取决于账号与平台。Responses 保留 image_generation_call / video_generation_call；Chat 使用 MediaGen 扩展 message.media，SSE 使用 delta.media。',
   '媒体进度与完成项按 id 更新；图片 result 为 Base64，视频 result_url 为有时效的 HTTPS 地址。思考摘要独立于正文；Responses 读取 reasoning.summary，Chat 读取 reasoning 或 reasoning_content。',

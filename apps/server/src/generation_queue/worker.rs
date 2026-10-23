@@ -179,12 +179,8 @@ fn finish_cancelled(
     state
         .store
         .finish_generation_job(task_id, GenerationJobState::Cancelled, Some("用户取消"));
-    if let Some(body) = body {
-        super::callback::spawn_cancelled(
-            state.get_ref().clone(),
-            task_id.to_string(),
-            body.clone(),
-        );
+    if let Some(target) = super::callback::target(state, task_id, body) {
+        super::callback::spawn_cancelled(state.get_ref().clone(), task_id.to_string(), target);
     }
     crate::weixin::delivery::queue_terminal_status(
         state.get_ref(),
@@ -204,11 +200,11 @@ async fn finish_completed(
         .store
         .finish_generation_job(task_id, GenerationJobState::Completed, None);
     crate::weixin::delivery::queue_completed_response(state.get_ref(), task_id, &response).await;
-    if let Some(body) = body {
+    if let Some(target) = super::callback::target(state, task_id, body) {
         super::callback::spawn_completed(
             state.get_ref().clone(),
             task_id.to_string(),
-            body.clone(),
+            target,
             response,
         );
     }
@@ -236,11 +232,11 @@ fn finish_terminal_failure(
         "failed",
         Some(&summary),
     );
-    if let Some(body) = body {
+    if let Some(target) = super::callback::target(state, task_id, body) {
         super::callback::spawn_failed(
             state.get_ref().clone(),
             task_id.to_string(),
-            body.clone(),
+            target,
             code,
             &summary,
         );

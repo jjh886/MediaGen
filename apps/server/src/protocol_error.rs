@@ -31,6 +31,23 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
             "当前账号不支持所选模型，请刷新账号模型目录；已有会话需恢复原账号能力".into(),
         );
     }
+    let lower = message.to_lowercase();
+    if [
+        "content_policy",
+        "content policy",
+        "safety policy",
+        "safety_violations",
+        "safety system",
+    ]
+    .iter()
+    .any(|code| lower.contains(code))
+    {
+        return (
+            400,
+            "content_policy_violation",
+            "上游内容安全规则拒绝了此请求".into(),
+        );
+    }
     if message.contains("invalid_input")
         || message.contains("missing_input")
         || message.contains("unsupported_")
@@ -84,5 +101,26 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
         )
     } else {
         (502, "upstream_error", "上游请求未成功完成".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::public_failure;
+
+    #[test]
+    fn explicit_content_refusal_stays_terminal_without_exposing_upstream_details() {
+        for message in [
+            "content_policy_refusal: private detail",
+            "Content Policy violation",
+            "safety_violations",
+        ] {
+            let (status, code, public) = public_failure(message);
+            assert_eq!(status, 400);
+            assert_eq!(code, "content_policy_violation");
+            assert_eq!(public, "上游内容安全规则拒绝了此请求");
+        }
+        assert_eq!(public_failure("temporary_unavailable").0, 503);
+        assert_eq!(public_failure("connection reset").0, 502);
     }
 }
