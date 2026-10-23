@@ -77,7 +77,10 @@ pub(crate) fn reset_daily_usage(account: &mut AccountRecord, today: &str) -> boo
 }
 
 pub(crate) fn state_releases_after_until(login_state: &str) -> bool {
-    matches!(login_state, "cooldown" | "daily_quota_exhausted")
+    matches!(
+        login_state,
+        "cooldown" | "daily_quota_exhausted" | "total_quota_exhausted"
+    )
 }
 
 fn account_ready_for_dispatch_at(
@@ -85,10 +88,17 @@ fn account_ready_for_dispatch_at(
     tasks: &[TaskRecord],
     now: DateTime<Utc>,
 ) -> bool {
+    let running = active_count(account, tasks);
     account_login_ready(account, now)
-        && under_limit(account.used_today, account.daily_limit)
-        && under_limit(account.used_total, account.total_limit)
-        && under_concurrency(account, tasks)
+        && under_limit(
+            account.used_today.saturating_add(running),
+            account.daily_limit,
+        )
+        && under_limit(
+            account.used_total.saturating_add(running),
+            account.total_limit,
+        )
+        && running < account.concurrency_limit.max(1)
         && interval_elapsed(account, tasks, now)
 }
 
@@ -230,13 +240,12 @@ fn under_limit(used: u32, limit: u32) -> bool {
     limit == 0 || used < limit
 }
 
-fn under_concurrency(account: &AccountRecord, tasks: &[TaskRecord]) -> bool {
-    let running = tasks
+fn active_count(account: &AccountRecord, tasks: &[TaskRecord]) -> u32 {
+    tasks
         .iter()
         .filter(|task| task.account_id.as_deref() == Some(account.id.as_str()))
         .filter(|task| task_is_active(task))
-        .count() as u32;
-    running < account.concurrency_limit.max(1)
+        .count() as u32
 }
 
 /// 排队或执行中的任务仍占用账号，登录检查不能在此时操作同一浏览器资料目录。

@@ -130,3 +130,17 @@ fn queue_order_counts_and_filters_are_independent_by_task_kind() {
         GenerationJobState::Queued
     );
 }
+
+#[test]
+fn local_capacity_wait_does_not_count_as_an_upstream_retry() {
+    let store = test_store("capacity-wait");
+    insert_job(&store, "task", "owner");
+    let now = Utc::now();
+    store
+        .claim_next_generation_job(now, now + Duration::hours(6))
+        .unwrap();
+    store.requeue_generation_job("task", now, "account_unavailable", "busy");
+    let job = store.generation_job("task", None).unwrap();
+    assert_eq!(job.state, GenerationJobState::RetryWait);
+    assert_eq!(job.retry_count, 0);
+}

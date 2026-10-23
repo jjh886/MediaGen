@@ -65,6 +65,19 @@ pub(crate) fn resolve_media_flow_context<'a>(
                     "原任务账号不可用，等待恢复原账号".into(),
                 )
             })?;
+        if expected_kind == TaskKind::Image
+            && !crate::store_helpers::account_ready_for_kind(
+                &account,
+                &state.store.dispatch_tasks(Some(&task_id)),
+                "image",
+            )
+        {
+            return Err((
+                409,
+                "account_unavailable",
+                "原任务账号正在执行、冷却或限额中，等待恢复".into(),
+            ));
+        }
         state
             .store
             .account_with_required_runtime_proxy(account)
@@ -248,7 +261,16 @@ fn route_attempt_failure<'a>(
     }
     record_attempt_failure(state, context, &decision, task_label);
     if decision.should_retry_same_account(same_account_failures) {
-        return Ok(FailureRoute::RetrySameAccount);
+        if state
+            .store
+            .account_by_id(&context.account.id)
+            .is_some_and(|account| {
+                crate::store_helpers::account_ready_for_kind(&account, &[], "image")
+            })
+        {
+            return Ok(FailureRoute::RetrySameAccount);
+        }
+        return Ok(FailureRoute::Final(decision));
     }
     if decision.should_cooldown_after_retry_exhausted() {
         state.store.mark_account_state_for_seconds(

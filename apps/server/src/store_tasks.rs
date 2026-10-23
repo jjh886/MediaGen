@@ -104,6 +104,10 @@ impl AppStore {
         })
     }
 
+    pub(crate) fn set_task_prompt(&self, id: &str, prompt: String) {
+        self.update_task(id, |task| task.prompt = prompt);
+    }
+
     pub fn set_task_account(&self, id: &str, account_id: &str) -> Option<TaskRecord> {
         self.update_task(id, |task| {
             task.account_id = Some(account_id.to_string());
@@ -159,6 +163,7 @@ impl AppStore {
         let task = task.clone();
         drop(tasks);
         self.save();
+        self.dispatch_notify.notify_waiters();
         Some(task)
     }
 

@@ -116,20 +116,33 @@ impl AppStore {
         lease_until: DateTime<Utc>,
         eligible: impl Fn(&GenerationJobRecord) -> bool,
     ) -> Option<GenerationJobRecord> {
+        // 在持有队列锁之外检查账号，避免账号状态刷新保存快照时反向等待队列锁。
+        let candidates = {
+            let jobs = self
+                .generation_jobs
+                .lock()
+                .unwrap_or_else(|err| err.into_inner());
+            let mut candidates = jobs
+                .iter()
+                .filter(|job| {
+                    job_is_visible(job)
+                        && parse_time(&job.next_attempt_at).is_some_and(|ready_at| ready_at <= now)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            candidates.sort_by(queue_order);
+            candidates
+        };
+        let candidate = candidates.iter().find(|job| eligible(job))?;
         let mut jobs = self
             .generation_jobs
             .lock()
             .unwrap_or_else(|err| err.into_inner());
-        let index = jobs
-            .iter()
-            .enumerate()
-            .filter(|(_, job)| {
-                job_is_visible(job)
-                    && eligible(job)
-                    && parse_time(&job.next_attempt_at).is_some_and(|ready_at| ready_at <= now)
-            })
-            .min_by(|(_, left), (_, right)| queue_order(left, right))
-            .map(|(index, _)| index)?;
+        let index = jobs.iter().position(|job| {
+            job.task_id == candidate.task_id
+                && job_is_visible(job)
+                && parse_time(&job.next_attempt_at).is_some_and(|ready_at| ready_at <= now)
+        })?;
         let job = &mut jobs[index];
         job.state = GenerationJobState::Leased;
         job.lease_until = Some(lease_until.to_rfc3339());
@@ -203,7 +216,9 @@ impl AppStore {
             return;
         };
         job.state = GenerationJobState::RetryWait;
-        job.retry_count = job.retry_count.saturating_add(1);
+        if category != "account_unavailable" {
+            job.retry_count = job.retry_count.saturating_add(1);
+        }
         job.next_attempt_at = next_attempt_at.to_rfc3339();
         job.last_failure_category = Some(category.to_string());
         job.last_error_summary = Some(error_summary.to_string());

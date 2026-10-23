@@ -55,3 +55,41 @@ pub(crate) fn reset_daily(account: &mut AccountRecord) {
                 .is_some_and(|at| at > Utc::now())
     });
 }
+
+/// 暂时忙、每日限额或有明确恢复时间的账号可以等待；停用和无恢复期限的总限额不能。
+pub(crate) fn account_can_wait_for_kind(account: &AccountRecord, kind: &str) -> bool {
+    if crate::store_helpers::account_ready_for_kind(account, &[], kind) {
+        return true;
+    }
+    let mut future = account.clone();
+    let timed = account
+        .cooldown_until
+        .as_deref()
+        .and_then(|at| DateTime::parse_from_rfc3339(at).ok())
+        .is_some();
+    if (timed
+        && matches!(
+            future.login_state.as_str(),
+            "cooldown" | "daily_quota_exhausted" | "total_quota_exhausted"
+        ))
+        || future.login_state == "daily_quota_exhausted"
+    {
+        future.login_state = "available".into();
+    }
+    let scope = crate::store_quota::scope(kind);
+    future.policy.quota_holds.retain(|key, hold| {
+        key != scope
+            || (hold.state != "daily_quota_exhausted"
+                && hold
+                    .until
+                    .as_deref()
+                    .and_then(|at| DateTime::parse_from_rfc3339(at).ok())
+                    .is_none())
+    });
+    if kind == "text" {
+        future.policy.text_used_today = 0;
+    } else {
+        future.used_today = 0;
+    }
+    crate::store_helpers::account_ready_for_kind(&future, &[], kind)
+}

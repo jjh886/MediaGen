@@ -74,7 +74,7 @@ async fn async_text_reuses_image_queue_results_and_owner_isolation_for_both_endp
         .await;
         assert_eq!(queued["data"]["items"][0]["taskId"], id);
         assert_eq!(queued["data"]["items"][0]["taskKind"], "text");
-        super::super::worker::dispatch_available(&state);
+        super::super::worker::dispatch_available(&state).await;
         wait_job(&state, id, crate::store::GenerationJobState::Completed).await;
         let detail_uri = format!("/api/v2/generation-tasks/{id}");
         let result: Value = test::call_and_read_body_json(
@@ -275,7 +275,7 @@ async fn cancelled_async_text_never_starts_and_remains_owned() {
     )
     .await;
     assert_eq!(cancelled.status(), 200);
-    super::super::worker::dispatch_available(&state);
+    super::super::worker::dispatch_available(&state).await;
     assert_eq!(
         state.store.generation_job(id, None).unwrap().state,
         crate::store::GenerationJobState::Cancelled
@@ -325,7 +325,7 @@ async fn retry_after_reload_keeps_checkpoint_and_does_not_submit_again() {
             .status(),
         202
     );
-    super::super::worker::dispatch_available(&state);
+    super::super::worker::dispatch_available(&state).await;
     wait_job(&state, &id, crate::store::GenerationJobState::RetryWait).await;
     assert_eq!(
         state.store.generation_job(&id, None).unwrap().retry_count,
@@ -339,7 +339,7 @@ async fn retry_after_reload_keeps_checkpoint_and_does_not_submit_again() {
     config.store.generation_jobs.lock().unwrap()[0].next_attempt_at =
         chrono::Utc::now().to_rfc3339();
     let restarted = web::Data::new(config);
-    super::super::worker::dispatch_available(&restarted);
+    super::super::worker::dispatch_available(&restarted).await;
     wait_job(&restarted, &id, crate::store::GenerationJobState::Completed).await;
     let result = super::super::result::read(&restarted, &id)
         .await
@@ -384,7 +384,7 @@ async fn admin_reads_completed_text_without_exposing_result_through_public_queue
     let context = ProtocolRequest::from_http(&request, "key-a", &body);
     let id = context.task_id.clone();
     enqueue_text(state.clone(), "key-a".into(), body, "responses", context).await;
-    super::super::worker::dispatch_available(&state);
+    super::super::worker::dispatch_available(&state).await;
     wait_job(&state, &id, crate::store::GenerationJobState::Completed).await;
     let uri = format!("/api/tasks/{id}/result");
     let denied = test::call_service(

@@ -3,7 +3,7 @@ use mediagen_core::TaskKind;
 use serde_json::Value;
 
 use crate::access_control::hash_secret;
-use crate::image_api_response::{new_image_task, openai_error};
+use crate::image_api_response::openai_error;
 use crate::image_assets::cleanup_temp_files;
 use crate::image_flow_execution::{execute_image_flow, prepare_flow_request};
 use crate::image_multipart::parse_image_request;
@@ -135,7 +135,9 @@ async fn handle_image_request(
                 caller_key.as_deref(),
                 request_id.clone(),
             ) {
-                return openai_error(status, code, &message);
+                if code != "account_unavailable" {
+                    return openai_error(status, code, &message);
+                }
             }
         }
         return crate::image_stream::response(
@@ -156,7 +158,7 @@ pub(crate) async fn run_queued_image_flow(
     task_id: &str,
 ) -> Result<Value, (u16, &'static str, String)> {
     ensure_task_not_cancelled(&state, task_id)?;
-    let context = state.store.with_account_dispatch(|| {
+    let (context, _lease) = state.store.with_account_dispatch(|| {
         let context = resolve_image_flow_context_with_task_id(
             &state,
             &body,
@@ -165,7 +167,8 @@ pub(crate) async fn run_queued_image_flow(
         )?;
         state.store.set_task_account(task_id, &context.account.id);
         state.store.start_task(task_id);
-        Ok(context)
+        let lease = crate::protocol_task::Lease::new(state.store.clone(), task_id.into());
+        Ok((context, lease))
     })?;
     let _execution_guard = ImageExecutionGuard {
         store: state.store.clone(),
@@ -191,6 +194,7 @@ struct ImageExecutionGuard {
 
 impl Drop for ImageExecutionGuard {
     fn drop(&mut self) {
+        self.store.dispatch_notify.notify_waiters();
         // 持久队列由 worker 处理重试；执行器退出不能伪装成用户取消。
         if self.store.generation_job(&self.task_id, None).is_some() {
             return;
@@ -226,41 +230,45 @@ async fn run_image_flow(
     {
         return Ok(response);
     }
+    let (manifest, model) = state
+        .plugin_loader
+        .resolve_model(&body.model)
+        .ok_or_else(|| (404, "model_not_found", "模型不存在".to_string()))?;
+    if model.task_kind != TaskKind::Image {
+        return Err((400, "model_task_kind_mismatch", "模型不支持图片生成".into()));
+    }
     let settings = state.store.settings();
     let reservation = state
         .image_task_queue
         .reserve(&settings)
         .map_err(|message| (429, "queue_full", message))?;
-    let context = state.store.with_account_dispatch(|| {
-        let context = resolve_image_flow_context_with_task_id(
-            &state,
-            &body,
-            caller_key.as_deref(),
-            request_id.clone(),
-        )?;
-        if state.store.task_by_id(&context.task_id).is_none() {
-            state.store.insert_task(new_image_task(
-                &context.task_id,
-                context.manifest,
-                &context.model.model_id,
-                &body,
-                &context.account.id,
-            ));
-        }
-        Ok(context)
-    })?;
     let _execution_guard = ImageExecutionGuard {
         store: state.store.clone(),
-        task_id: context.task_id.clone(),
+        task_id: request_id.clone(),
+    };
+    let _permit = reservation.activate(&settings).await;
+    let (account, _lease) = crate::protocol_task::reserve_affinity_wait(
+        &state,
+        manifest,
+        &body.model,
+        "image",
+        caller_key.as_deref().unwrap_or_default(),
+        &request_id,
+        None,
+        None,
+    )
+    .await
+    .map_err(|message| (409, "account_unavailable", message))?;
+    state.store.set_task_prompt(&request_id, body.prompt_text());
+    let context = MediaFlowContext {
+        manifest,
+        model,
+        account,
+        task_id: request_id,
     };
     state
         .store
-        .add_task_event(&context.task_id, "info", "任务进入队列".to_string());
-    let _permit = reservation.activate(&settings).await;
-    state.store.start_task(&context.task_id);
-    state
-        .store
-        .add_task_event(&context.task_id, "info", "任务开始执行".to_string());
+        .add_task_event(&context.task_id, "info", "任务开始执行".into());
     run_image_attempts(&state, body, endpoint, caller_key, context).await
 }
 

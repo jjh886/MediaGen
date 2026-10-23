@@ -38,6 +38,7 @@ impl Drop for Lease {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&self.id);
+        self.store.dispatch_notify.notify_waiters();
     }
 }
 
@@ -82,74 +83,26 @@ pub(crate) fn reserve_affinity(
     requirements: Option<&serde_json::Value>,
     preferred: Option<&str>,
 ) -> Result<(crate::store::AccountRecord, Lease), String> {
-    let account = state.store.with_account_dispatch(|| {
-        let original = bound_account(state, id, requirements, preferred)?;
-        if let Some(original) = &original {
-            if state.store.account_by_id(original).is_none() {
-                return Err("原任务账号不存在，无法读取恢复凭据".into());
-            }
-        }
-        let mut excluded = state
+    state.store.with_account_dispatch(|| {
+        if state
             .store
-            .list_accounts(Some(&manifest.platform_id))
-            .into_iter()
-            .filter(|account| {
-                state
-                    .store
-                    .account_with_required_runtime_proxy(account.clone())
-                    .is_err()
-                    || crate::model_api::account_model(state, manifest, model_id, &account.id)
-                        .is_none_or(|model| {
-                            requirements.is_some_and(|body| {
-                                crate::protocol_request::validate_capabilities(
-                                    body,
-                                    model
-                                        .extra
-                                        .get("capabilities")
-                                        .unwrap_or(&serde_json::Value::Null),
-                                )
-                                .is_err()
-                            })
-                        })
-            })
-            .map(|account| account.id)
-            .collect::<Vec<_>>();
-        if let Some(original) = &original {
-            excluded.extend(
-                state
-                    .store
-                    .list_accounts(Some(&manifest.platform_id))
-                    .into_iter()
-                    .filter(|account| &account.id != original)
-                    .map(|account| account.id),
-            );
-        }
-        if let Some(preferred) = original
-            .as_deref()
-            .or(preferred)
-            .and_then(|id| state.store.account_by_id(id))
-            .filter(|a| {
-                a.platform == manifest.platform_id
-                    && !excluded.contains(&a.id)
-                    && crate::store_helpers::account_ready_for_kind(a, &[], kind)
-                    && (state.store.global_api_key_allowed(key)
-                        || crate::access_control::account_key_allowed(&a.api_key, key))
-            })
+            .protocol_leases
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(id)
         {
-            excluded.extend(
-                state
-                    .store
-                    .list_accounts(Some(&manifest.platform_id))
-                    .into_iter()
-                    .filter(|a| a.id != preferred.id)
-                    .map(|a| a.id),
-            );
+            return Err("请求已在执行，请等待原请求结果".into());
         }
-        let account = state
-            .store
-            .select_account(&manifest.platform_id, Some(key), &excluded, kind)
-            .ok_or("没有可用账号")?;
-        let account = state.store.account_with_required_runtime_proxy(account)?;
+        let account = select_affinity_account(
+            state,
+            manifest,
+            model_id,
+            kind,
+            key,
+            id,
+            requirements,
+            preferred,
+        )?;
         state.store.mark_account_dispatched(&account.id);
         if !state
             .store
@@ -171,9 +124,93 @@ pub(crate) fn reserve_affinity(
         {
             return Err("请求已在执行，请等待原请求结果".into());
         }
-        Ok::<_, String>(account)
-    })?;
-    Ok((account, Lease::new(state.store.clone(), id.into())))
+        Ok((account, Lease::new(state.store.clone(), id.into())))
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn select_affinity_account(
+    state: &ServerState,
+    manifest: &PluginManifest,
+    model_id: &str,
+    kind: &str,
+    key: &str,
+    id: &str,
+    requirements: Option<&Value>,
+    preferred: Option<&str>,
+) -> Result<AccountRecord, String> {
+    let original = bound_account(state, id, requirements, preferred)?;
+    if let Some(original) = &original {
+        if state.store.account_by_id(original).is_none() {
+            return Err("原任务账号不存在，无法读取恢复凭据".into());
+        }
+    }
+    let mut excluded = state
+        .store
+        .list_accounts(Some(&manifest.platform_id))
+        .into_iter()
+        .filter(|account| {
+            state
+                .store
+                .account_with_required_runtime_proxy(account.clone())
+                .is_err()
+                || crate::model_api::account_model(state, manifest, model_id, &account.id)
+                    .is_none_or(|model| {
+                        requirements.is_some_and(|body| {
+                            crate::protocol_request::validate_capabilities(
+                                body,
+                                model
+                                    .extra
+                                    .get("capabilities")
+                                    .unwrap_or(&serde_json::Value::Null),
+                            )
+                            .is_err()
+                        })
+                    })
+        })
+        .map(|account| account.id)
+        .collect::<Vec<_>>();
+    if let Some(original) = &original {
+        excluded.extend(
+            state
+                .store
+                .list_accounts(Some(&manifest.platform_id))
+                .into_iter()
+                .filter(|account| &account.id != original)
+                .map(|account| account.id),
+        );
+    }
+    if let Some(preferred) = original
+        .as_deref()
+        .or(preferred)
+        .and_then(|id| state.store.account_by_id(id))
+        .filter(|a| {
+            a.platform == manifest.platform_id
+                && !excluded.contains(&a.id)
+                && crate::store_helpers::account_ready_for_kind(
+                    a,
+                    &state.store.dispatch_tasks(Some(id)),
+                    kind,
+                )
+                && (state.store.global_api_key_allowed(key)
+                    || crate::access_control::account_key_allowed(&a.api_key, key))
+        })
+    {
+        excluded.extend(
+            state
+                .store
+                .list_accounts(Some(&manifest.platform_id))
+                .into_iter()
+                .filter(|a| a.id != preferred.id)
+                .map(|a| a.id),
+        );
+    }
+    let account = state
+        .store
+        .select_account_for_task(&manifest.platform_id, Some(key), &excluded, kind, Some(id))
+        .ok_or("没有可用账号")?;
+    let account = state.store.account_with_required_runtime_proxy(account)?;
+    Ok(account)
 }
 
 pub(crate) async fn cancelled(store: &AppStore, id: &str) {
@@ -348,6 +385,20 @@ pub(crate) async fn run_with_failover(
             return result;
         }
         if decision.should_retry_same_account(attempt + 1) {
+            let kind = if model.task_kind == TaskKind::Text {
+                "text"
+            } else {
+                "media"
+            };
+            if state
+                .store
+                .account_by_id(&account.id)
+                .is_none_or(|current| {
+                    !crate::store_helpers::account_ready_for_kind(&current, &[], kind)
+                })
+            {
+                return result;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(250 * (attempt + 1) as u64)).await;
             continue;
         }

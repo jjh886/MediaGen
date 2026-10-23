@@ -75,24 +75,21 @@ impl AppStore {
         excluded_ids: &[String],
         kind: &str,
     ) -> Option<AccountRecord> {
+        self.select_account_for_task(platform, api_key, excluded_ids, kind, None)
+    }
+
+    pub(crate) fn select_account_for_task(
+        &self,
+        platform: &str,
+        api_key: Option<&str>,
+        excluded_ids: &[String],
+        kind: &str,
+        task_id: Option<&str>,
+    ) -> Option<AccountRecord> {
         self.rollover_daily_usage();
         self.release_expired_cooldowns();
         let accounts = self.accounts.lock().unwrap_or_else(|err| err.into_inner());
-        let mut tasks = self
-            .tasks
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
-            .clone();
-        let leases = self
-            .protocol_leases
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
-        for task in &mut tasks {
-            if leases.contains(&task.id) {
-                task.status = "processing".into();
-            }
-        }
-        drop(leases);
+        let tasks = self.dispatch_tasks(task_id);
         let global = api_key.is_none_or(|key| self.global_api_key_allowed(key));
         accounts
             .iter()
@@ -108,6 +105,27 @@ impl AppStore {
             .min_by_key(|account| (account.policy.priority, account.policy.last_used_at.clone()))
             .cloned()
     }
+    /// 活跃执行器即使已被标记取消，退出前仍占用账号；恢复等待排除本任务旧记录。
+    pub(crate) fn dispatch_tasks(&self, task_id: Option<&str>) -> Vec<crate::store::TaskRecord> {
+        let mut tasks = self
+            .tasks
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .clone();
+        let leases = self
+            .protocol_leases
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        for task in &mut tasks {
+            if leases.contains(&task.id) {
+                task.status = "processing".into();
+            }
+        }
+        tasks.retain(|task| task_id != Some(task.id.as_str()) || leases.contains(&task.id));
+        drop(leases);
+        tasks
+    }
+
     pub(crate) fn mark_account_dispatched(&self, id: &str) {
         if let Some(account) = self
             .accounts

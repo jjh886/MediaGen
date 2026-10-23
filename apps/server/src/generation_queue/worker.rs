@@ -18,16 +18,22 @@ pub(crate) fn start_worker(state: web::Data<ServerState>) {
     }
     actix_web::rt::spawn(async move {
         loop {
-            dispatch_available(&state);
+            let queued = state.generation_queue_notify.notified();
+            let released = state.store.dispatch_notify.notified();
+            tokio::pin!(queued, released);
+            queued.as_mut().enable();
+            released.as_mut().enable();
+            dispatch_available(&state).await;
             tokio::select! {
-                _ = state.generation_queue_notify.notified() => {}
+                _ = queued => {}
+                _ = released => {}
                 _ = tokio::time::sleep(DISPATCH_INTERVAL) => {}
             }
         }
     });
 }
 
-pub(super) fn dispatch_available(state: &web::Data<ServerState>) {
+pub(super) async fn dispatch_available(state: &web::Data<ServerState>) {
     loop {
         let settings = state.store.settings();
         let permit = state.image_task_queue.try_acquire_background(&settings);
@@ -38,11 +44,11 @@ pub(super) fn dispatch_available(state: &web::Data<ServerState>) {
                 now,
                 now + ChronoDuration::hours(LEASE_HOURS),
                 |job| {
-                    if job.task_kind == "text" {
+                    (if job.task_kind == "text" {
                         text_available
                     } else {
                         permit.is_some()
-                    }
+                    }) && super::records::runnable(state, job)
                 },
             )
         });
@@ -59,13 +65,15 @@ pub(super) fn dispatch_available(state: &web::Data<ServerState>) {
         actix_web::rt::spawn(async move {
             execute_job(state, job, permit).await;
         });
+        // 让执行器先登记账号占用，再领取下一条任务。
+        tokio::task::yield_now().await;
     }
 }
 
 async fn execute_job(
     state: web::Data<ServerState>,
     job: crate::store::GenerationJobRecord,
-    _permit: Option<crate::image_task_queue::ImageTaskPermit>,
+    permit: Option<crate::image_task_queue::ImageTaskPermit>,
 ) {
     let caller_key = match job.credential_ciphertext.is_empty() {
         true => String::new(),
@@ -101,6 +109,7 @@ async fn execute_job(
         (Some(body), result)
     };
     finish_execution(&state, &job.task_id, callback_body.as_ref(), result).await;
+    drop(permit);
     state.generation_queue_notify.notify_waiters();
 }
 
@@ -116,6 +125,25 @@ async fn finish_execution(
     };
     if task.status == "cancelled" {
         finish_cancelled(state, task_id, body);
+        return;
+    }
+    if result.as_ref().is_err_and(|(status, _, _)| *status == 429)
+        && task
+            .account_id
+            .as_deref()
+            .and_then(|id| state.store.account_by_id(id))
+            .is_some_and(|account| {
+                !crate::store_helpers::account_ready_for_kind(&account, &[], &task.task_kind)
+                    && crate::store_quota::account_can_wait_for_kind(&account, &task.task_kind)
+            })
+    {
+        requeue(
+            state,
+            task_id,
+            "account_limited",
+            "账号限额中，等待恢复后继续原任务",
+            1,
+        );
         return;
     }
     match result {
@@ -244,7 +272,7 @@ fn finish_invalid_job(state: &web::Data<ServerState>, task_id: &str, error: &str
 
 fn retry_seconds(code: &str, error: &str) -> i64 {
     match code {
-        "account_unavailable" => 60,
+        "account_unavailable" => 1,
         "verification_required" => 300,
         "proxy_unavailable" => 120,
         _ if rate_limited(error) => 60,
@@ -299,176 +327,5 @@ fn content_policy_summary(error: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[actix_web::test]
-    async fn permission_and_zero_quota_stop_queue_without_becoming_safety_errors() {
-        let root = std::env::temp_dir().join(format!("queue-permission-{}", uuid::Uuid::new_v4()));
-        let state = web::Data::new(crate::test_fixtures::server_state(
-            root,
-            mediagen_plugin_runtime::PluginLoader::empty(),
-        ));
-        let body: OpenAiImageRequest =
-            serde_json::from_value(serde_json::json!({"model":"test-image","prompt":"circle"}))
-                .unwrap();
-        for (status, code) in [
-            (403, "account_permission_denied"),
-            (429, "insufficient_quota"),
-        ] {
-            let id = uuid::Uuid::new_v4().to_string();
-            let (task, job) = super::super::queued_image_records(
-                id.clone(),
-                "test".into(),
-                &body,
-                "key",
-                "encrypted".into(),
-                Utc::now().to_rfc3339(),
-            )
-            .unwrap();
-            state.store.create_generation_job(task, job).unwrap();
-            finish_execution(
-                &state,
-                &id,
-                Some(&body),
-                Err((status, code.to_string(), "账号未获授权或额度为零".into())),
-            )
-            .await;
-            let job = state.store.generation_job(&id, None).unwrap();
-            assert_eq!(job.state, GenerationJobState::Failed);
-            assert_eq!(job.retry_count, 0);
-            assert_eq!(
-                job.last_error_summary.as_deref(),
-                Some("账号未获授权或额度为零")
-            );
-        }
-    }
-
-    #[actix_web::test]
-    async fn image_and_text_queues_run_independently_when_other_kind_is_full() {
-        use serde_json::json;
-        let original = crate::protocol_api_tests::state();
-        let images = crate::image_api_tests::queue_state("independent-queues");
-        let mut config = original.get_ref().clone();
-        let plugins = config
-            .plugin_loader
-            .get_plugin_dir("test")
-            .unwrap()
-            .parent()
-            .unwrap()
-            .to_owned();
-        std::fs::create_dir_all(plugins.join("fake")).unwrap();
-        std::fs::copy(
-            images
-                .plugin_loader
-                .get_plugin_dir("fake")
-                .unwrap()
-                .join("manifest.json"),
-            plugins.join("fake/manifest.json"),
-        )
-        .unwrap();
-        config.plugin_loader = std::sync::Arc::new(
-            mediagen_plugin_runtime::PluginLoader::load_from(&plugins).unwrap(),
-        );
-        config
-            .store
-            .insert_account(images.store.account_by_id("acc-queue").unwrap());
-        config.store.update_settings(crate::store::SettingsUpdate {
-            image_task_concurrency: Some(1),
-            ..Default::default()
-        });
-        let state = web::Data::new(config);
-        let permit = state
-            .image_task_queue
-            .try_acquire_background(&state.store.settings())
-            .unwrap();
-        let image_id = super::super::enqueue_image_job(
-            &state,
-            "key-a",
-            state.credential_cipher.encrypt("key-a").unwrap(),
-            serde_json::from_value(json!({"model":"fake-image","prompt":"draw"})).unwrap(),
-        )
-        .unwrap_or_else(|_| panic!("图片任务入队失败"));
-        let body = json!({"model":"text-model","input":"test","async":true});
-        let request = actix_web::test::TestRequest::post()
-            .uri("/v1/responses")
-            .to_http_request();
-        let first = crate::request_identity::ProtocolRequest::from_http(&request, "key-a", &body);
-        let text_id = first.task_id.clone();
-        assert_eq!(
-            super::super::enqueue_text(
-                state.clone(),
-                "key-a".into(),
-                body.clone(),
-                "responses",
-                first
-            )
-            .await
-            .status(),
-            202
-        );
-        dispatch_available(&state);
-        wait_completed(&state, &text_id).await;
-        assert_eq!(
-            state.store.generation_job(&image_id, None).unwrap().state,
-            GenerationJobState::Queued
-        );
-        drop(permit);
-        let manifest = state.plugin_loader.get_plugin("test").unwrap();
-        let busy = (0..3)
-            .map(|i| {
-                crate::protocol_task::reserve(
-                    &state,
-                    manifest,
-                    "text-model",
-                    "text",
-                    "key-a",
-                    &format!("busy-{i}"),
-                    None,
-                )
-                .unwrap()
-                .1
-            })
-            .collect::<Vec<_>>();
-        let second = crate::request_identity::ProtocolRequest::from_http(&request, "key-a", &body);
-        let second_id = second.task_id.clone();
-        assert_eq!(
-            super::super::enqueue_text(state.clone(), "key-a".into(), body, "responses", second)
-                .await
-                .status(),
-            202
-        );
-        dispatch_available(&state);
-        wait_completed(&state, &image_id).await;
-        assert_eq!(
-            state.store.generation_job(&second_id, None).unwrap().state,
-            GenerationJobState::Queued
-        );
-        drop(busy);
-        dispatch_available(&state);
-        wait_completed(&state, &second_id).await;
-    }
-
-    async fn wait_completed(state: &ServerState, id: &str) {
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while state.store.generation_job(id, None).unwrap().state
-                != GenerationJobState::Completed
-            {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
-    }
-
-    #[test]
-    fn retry_timing_matches_failure_category() {
-        assert_eq!(retry_seconds("account_unavailable", "none"), 60);
-        assert_eq!(retry_seconds("plugin_execution_failed", "HTTP 429"), 60);
-        assert_eq!(
-            retry_seconds("plugin_execution_failed", "network timeout"),
-            30
-        );
-        assert_eq!(retry_seconds("plugin_execution_failed", "unknown"), 120);
-    }
-}
+#[path = "worker_tests.rs"]
+mod tests;

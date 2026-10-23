@@ -123,3 +123,57 @@ fn upstream_quota_scope_and_health_checks_cannot_block_the_other_channel() {
         .quota_task_kind
         .is_none());
 }
+
+#[test]
+fn running_tasks_reserve_remaining_daily_and_total_allowance() {
+    for kind in ["image", "text"] {
+        let store = test_store(&format!("quota-inflight-{kind}"));
+        let mut account = account_record("quota", "test", "Quota", "");
+        account.used_today_date = Local::now().date_naive().to_string();
+        account.concurrency_limit = 3;
+        account.daily_limit = 1;
+        account.policy.text_concurrency_limit = 3;
+        account.policy.text_daily_limit = 1;
+        store.insert_account(account);
+        store.insert_task(crate::store::TaskRecord {
+            id: "running".into(),
+            platform: "test".into(),
+            task_kind: kind.into(),
+            model_id: "model".into(),
+            prompt: String::new(),
+            account_id: Some("quota".into()),
+            status: "processing".into(),
+            result_url: None,
+            storage_key: None,
+            error_message: None,
+            result_data: None,
+            created_at: Utc::now().to_rfc3339(),
+            completed_at: None,
+        });
+        assert!(store.select_account("test", None, &[], kind).is_none());
+        store.fail_task("running", "未消耗额度".into());
+        assert!(store.select_account("test", None, &[], kind).is_some());
+        store.mark_account_usage_for("quota", kind);
+        assert!(store.select_account("test", None, &[], kind).is_none());
+    }
+}
+
+#[test]
+fn quota_with_explicit_expiry_recovers_but_permanent_total_limit_does_not() {
+    let store = test_store("total-quota-expiry");
+    store.insert_account(account_record("quota", "test", "Quota", ""));
+    store.mark_account_state_for_seconds("quota", "total_quota_exhausted", 60);
+    assert!(store.select_account("test", None, &[], "image").is_none());
+    assert!(crate::store_quota::account_can_wait_for_kind(
+        &store.account_by_id("quota").unwrap(),
+        "image"
+    ));
+    store.accounts.lock().unwrap()[0].cooldown_until =
+        Some((Utc::now() - chrono::Duration::seconds(1)).to_rfc3339());
+    assert!(store.select_account("test", None, &[], "image").is_some());
+    store.mark_account_state("quota", "total_quota_exhausted");
+    assert!(!crate::store_quota::account_can_wait_for_kind(
+        &store.account_by_id("quota").unwrap(),
+        "image"
+    ));
+}

@@ -1,9 +1,13 @@
 use actix_web::HttpResponse;
+#[cfg(test)]
 use chrono::Utc;
+#[cfg(test)]
 use mediagen_core::PluginManifest;
 use serde_json::{json, Value};
 
-use crate::image_request::{ImageEndpoint, OpenAiImageRequest};
+use crate::image_request::ImageEndpoint;
+#[cfg(test)]
+use crate::image_request::OpenAiImageRequest;
 use crate::store::TaskRecord;
 
 pub(crate) fn image_result_metadata(result: &Value) -> Value {
@@ -63,7 +67,8 @@ fn contains_embedded_image(value: &Value) -> bool {
     }
 }
 
-pub(crate) fn new_image_task(
+#[cfg(test)]
+fn new_image_task(
     task_id: &str,
     manifest: &PluginManifest,
     model_id: &str,

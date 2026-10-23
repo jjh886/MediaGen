@@ -63,3 +63,41 @@ pub(super) fn queued_records(
     };
     (task, job)
 }
+
+/// 持久队列只领取当前确有可用账号的任务；限额、冷却和并发统一复用协议准入。
+pub(super) fn runnable(state: &crate::ServerState, job: &GenerationJobRecord) -> bool {
+    let Some(task) = state.store.task_by_id(&job.task_id) else {
+        return true;
+    };
+    if state
+        .store
+        .list_tasks(Some(&task.platform))
+        .iter()
+        .any(|waiting| {
+            waiting.id != task.id
+                && waiting.status == "queued"
+                && waiting.task_kind == task.task_kind
+                && waiting.model_id == task.model_id
+                && state.store.generation_job(&waiting.id, None).is_none()
+        })
+    {
+        return false;
+    }
+    let Some(manifest) = state.plugin_loader.get_plugin(&task.platform) else {
+        return true;
+    };
+    let Ok(key) = state.credential_cipher.decrypt(&job.credential_ciphertext) else {
+        return true;
+    };
+    crate::protocol_task::select_affinity_account(
+        state,
+        manifest,
+        &task.model_id,
+        &task.task_kind,
+        &key,
+        &task.id,
+        None,
+        None,
+    )
+    .is_ok()
+}
