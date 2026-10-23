@@ -182,7 +182,7 @@
       "concurrency_limit": 1,
       "daily_limit": 0,
       "total_limit": 0,
-      "text_concurrency_limit": 1,
+      "text_concurrency_limit": 3,
       "text_daily_limit": 0,
       "text_total_limit": 0,
       "cooldown_seconds": 30,

@@ -30,6 +30,13 @@ async fn async_text_reuses_image_queue_results_and_owner_isolation_for_both_endp
         let (callback_url, received) = crate::test_fixtures::callback_receiver().await;
         body["callback_url"] = json!(callback_url);
         let state = crate::protocol_api_tests::state();
+        state.store.update_account(
+            "account",
+            crate::store::AccountUpdate {
+                text_concurrency_limit: Some(0),
+                ..Default::default()
+            },
+        );
         let script = state
             .plugin_loader
             .get_plugin_dir("test")
@@ -166,6 +173,12 @@ async fn sync_is_default_and_async_requires_boolean_without_streaming() {
         )
         .await;
         assert_eq!(response.status().as_u16(), expected);
+        if expected == 200 {
+            let body: Value = test::read_body_json(response).await;
+            assert_eq!(body["object"], "response");
+            assert!(body.get("taskId").is_none());
+        }
+        assert_eq!(state.store.active_generation_job_count("text"), 0);
     }
     let response = test::call_service(
         &app,
@@ -183,22 +196,20 @@ async fn sync_is_default_and_async_requires_boolean_without_streaming() {
 #[actix_web::test]
 async fn account_config_changes_queue_capacity_without_fixed_ceiling() {
     let state = crate::protocol_api_tests::state();
+    state.store.update_account(
+        "account",
+        crate::store::AccountUpdate {
+            text_concurrency_limit: Some(3),
+            ..Default::default()
+        },
+    );
     let manifest = state.plugin_loader.get_plugin("test").unwrap();
+    let reserve = |id: &str| {
+        crate::protocol_task::reserve(&state, manifest, "text-model", "text", "key-a", id, None)
+    };
     let mut leases = Vec::new();
     for index in 0..3 {
-        leases.push(
-            crate::protocol_task::reserve(
-                &state,
-                manifest,
-                "text-model",
-                "text",
-                "key-a",
-                &format!("running-{index}"),
-                None,
-            )
-            .unwrap()
-            .1,
-        );
+        leases.push(reserve(&format!("running-{index}")).unwrap().1);
     }
     assert!(!has_capacity(&state));
     state.store.update_account(
@@ -210,32 +221,10 @@ async fn account_config_changes_queue_capacity_without_fixed_ceiling() {
     );
     for index in 3..5 {
         assert!(has_capacity(&state));
-        leases.push(
-            crate::protocol_task::reserve(
-                &state,
-                manifest,
-                "text-model",
-                "text",
-                "key-b",
-                &format!("running-{index}"),
-                None,
-            )
-            .unwrap()
-            .1,
-        );
+        leases.push(reserve(&format!("running-{index}")).unwrap().1);
     }
     assert!(!has_capacity(&state));
-    assert!(crate::protocol_task::reserve(
-        &state,
-        manifest,
-        "text-model",
-        "text",
-        "key-a",
-        "overflow",
-        None
-    )
-    .is_err());
-    drop(leases);
+    assert!(reserve("overflow").is_err());
     state.store.update_account(
         "account",
         crate::store::AccountUpdate {
@@ -247,9 +236,16 @@ async fn account_config_changes_queue_capacity_without_fixed_ceiling() {
         crate::store_helpers::text_concurrency_limit(
             &state.store.account_by_id("account").unwrap()
         ),
-        3
+        0
     );
+    for index in 5..105 {
+        assert!(has_capacity(&state));
+        leases.push(reserve(&format!("running-{index}")).unwrap().1);
+    }
     assert!(has_capacity(&state));
+    state.store.toggle_account("account", true);
+    assert!(!has_capacity(&state));
+    drop(leases);
 }
 
 #[actix_web::test]

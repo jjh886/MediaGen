@@ -112,6 +112,13 @@ async fn image_and_text_queues_run_independently_when_other_kind_is_full() {
     );
     drop(permit);
     let manifest = state.plugin_loader.get_plugin("test").unwrap();
+    state.store.update_account(
+        "account",
+        crate::store::AccountUpdate {
+            text_concurrency_limit: Some(3),
+            ..Default::default()
+        },
+    );
     let busy = (0..3)
         .map(|i| {
             crate::protocol_task::reserve(

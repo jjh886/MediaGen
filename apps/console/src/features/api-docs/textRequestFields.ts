@@ -123,7 +123,7 @@ const asyncRequest = fields([
     'boolean',
     '否',
     'false',
-    'true 使用持久文本队列，返回 HTTP 202 和 data.taskId；不能同时 stream=true。与图片队列独立，账号文本并发默认 3，可在账号配置调整。',
+    'true 使用持久文本队列，返回 HTTP 202 和 data.taskId；不能同时 stream=true。与图片队列独立，账号文本并发默认由插件提供（仅 ChatGPT 为 3，其余为 0，表示不设本地文本并发上限），可在账号配置调整。',
   ],
 ])
 export const responseRequest = [

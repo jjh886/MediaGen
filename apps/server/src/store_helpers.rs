@@ -18,6 +18,8 @@ pub(crate) fn account_ready_for_kind(
         return false;
     }
     let mut scoped = account.clone();
+    // 图片/媒体仍至少 1 并发；文本插件默认 0 表示不设本地并发上限。
+    scoped.concurrency_limit = scoped.concurrency_limit.max(1);
     if account
         .policy
         .quota_task_kind
@@ -47,7 +49,7 @@ pub(crate) fn account_ready_for_kind(
 
 pub(crate) fn text_concurrency_limit(account: &AccountRecord) -> u32 {
     if account.policy.text_concurrency_limit == 0 {
-        crate::store_models::DEFAULT_TEXT_CONCURRENCY_LIMIT
+        account.policy.text_concurrency_default
     } else {
         account.policy.text_concurrency_limit
     }
@@ -98,7 +100,7 @@ fn account_ready_for_dispatch_at(
             account.used_total.saturating_add(running),
             account.total_limit,
         )
-        && running < account.concurrency_limit.max(1)
+        && under_limit(running, account.concurrency_limit)
         && interval_elapsed(account, tasks, now)
 }
 

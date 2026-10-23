@@ -227,6 +227,8 @@ fn build_state(config: &ServerConfig) -> Result<ServerState, String> {
     model_catalog.retain_current_plugins(&plugin_loader);
     let credential_cipher = CredentialCipher::new(&config.data_dir)?;
     let generation_queue_enabled = true;
+    let store = AppStore::load(config.data_dir.join("mediagen.sqlite"));
+    store.apply_plugin_defaults(&plugin_loader);
     Ok(ServerState {
         api_bind: (config.host.clone(), config.port),
         admin: Arc::new(admin_auth::initialize(&config.data_dir)?),
@@ -235,7 +237,7 @@ fn build_state(config: &ServerConfig) -> Result<ServerState, String> {
             profile_root: config.profiles_dir.clone(),
             ..BrowserGatewayConfig::default()
         })),
-        store: Arc::new(AppStore::load(config.data_dir.join("mediagen.sqlite"))),
+        store: Arc::new(store),
         // 固定回调端口只在插件声明的 OAuth 登录流程期间按需监听。
         oauth_logins: OAuthLoginStore::new(config.oauth_callback_bind.clone()),
         model_catalog,

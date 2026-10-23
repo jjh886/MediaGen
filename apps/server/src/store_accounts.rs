@@ -15,6 +15,17 @@ use crate::store_helpers::{
 };
 
 impl AppStore {
+    pub(crate) fn apply_plugin_defaults(&self, loader: &mediagen_plugin_runtime::PluginLoader) {
+        let mut accounts = self
+            .accounts
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        for account in accounts.iter_mut() {
+            account.policy.text_concurrency_default =
+                plugin_text_concurrency_default(loader.get_plugin(&account.platform));
+        }
+    }
+
     pub fn mark_login_check_result(
         &self,
         id: &str,
@@ -253,10 +264,8 @@ impl AppStore {
         let account = AccountRecord {
             policy: crate::store_models::AccountPolicy {
                 user_id: profile.user_id.clone(),
-                text_concurrency_limit: limits
-                    .map(|tier| tier.text_concurrency_limit)
-                    .filter(|limit| *limit > 0)
-                    .unwrap_or(crate::store_models::DEFAULT_TEXT_CONCURRENCY_LIMIT),
+                text_concurrency_limit: limits.map(|tier| tier.text_concurrency_limit).unwrap_or(0),
+                text_concurrency_default: plugin_text_concurrency_default(manifest),
                 text_daily_limit: limits.map(|tier| tier.text_daily_limit).unwrap_or(0),
                 text_total_limit: limits.map(|tier| tier.text_total_limit).unwrap_or(0),
                 ..Default::default()
@@ -382,6 +391,13 @@ fn same_upstream_identity(account: &AccountRecord, profile: &AccountLoginProfile
     // 旧账号记录没有上游 ID，通过已保存的邮箱或旧 ID 回填身份，保留额度和用户配置。
     (!profile.email.trim().is_empty() && account.email.eq_ignore_ascii_case(profile.email.trim()))
         || (!profile.user_id.is_empty() && account.email == profile.user_id)
+}
+
+fn plugin_text_concurrency_default(manifest: Option<&PluginManifest>) -> u32 {
+    manifest
+        .and_then(|manifest| manifest.tiers.get(&default_tier(manifest)))
+        .map(|tier| tier.text_concurrency_limit)
+        .unwrap_or(crate::store_models::DEFAULT_TEXT_CONCURRENCY_LIMIT)
 }
 
 #[cfg(test)]

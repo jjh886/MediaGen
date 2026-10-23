@@ -154,6 +154,7 @@ pub(crate) fn public_account(account: AccountRecord) -> Value {
         "user_id": account.policy.user_id,
         "priority": account.policy.priority,
         "text_concurrency_limit": account.policy.text_concurrency_limit,
+        "text_concurrency_default": account.policy.text_concurrency_default,
         "text_daily_limit": account.policy.text_daily_limit,
         "text_total_limit": account.policy.text_total_limit,
         "text_used_today": account.policy.text_used_today,

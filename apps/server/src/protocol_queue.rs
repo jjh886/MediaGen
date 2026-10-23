@@ -49,11 +49,12 @@ pub(crate) async fn reserve_affinity_wait(
             preferred,
         );
     }
+    // 新同步请求先尝试空闲账号；其他账号上的等待请求不能阻塞它。
+    // 同一任务已在等待时仍由原请求处理，防止重复请求抢占其执行器。
     let pending = state
         .store
-        .list_tasks(Some(&manifest.platform_id))
-        .iter()
-        .any(|task| task.status == "queued" && task.task_kind == kind && task.model_id == model);
+        .task_by_id(id)
+        .is_some_and(|task| task.status == "queued");
     if !pending {
         if let Ok(value) = reserve_affinity(
             state,
@@ -332,6 +333,24 @@ mod tests {
                 state.store.task_by_id("continued").unwrap().status,
                 "queued"
             );
+            let (account, _lease) = tokio::time::timeout(
+                Duration::from_millis(100),
+                reserve_affinity_wait(
+                    &state,
+                    &manifest,
+                    "text-model",
+                    "text",
+                    "key-a",
+                    "fresh-sync",
+                    None,
+                    None,
+                ),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(account.id, "other");
+            assert!(state.store.generation_job("fresh-sync", None).is_none());
             state.store.complete_task("busy-bound", json!({}));
             drop(busy);
         };

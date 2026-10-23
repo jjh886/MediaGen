@@ -415,3 +415,31 @@ fn manifest_with_default_tier() -> PluginManifest {
     );
     manifest
 }
+
+#[test]
+fn plugin_tier_controls_new_account_text_concurrency() {
+    for limit in [0, 3, 100] {
+        let store = AppStore::load(
+            std::env::temp_dir().join(format!("tier-default-{}.sqlite", uuid::Uuid::new_v4())),
+        );
+        let mut manifest = manifest_with_default_tier();
+        manifest
+            .tiers
+            .get_mut("pro")
+            .unwrap()
+            .text_concurrency_limit = limit;
+        let account = store
+            .upsert_from_browser_session_with_profile(
+                &session(BrowserSessionPurpose::AddAccount, None),
+                &manifest,
+                AccountLoginProfile::default(),
+            )
+            .unwrap();
+        assert_eq!(account.policy.text_concurrency_limit, limit);
+        assert_eq!(account.policy.text_concurrency_default, limit);
+        assert_eq!(
+            crate::store_helpers::text_concurrency_limit(&account),
+            limit
+        );
+    }
+}

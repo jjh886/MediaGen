@@ -228,7 +228,7 @@ export const guideSections: GuideSection[] = [
       },
       {
         kind: 'paragraph',
-        text: '使用 `GET /api/v2/generation-queue?taskKind=text` 查询文本队列，`taskKind=image` 查询图片队列。管理台生成队列可切换类型，分别插队、取消；文本并发默认 3，可在账号配置调整，填 0 使用默认值。',
+        text: '使用 `GET /api/v2/generation-queue?taskKind=text` 查询文本队列，`taskKind=image` 查询图片队列。管理台生成队列可切换类型，分别插队、取消；文本并发默认由插件提供（仅 ChatGPT 为 3，其余为 0，表示不设本地文本并发上限），可在账号配置调整，填 0 使用默认值。',
       },
       {
         kind: 'code',

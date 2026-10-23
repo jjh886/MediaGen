@@ -16,6 +16,7 @@ export interface Account {
   user_id?: string
   priority?: number
   text_concurrency_limit?: number
+  text_concurrency_default?: number
   text_daily_limit?: number
   text_total_limit?: number
   text_used_today?: number

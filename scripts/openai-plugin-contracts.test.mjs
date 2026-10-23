@@ -20,6 +20,9 @@ function context(platform, scripts, host = {}) {
 for (const platform of ['codex', 'chatgpt', 'grok', 'doubao-api', 'deepseek-api']) {
   test(`${platform} 所有声明流程可以独立编译`, () => {
     const manifest = JSON.parse(readFileSync(`plugins/${platform}/manifest.json`, 'utf8'))
+    const expected = platform === 'chatgpt' ? 3 : 0
+    const tier = Object.values(manifest.tiers).find((value) => value.is_default)
+    assert.equal(tier.text_concurrency_limit ?? 0, expected)
     for (const [name, flow] of Object.entries(manifest.flows)) {
       for (const step of flow.steps) {
         const files = step.script_files || (step.script_file ? [step.script_file] : [])

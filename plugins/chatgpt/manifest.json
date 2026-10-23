@@ -577,7 +577,7 @@
       "total_limit": 0,
       "cooldown_seconds": 30,
       "task_interval_seconds": 0,
-      "text_concurrency_limit": 0,
+      "text_concurrency_limit": 3,
       "text_daily_limit": 0,
       "text_total_limit": 0
     }

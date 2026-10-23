@@ -72,17 +72,40 @@ describe('账号配置', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  it('未配置文本并发时使用默认值 3', () => {
+  it.each([3, 0])('未配置文本并发时展示服务端插件默认值 %i', (limit) => {
     render(
       <AccountConfigModal
         open
-        account={{ ...account, text_concurrency_limit: undefined }}
+        account={{ ...account, text_concurrency_limit: undefined, text_concurrency_default: limit }}
         onSave={vi.fn()}
         onClose={vi.fn()}
       />
     )
-    expect(screen.getByLabelText('文本并发')).toHaveValue(3)
-    expect(screen.getByText(/文本并发默认 3/)).toBeInTheDocument()
+    expect(screen.getByLabelText('文本并发')).toHaveValue(0)
+    expect(screen.getByText(new RegExp(`文本并发默认 ${limit}`))).toBeInTheDocument()
+    expect(screen.getByText(/插件默认 0 表示不设文本并发上限/)).toBeInTheDocument()
+  })
+
+  it('允许账号保存 100 并发或填 0 跟随插件默认值', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(
+      <AccountConfigModal
+        open
+        account={{ ...account, text_concurrency_default: 0 }}
+        onSave={onSave}
+        onClose={vi.fn()}
+      />
+    )
+    for (const value of [100, 0]) {
+      fireEvent.change(screen.getByLabelText('文本并发'), { target: { value: String(value) } })
+      fireEvent.click(screen.getByRole('button', { name: '保存' }))
+      await waitFor(() =>
+        expect(onSave).toHaveBeenLastCalledWith(
+          'one',
+          expect.objectContaining({ text_concurrency_limit: value })
+        )
+      )
+    }
   })
 
   it('拦截无效限额并显示保存失败，保留未修改的密钥', async () => {

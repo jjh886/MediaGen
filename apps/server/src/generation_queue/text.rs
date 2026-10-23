@@ -125,7 +125,7 @@ pub(super) async fn run(
 
 /// 仅为共享 worker 提供当前可启动数量，实际账号准入沿用协议层并发与能力校验。
 pub(super) fn has_capacity(state: &ServerState) -> bool {
-    let capacity = state
+    let Some(capacity) = state
         .store
         .list_accounts(None)
         .iter()
@@ -140,8 +140,14 @@ pub(super) fn has_capacity(state: &ServerState) -> bool {
                     .get_plugin(&account.platform)
                     .is_some_and(|plugin| plugin.flows.contains_key("generate_text"))
         })
-        .map(|account| u64::from(crate::store_helpers::text_concurrency_limit(account)))
-        .sum::<u64>();
+        .map(crate::store_helpers::text_concurrency_limit)
+        .try_fold(0u64, |capacity, limit| {
+            (limit > 0).then(|| capacity.saturating_add(u64::from(limit)))
+        })
+    else {
+        // 存在可执行的不限并发账号；实际任务仍逐个校验账号、额度和模型能力。
+        return true;
+    };
     let mut active = state
         .store
         .tasks
