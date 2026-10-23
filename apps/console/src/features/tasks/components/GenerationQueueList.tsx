@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, RefreshCw, X } from 'lucide-react'
-import { InfiniteScrollTrigger, KtBadge, KtButton, KtModal, KtTable } from '@/shared/ui'
+import { InfiniteScrollTrigger, KtBadge, KtButton, KtModal, KtTable, KtTabs } from '@/shared/ui'
 import type { Column } from '@/shared/ui'
 import { useGenerationQueueStore } from '../hooks/useGenerationQueueStore'
 import type { GenerationQueueItem } from '../types/generation-queue'
@@ -18,6 +18,8 @@ function formatTime(value: string): string {
 
 export default function GenerationQueueList() {
   const {
+    taskKind,
+    setTaskKind,
     items,
     total,
     loading,
@@ -35,12 +37,15 @@ export default function GenerationQueueList() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const refresh = useCallback(() => {
     scrollRef.current?.scrollTo({ top: 0 })
-    return load()
+    return load().catch(() => undefined)
   }, [load])
 
   useEffect(() => {
-    void load()
-    const timer = window.setInterval(() => void refreshLatest(), POLL_INTERVAL_MS)
+    void load().catch(() => undefined)
+    const timer = window.setInterval(
+      () => void refreshLatest().catch(() => undefined),
+      POLL_INTERVAL_MS
+    )
     return () => window.clearInterval(timer)
   }, [load, refreshLatest])
 
@@ -103,6 +108,7 @@ export default function GenerationQueueList() {
           />
         ),
       },
+      { key: 'taskId', title: '任务编号', width: 180, minWidth: 130, maxWidth: 300 },
       { key: 'position', title: '顺序', width: 72, minWidth: 64, maxWidth: 88 },
       { key: 'platform', title: '平台', width: 120, minWidth: 100, maxWidth: 180 },
       { key: 'modelId', title: '模型', width: 180, minWidth: 130, maxWidth: 300 },
@@ -114,7 +120,7 @@ export default function GenerationQueueList() {
         maxWidth: 900,
         render: (item) => (
           <span
-            title={item.prompt}
+            title={item.prompt || item.taskId}
             style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}
           >
             {item.prompt}
@@ -174,6 +180,23 @@ export default function GenerationQueueList() {
 
   return (
     <div style={{ display: 'flex', minHeight: 0, flex: 1, flexDirection: 'column', gap: 12 }}>
+      <KtTabs
+        items={[
+          { key: 'image', label: '图片队列' },
+          { key: 'text', label: '文本队列' },
+        ]}
+        activeKey={taskKind}
+        onChange={(key) => {
+          if (actionRunning || (key !== 'image' && key !== 'text')) return
+          setSelected(new Set())
+          setCancelTaskIds([])
+          scrollRef.current?.scrollTo({ top: 0 })
+          void setTaskKind(key).catch(() => undefined)
+        }}
+      />
+      <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+        图片与文本独立排队、互不占用并发。这里只显示等待任务；执行中和已完成任务可在“任务列表”查询。
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <KtButton
@@ -221,7 +244,14 @@ export default function GenerationQueueList() {
         </div>
       )}
       <div ref={scrollRef} style={{ minHeight: 0, flex: 1, overflow: 'auto' }}>
-        <KtTable columns={columns} data={items} rowKey="taskId" emptyText="暂无排队任务" />
+        <KtTable
+          columns={columns}
+          data={items}
+          rowKey="taskId"
+          emptyText={
+            loading ? '正在读取队列…' : `暂无${taskKind === 'text' ? '文本' : '图片'}排队任务`
+          }
+        />
         <InfiniteScrollTrigger
           hasMore={!loading && hasMore}
           loading={loadingMore}

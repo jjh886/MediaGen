@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import GenerationQueueList from '../GenerationQueueList'
 
 const queueStore = vi.hoisted(() => ({
+  taskKind: 'image' as 'image' | 'text',
+  setTaskKind: vi.fn(async () => undefined),
   items: [
     {
+      taskKind: 'image' as const,
       taskId: 'task-1',
       platform: 'chatgpt',
       modelId: 'gpt-image-1',
@@ -31,6 +34,8 @@ vi.mock('../../hooks/useGenerationQueueStore', () => ({
 
 describe('GenerationQueueList', () => {
   beforeEach(() => {
+    queueStore.taskKind = 'image'
+    queueStore.setTaskKind.mockClear()
     queueStore.total = 1
     queueStore.load.mockClear()
     queueStore.loadMore.mockClear()
@@ -67,4 +72,16 @@ describe('GenerationQueueList', () => {
     expect(queueStore.load).toHaveBeenCalledWith()
     expect(screen.queryByRole('button', { name: '下一页' })).not.toBeInTheDocument()
   })
+})
+
+it('切换到文本队列时清空图片选择和取消弹窗', () => {
+  Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: vi.fn() })
+  render(<GenerationQueueList />)
+  fireEvent.click(screen.getByRole('checkbox', { name: '选择任务 task-1' }))
+  fireEvent.click(screen.getByRole('button', { name: '取消' }))
+  fireEvent.click(screen.getByRole('tab', { name: '文本队列' }))
+  expect(queueStore.setTaskKind).toHaveBeenCalledWith('text')
+  expect(screen.queryByText('取消排队任务')).not.toBeInTheDocument()
+  expect(screen.getByRole('checkbox')).not.toBeChecked()
+  expect(screen.getByRole('button', { name: '批量取消' })).toBeDisabled()
 })

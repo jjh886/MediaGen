@@ -24,3 +24,7 @@ export async function fetchTaskFilterOptions(platform: string): Promise<TaskFilt
   const params = new URLSearchParams({ platform })
   return await apiGet<TaskFilterOptions>(`/api/tasks/filter-options?${params}`)
 }
+
+export async function fetchTaskResult(taskId: string): Promise<unknown> {
+  return await apiGet<unknown>(`/api/tasks/${encodeURIComponent(taskId)}/result`)
+}

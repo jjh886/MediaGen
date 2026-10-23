@@ -63,6 +63,20 @@ export const textDocs: ApiExample[] = [
     response,
   },
   {
+    group: '排队',
+    method: 'POST',
+    path: '/v1/responses',
+    title: '文本异步排队',
+    description: '默认同步，显式传入 async=true 才排队。复用图片队列的管理接口，两类队列独立运行。',
+    notes: textNotes,
+    body: { model: 'gpt-6-luna', input: '请总结这段剧本的主要冲突。', async: true },
+    status: 202,
+    response: {
+      success: true,
+      data: { taskId: 'task-text-example', status: 'queued', message: '开始排队生成中' },
+    },
+  },
+  {
     group: '文本',
     method: 'WS',
     path: '/v1/responses',

@@ -44,12 +44,15 @@ vi.mock('@/shared/services/account-service', () => ({
 }))
 
 vi.mock('../../services/task-service', () => ({
+  fetchTaskResult: vi.fn(),
   fetchTaskFilterOptions: vi
     .fn()
     .mockResolvedValue({ account_ids: ['acc-1', 'deleted-account'], model_ids: ['old-model'] }),
 }))
 
 import TaskList from '../TaskList'
+import TaskDetail from '../TaskDetail'
+import { fetchTaskResult } from '../../services/task-service'
 
 describe('TaskList 取消生成中任务', () => {
   beforeEach(() => {
@@ -95,4 +98,27 @@ describe('TaskList 取消生成中任务', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('取消任务失败'))
     expect(cancel).toHaveBeenCalledWith('task-running')
   })
+})
+
+it('任务详情读取异步文本结果并提供复制，显示失败后允许重试', async () => {
+  vi.mocked(fetchTaskResult)
+    .mockRejectedValueOnce(new Error('结果暂时不可用'))
+    .mockResolvedValueOnce({
+      output: [{ content: [{ type: 'output_text', text: '原始文本结果' }] }],
+    })
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  render(
+    <TaskDetail
+      task={{ ...runningTask, task_kind: 'text', status: 'completed' }}
+      onCancel={vi.fn()}
+      onClose={vi.fn()}
+    />
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent('结果暂时不可用')
+  fireEvent.click(screen.getByRole('button', { name: '重试' }))
+  expect(await screen.findByText('原始文本结果')).toBeInTheDocument()
+  expect(fetchTaskResult).toHaveBeenLastCalledWith('task-running')
+  fireEvent.click(screen.getByRole('button', { name: '复制' }))
+  expect(writeText).toHaveBeenCalledWith('原始文本结果')
 })

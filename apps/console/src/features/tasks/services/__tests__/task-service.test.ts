@@ -89,3 +89,20 @@ describe('task-service', () => {
     })
   })
 })
+
+it('队列服务传递独立类型筛选，文本结果按任务编号查询', async () => {
+  const fetchMock = vi
+    .fn()
+    .mockImplementation(() => Promise.resolve(jsonResponse({ data: { items: [], total: 0 } })))
+  vi.stubGlobal('fetch', fetchMock)
+  try {
+    const { fetchGenerationQueue } = await import('../generation-queue-service')
+    const { fetchTaskResult } = await import('../task-service')
+    await fetchGenerationQueue(20, 0, 'text')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/generation-queue?limit=20&offset=0&taskKind=text')
+    await fetchTaskResult('a/b')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/tasks/a%2Fb/result')
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})

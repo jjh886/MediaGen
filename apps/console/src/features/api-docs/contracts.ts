@@ -83,7 +83,7 @@ function endpointContract(doc: ApiExample): ApiContract {
       [
         ...fields([['type', 'string', '是', 'response.create', '客户端事件类型。']], 'event'),
         ...responseRequest
-          .filter((f) => !['stream', 'background', 'stream_options'].includes(f.name))
+          .filter((f) => !['stream', 'background', 'stream_options', 'async'].includes(f.name))
           .map((f) => ({
             ...f,
             location: 'event' as const,
@@ -97,7 +97,11 @@ function endpointContract(doc: ApiExample): ApiContract {
       responseStreamFields
     )
   if (path === '/v1/responses')
-    return contract(responseRequest, responseFields, responseStreamFields)
+    return contract(
+      responseRequest,
+      doc.status === 202 ? queueAccepted : responseFields,
+      doc.status === 202 ? undefined : responseStreamFields
+    )
   if (path === '/v1/chat/completions')
     return contract(chatRequest, chatResponseFields, chatStreamFields)
   if (path === '/v1/responses/compact')
@@ -150,6 +154,13 @@ function endpointContract(doc: ApiExample): ApiContract {
         [
           ['limit', 'integer', '否', '40', '每页条数，取值 1–100。'],
           ['offset', 'integer', '否', '0', '跳过的记录数。'],
+          [
+            'taskKind',
+            'string',
+            '否',
+            '全部类型',
+            'image 查询图片队列，text 查询文本队列；两类队列顺序独立。',
+          ],
         ],
         'query'
       ),

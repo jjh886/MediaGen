@@ -61,7 +61,7 @@ export default function AccountConfigModal({
 }: AccountConfigModalProps) {
   const [priority, setPriority] = useState('0')
   const initialized = useRef('')
-  const [textConcurrency, setTextConcurrency] = useState('0')
+  const [textConcurrency, setTextConcurrency] = useState('3')
   const [textDaily, setTextDaily] = useState('0')
   const [textTotal, setTextTotal] = useState('0')
   const [tab, setTab] = useState('limits')
@@ -88,7 +88,7 @@ export default function AccountConfigModal({
     if (account) {
       initialized.current = account.id
       setPriority(String(account.priority ?? 0))
-      setTextConcurrency(String(account.text_concurrency_limit ?? 0))
+      setTextConcurrency(String(account.text_concurrency_limit ?? 3))
       setTextDaily(String(account.text_daily_limit ?? 0))
       setTextTotal(String(account.text_total_limit ?? 0))
       setTab('limits')
@@ -279,8 +279,8 @@ export default function AccountConfigModal({
               </table>
             </div>
             <div style={labelStyle}>
-              每日及累计限额为 0 表示不限；文本并发为 0
-              表示不限。两类用量独立计算，平台额度另行生效。
+              每日及累计限额为 0 表示不限；文本并发默认 3，可按账号调整，填 0
+              使用默认值。两类用量独立计算，平台额度另行生效。
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <label style={fieldStyle}>

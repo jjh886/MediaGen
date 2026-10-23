@@ -14,7 +14,7 @@ function modeText(info: SystemInfo | null) {
 }
 
 export default function StatusBar() {
-  const [queueCount, setQueueCount] = useState(0)
+  const [queueCounts, setQueueCounts] = useState({ image: 0, text: 0 })
   const [availableCount, setAvailableCount] = useState(0)
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus>({
     ok: false,
@@ -27,8 +27,8 @@ export default function StatusBar() {
       void fetchAccountSummary()
         .then((summary) => setAvailableCount(summary.available))
         .catch(() => undefined)
-      void fetchGenerationQueue(1, 0)
-        .then((queue) => setQueueCount(queue.total))
+      void Promise.all([fetchGenerationQueue(1, 0, 'image'), fetchGenerationQueue(1, 0, 'text')])
+        .then(([image, text]) => setQueueCounts({ image: image.total, text: text.total }))
         .catch(() => undefined)
     }
     refreshCounts()
@@ -73,7 +73,8 @@ export default function StatusBar() {
       </div>
       <div className="status-bar__right">
         <span>可用账号: {availableCount}</span>
-        <span>队列: {queueCount}</span>
+        <span>图片排队: {queueCounts.image}</span>
+        <span>文本排队: {queueCounts.text}</span>
       </div>
     </footer>
   )

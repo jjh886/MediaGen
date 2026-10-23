@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import { fetchTaskResult } from '../services/task-service'
 import { KtBadge, KtButton } from '@/shared/ui'
 import type { Task } from '../types/task'
 import {
@@ -100,6 +102,31 @@ export default function TaskDetail({
   const canCancel =
     task.status === 'pending' || task.status === 'queued' || task.status === 'processing'
   const resultData = parseResultData(task)
+  const [textResult, setTextResult] = useState('')
+  const [resultError, setResultError] = useState('')
+  const [resultLoading, setResultLoading] = useState(false)
+  const [resultVersion, setResultVersion] = useState(0)
+  useEffect(() => {
+    let active = true
+    setTextResult('')
+    setResultError('')
+    setResultLoading(false)
+    if (task.task_kind !== 'text' || task.status !== 'completed') return
+    setResultLoading(true)
+    void fetchTaskResult(task.id)
+      .then((result) => {
+        if (active) setTextResult(formatTextResult(result))
+      })
+      .catch((error: unknown) => {
+        if (active) setResultError(error instanceof Error ? error.message : '读取文本结果失败')
+      })
+      .finally(() => {
+        if (active) setResultLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [task.id, task.status, task.task_kind, resultVersion])
 
   return (
     <div
@@ -259,8 +286,30 @@ export default function TaskDetail({
         </>
       )}
 
+      {task.task_kind === 'text' && task.status === 'completed' && (
+        <section aria-label="文本生成结果">
+          <div style={sectionTitle}>
+            文本结果 <ResultActions value={textResult} />
+          </div>
+          {resultLoading && <p role="status">正在读取文本结果…</p>}
+          {resultError && (
+            <div role="alert">
+              {resultError}{' '}
+              <KtButton size="sm" onClick={() => setResultVersion((value) => value + 1)}>
+                重试
+              </KtButton>
+            </div>
+          )}
+          {textResult && (
+            <pre style={{ ...valueStyle, whiteSpace: 'pre-wrap', marginBottom: 0 }}>
+              {textResult}
+            </pre>
+          )}
+        </section>
+      )}
+
       {/* 响应结果 */}
-      {(resultData || task.result_url) && (
+      {task.task_kind !== 'text' && (resultData || task.result_url) && (
         <>
           <div style={sectionTitle}>响应结果</div>
 
@@ -325,4 +374,30 @@ export default function TaskDetail({
       )}
     </div>
   )
+}
+
+function formatTextResult(value: unknown): string {
+  if (!value || typeof value !== 'object') return JSON.stringify(value, null, 2) ?? ''
+  const result = value as Record<string, unknown>
+  const texts: string[] = []
+  for (const item of Array.isArray(result.output) ? result.output : []) {
+    if (!item || typeof item !== 'object') continue
+    const content: unknown = (item as Record<string, unknown>).content
+    for (const part of Array.isArray(content) ? content : []) {
+      if (part && typeof part === 'object' && 'text' in part && typeof part.text === 'string')
+        texts.push(part.text)
+    }
+  }
+  for (const choice of Array.isArray(result.choices) ? result.choices : []) {
+    if (!choice || typeof choice !== 'object') continue
+    const message: unknown = (choice as Record<string, unknown>).message
+    if (
+      message &&
+      typeof message === 'object' &&
+      'content' in message &&
+      typeof message.content === 'string'
+    )
+      texts.push(message.content)
+  }
+  return texts.length ? texts.join('\n\n') : JSON.stringify(value, null, 2)
 }

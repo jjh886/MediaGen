@@ -72,6 +72,19 @@ describe('账号配置', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
+  it('未配置文本并发时使用默认值 3', () => {
+    render(
+      <AccountConfigModal
+        open
+        account={{ ...account, text_concurrency_limit: undefined }}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+    expect(screen.getByLabelText('文本并发')).toHaveValue(3)
+    expect(screen.getByText(/文本并发默认 3/)).toBeInTheDocument()
+  })
+
   it('拦截无效限额并显示保存失败，保留未修改的密钥', async () => {
     const onSave = vi.fn().mockRejectedValue(new Error('保存失败'))
     render(<AccountConfigModal open account={account} onSave={onSave} onClose={vi.fn()} />)

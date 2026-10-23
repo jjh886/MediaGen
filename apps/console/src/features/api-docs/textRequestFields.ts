@@ -110,7 +110,17 @@ const input = fields([
   ['input[].arguments', 'string', 'function_call 必填', '—', 'JSON 编码的函数参数。'],
   ['input[].output', 'string', 'function_call_output 必填', '—', '工具执行结果。'],
 ])
+const asyncRequest = fields([
+  [
+    'async',
+    'boolean',
+    '否',
+    'false',
+    'true 使用持久文本队列，返回 HTTP 202 和 data.taskId；不能同时 stream=true。与图片队列独立，账号文本并发默认 3，可在账号配置调整。',
+  ],
+])
 export const responseRequest = [
+  ...asyncRequest,
   ...model,
   ...input,
   ...tuning,
@@ -181,6 +191,7 @@ export const responseRequest = [
   ]),
 ]
 export const chatRequest = [
+  ...asyncRequest,
   ...model,
   ...tuning,
   ...fields([

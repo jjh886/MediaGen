@@ -189,7 +189,7 @@ describe('对外接口文档', () => {
     fireEvent.click(screen.getByText('调用约定、排队流程、流式输出和实时语音'))
     const navigation = screen.getByRole('navigation', { name: '调用指南章节' })
     expect(screen.getByRole('table', { name: '请求与响应约定' })).toBeVisible()
-    fireEvent.click(within(navigation).getByRole('button', { name: '图片排队' }))
+    fireEvent.click(within(navigation).getByRole('button', { name: '图片与文本排队' }))
     expect(screen.getByRole('heading', { name: '保存任务 ID' })).toBeVisible()
     expect(screen.getByText('入队成功 · HTTP 202')).toBeVisible()
     fireEvent.click(within(navigation).getByRole('button', { name: '流式输出' }))
@@ -207,4 +207,18 @@ describe('对外接口文档', () => {
         }
     }
   })
+})
+
+it('文本异步示例与图片共用查询管理契约，全文复制包含类型筛选', () => {
+  const asyncText = documents.find((doc) => doc.path === '/v1/responses' && doc.status === 202)!
+  expect(asyncText.body?.async).toBe(true)
+  expect(asyncText.responseFields.some((field) => field.name === 'data.taskId')).toBe(true)
+  expect(asyncText.streamFields).toBeUndefined()
+  const query = documents.find((doc) => doc.path === '/api/v2/generation-queue')!
+  expect(query.requestFields.some((field) => field.name === 'taskKind')).toBe(true)
+  const markdown = fullDocumentation()
+  expect(markdown).toContain('文本异步排队')
+  expect(markdown).toContain('taskKind=text')
+  expect(markdown).not.toContain('对文本、音频接口无效')
+  expect(markdown).not.toContain('排队只适用于图片生成')
 })

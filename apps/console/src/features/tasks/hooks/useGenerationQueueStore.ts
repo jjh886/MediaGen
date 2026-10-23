@@ -3,10 +3,17 @@ import {
   fetchGenerationQueue,
   runGenerationQueueAction,
 } from '../services/generation-queue-service'
-import type { GenerationQueueAction, GenerationQueueItem } from '../types/generation-queue'
+import type {
+  GenerationQueueAction,
+  GenerationQueueItem,
+  GenerationQueueKind,
+} from '../types/generation-queue'
 import { appendUnique, LIST_PAGE_SIZE } from '@/shared/services/list-pagination'
 
 interface GenerationQueueStore {
+  taskKind: GenerationQueueKind
+  revision: number
+  setTaskKind: (kind: GenerationQueueKind) => Promise<void>
   items: GenerationQueueItem[]
   total: number
   limit: number
@@ -26,6 +33,13 @@ function errorMessage(error: unknown): string {
 }
 
 export const useGenerationQueueStore = create<GenerationQueueStore>((set, get) => ({
+  taskKind: 'image',
+  revision: 0,
+  setTaskKind: async (taskKind) => {
+    if (get().taskKind === taskKind) return
+    set({ taskKind, items: [], total: 0, offset: 0, hasMore: true, loadingMore: false })
+    await get().load()
+  },
   items: [],
   total: 0,
   limit: LIST_PAGE_SIZE,
@@ -36,9 +50,12 @@ export const useGenerationQueueStore = create<GenerationQueueStore>((set, get) =
   error: '',
 
   load: async (limit = LIST_PAGE_SIZE, offset = 0) => {
-    set({ loading: true, error: '', limit, offset })
+    const revision = get().revision + 1
+    const taskKind = get().taskKind
+    set({ loading: true, error: '', limit, offset, revision })
     try {
-      const response = await fetchGenerationQueue(limit, offset)
+      const response = await fetchGenerationQueue(limit, offset, taskKind)
+      if (get().revision !== revision) return
       set({
         items: response.items,
         total: response.total,
@@ -46,19 +63,21 @@ export const useGenerationQueueStore = create<GenerationQueueStore>((set, get) =
         offset: offset + response.items.length,
       })
     } catch (error) {
+      if (get().revision !== revision) return
       set({ error: errorMessage(error) })
       throw error
     } finally {
-      set({ loading: false })
+      if (get().revision === revision) set({ loading: false })
     }
   },
 
   loadMore: async () => {
     const state = get()
-    if (!state.hasMore || state.loadingMore) return
+    if (!state.hasMore || state.loading || state.loadingMore) return
     set({ loadingMore: true, error: '' })
     try {
-      const response = await fetchGenerationQueue(LIST_PAGE_SIZE, state.offset)
+      const response = await fetchGenerationQueue(LIST_PAGE_SIZE, state.offset, state.taskKind)
+      if (get().revision !== state.revision) return
       set((current) => {
         const items = appendUnique(current.items, response.items, (item) => item.taskId)
         return {
@@ -69,10 +88,11 @@ export const useGenerationQueueStore = create<GenerationQueueStore>((set, get) =
         }
       })
     } catch (error) {
+      if (get().revision !== state.revision) return
       set({ error: errorMessage(error) })
       throw error
     } finally {
-      set({ loadingMore: false })
+      if (get().revision === state.revision) set({ loadingMore: false })
     }
   },
 
@@ -80,7 +100,8 @@ export const useGenerationQueueStore = create<GenerationQueueStore>((set, get) =
     const state = get()
     // 已向下浏览时不自动改动队列位置，避免正在操作的行突然跳走。
     if (state.items.length > LIST_PAGE_SIZE || state.loading || state.loadingMore) return
-    const response = await fetchGenerationQueue(LIST_PAGE_SIZE, 0)
+    const response = await fetchGenerationQueue(LIST_PAGE_SIZE, 0, state.taskKind)
+    if (get().revision !== state.revision) return
     set({
       items: response.items,
       total: response.total,
@@ -91,12 +112,13 @@ export const useGenerationQueueStore = create<GenerationQueueStore>((set, get) =
 
   runAction: async (action, taskIds) => {
     if (taskIds.length === 0) return
+    const { revision } = get()
     set({ error: '' })
     try {
       await runGenerationQueueAction(action, taskIds)
-      await get().load(LIST_PAGE_SIZE, 0)
+      if (get().revision === revision) await get().load(LIST_PAGE_SIZE, 0)
     } catch (error) {
-      set({ error: errorMessage(error) })
+      if (get().revision === revision) set({ error: errorMessage(error) })
       throw error
     }
   },

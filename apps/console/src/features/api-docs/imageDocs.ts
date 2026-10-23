@@ -51,8 +51,9 @@ export const imageDocs: ApiExample[] = [
     group: '排队',
     method: 'POST',
     path: '/v1/images/generations',
-    title: '异步排队示例',
-    description: '持久化排队，允许轮询、取消、提升优先级和结果回调；对文本、音频接口无效。',
+    title: '图片异步排队示例',
+    description:
+      '图片持久化排队，允许轮询、取消、提升优先级和结果回调；文本使用 async=true 进入独立队列，音频不支持排队。',
     notes: imageNotes,
     body: { model: 'gpt-image-2', prompt: '一只窗边的猫', sync: false },
     status: 202,
@@ -67,7 +68,10 @@ export const imageDocs: ApiExample[] = [
     path: '/api/v2/generation-queue',
     title: '查询等待队列',
     description: '仅返回当前 API Key 拥有的任务。',
-    notes: ['limit：1–100，默认 40；offset：默认 0。'],
+    notes: [
+      'limit：1–100，默认 40；offset：默认 0。',
+      'taskKind=image / text：按类型查询独立队列；不传返回两类任务。',
+    ],
     response: {
       success: true,
       data: {
@@ -80,9 +84,9 @@ export const imageDocs: ApiExample[] = [
     group: '排队',
     method: 'GET',
     path: '/api/v2/generation-tasks/{task_id}',
-    title: '查询任务与图片结果',
+    title: '查询任务与生成结果',
     description:
-      '完成后 result 包含 OpenAI 图片响应，data[].b64_json 即图片内容；任务 ID 不能跨 API Key 访问。',
+      '完成后 result 返回原接口响应：图片读取 data[].b64_json，Responses 读取 output，Chat 读取 choices。任务 ID 不能跨 API Key 访问。',
     notes: [
       'task_id：入队时返回的 taskId。状态：pending/queued/processing/completed/failed/cancelled，以返回状态为准。',
     ],
@@ -101,7 +105,7 @@ export const imageDocs: ApiExample[] = [
     group: '排队',
     method: 'POST',
     path: '/api/v2/generation-tasks/batch',
-    title: '批量查询图片任务',
+    title: '批量查询生成任务',
     description: '单次最多 1000 个任务 ID。',
     notes: ['taskIds：非空字符串数组。不存在或无权访问的任务进入 notFoundTaskIds。'],
     body: { taskIds: ['task-example'] },
@@ -118,7 +122,8 @@ export const imageDocs: ApiExample[] = [
     method: 'POST',
     path: '/api/v2/generation-queue/actions',
     title: '取消或提升排队任务',
-    description: 'promote 提升排队优先级，cancel 取消等待或执行任务；已结束任务不能重新生成。',
+    description:
+      'promote 在所属图片或文本队列中提升优先级，cancel 取消等待或执行任务；已结束任务不能重新生成。',
     notes: ['action：promote / cancel；taskIds：任务 ID 数组。'],
     body: { action: 'cancel', taskIds: ['task-example'] },
     response: { success: true, data: { action: 'cancel', affected: 1 } },

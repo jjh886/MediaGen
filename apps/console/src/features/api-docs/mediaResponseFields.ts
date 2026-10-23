@@ -45,19 +45,21 @@ export const queueAccepted = output([
   ['data.message', 'string', '是', '—', '入队说明。'],
 ])
 export const queueItem = output([
-  ['taskId', 'string', '是', '—', '图片任务 ID。'],
+  ['taskId', 'string', '是', '—', '生成任务 ID。'],
   ['platform', 'string', '是', '—', '执行平台。'],
-  ['modelId', 'string', '是', '—', '请求的图片模型。'],
-  ['prompt', 'string', '是', '—', '图片提示词。'],
+  ['taskKind', 'string', '是', '—', 'image 或 text；分别属于图片和文本队列。'],
+  ['modelId', 'string', '是', '—', '请求的生成模型。'],
+  ['prompt', 'string', '是', '—', '请求摘要；文本任务可能为空。'],
   ['status', 'string', '是', 'queued', '队列列表只包含等待执行的任务。'],
-  ['position', 'integer', '是', '—', '在当前调用者等待队列中的位置，从 1 开始。'],
+  ['position', 'integer', '是', '—', '在当前调用者同类型等待队列中的位置，从 1 开始。'],
   ['queuedAt', 'string', '是', '—', '入队时间，RFC 3339。'],
 ])
 export const taskFields = output([
-  ['taskId', 'string', '是', '—', '图片任务 ID。'],
+  ['taskId', 'string', '是', '—', '生成任务 ID。'],
   ['platform', 'string', '是', '—', '执行平台。'],
-  ['modelId', 'string', '是', '—', '图片模型 ID。'],
-  ['prompt', 'string', '是', '—', '图片提示词。'],
+  ['taskKind', 'string', '是', '—', 'image 或 text；分别属于图片和文本队列。'],
+  ['modelId', 'string', '是', '—', '生成模型 ID。'],
+  ['prompt', 'string', '是', '—', '请求摘要；文本任务可能为空。'],
   ['status', 'string', '是', '—', 'queued / processing / completed / failed / cancelled。'],
   ['position', 'integer | null', '是', 'null（未排队）', '等待队列位置，从 1 开始。'],
   [
@@ -65,7 +67,21 @@ export const taskFields = output([
     'object | null',
     '是',
     'null（未完成）',
-    '完成后包含完整图片响应；旧版本任务可能仅有摘要。',
+    '完成后包含图片、Responses 或 Chat 原始响应；旧版本任务可能仅有摘要。',
+  ],
+  [
+    'result.output',
+    'array<object>',
+    'Responses 文本完成时',
+    '—',
+    '模型输出，结构同 /v1/responses。',
+  ],
+  [
+    'result.choices',
+    'array<object>',
+    'Chat 文本完成时',
+    '—',
+    '模型输出，结构同 /v1/chat/completions。',
   ],
   ['failureReason', 'string | null', '是', 'null（未失败）', '失败或取消原因。'],
   ['queuedAt', 'string', '是', '—', '入队时间，RFC 3339。'],
@@ -74,7 +90,7 @@ export const taskFields = output([
   ['completedAt', 'string | null', '是', 'null（未结束）', '完成时间，RFC 3339。'],
 ]).concat(
   prefix(
-    imageResponse.map((f) => ({ ...f, required: 'completed 时返回' })),
+    imageResponse.map((f) => ({ ...f, required: '图片 completed 时返回' })),
     'result.'
   )
 )

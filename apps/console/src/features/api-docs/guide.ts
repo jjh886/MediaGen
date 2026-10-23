@@ -54,7 +54,7 @@ export const guideSections: GuideSection[] = [
       },
       {
         kind: 'note',
-        text: '示例中的模型、ID、文件名和尖括号内容需替换为真实数据。async / sync、图片排队、Live 和视频取消属于 MediaGen 扩展，不是 OpenAI 官方字段或协议。',
+        text: '示例中的模型、ID、文件名和尖括号内容需替换为真实数据。async / sync、生成排队、Live 和视频取消属于 MediaGen 扩展，不是 OpenAI 官方字段或协议。',
       },
     ],
   },
@@ -176,27 +176,28 @@ export const guideSections: GuideSection[] = [
   },
   {
     id: 'queue',
-    title: '图片排队',
-    description: '先提交任务，再查询结果。排队只适用于图片生成，不能同时开启 stream=true。',
+    title: '图片与文本排队',
+    description:
+      '先提交任务，再查询结果。图片和文本独立排队、互不占用并发，不能同时开启 stream=true。',
     blocks: [
       {
         kind: 'steps',
         items: [
           {
-            title: '提交图片任务',
-            text: '调用 `POST /v1/images/generations`，设置 `sync=false` 或 `async=true`。',
+            title: '提交生成任务',
+            text: '图片调用 `POST /v1/images/generations`，设置 `sync=false` 或 `async=true`；文本调用 `POST /v1/responses` 或 `POST /v1/chat/completions`，仅设置 `async=true`。省略时均为同步。',
           },
           {
             title: '保存任务 ID',
-            text: '接口返回 HTTP 202，取出 `data.taskId`。此时图片尚未生成完成。',
+            text: '接口返回 HTTP 202，取出 `data.taskId`。此时任务尚未生成完成。',
           },
           {
             title: '查询生成状态',
             text: '使用同一 API Key 调用 `GET /api/v2/generation-tasks/{task_id}`。排队或处理中时继续等待。',
           },
           {
-            title: '读取最终图片',
-            text: '当 `data.status=completed` 时，读取 `data.result.data[].b64_json`。失败或取消时查看 `data.failureReason`。',
+            title: '读取生成结果',
+            text: '当 `data.status=completed` 时，图片读取 `data.result.data[].b64_json`，文本读取 `data.result.output`（Responses）或 `data.result.choices`（Chat）。失败或取消时查看 `data.failureReason`。',
           },
         ],
       },
@@ -209,6 +210,16 @@ export const guideSections: GuideSection[] = [
           null,
           2
         ),
+      },
+      {
+        kind: 'code',
+        title: '提交文本任务 · JSON 请求体',
+        language: 'json',
+        value: JSON.stringify({ model: 'gpt-6-luna', input: '请总结剧本。', async: true }, null, 2),
+      },
+      {
+        kind: 'paragraph',
+        text: '使用 `GET /api/v2/generation-queue?taskKind=text` 查询文本队列，`taskKind=image` 查询图片队列。管理台生成队列可切换类型，分别插队、取消；文本并发默认 3，可在账号配置调整，填 0 使用默认值。',
       },
       {
         kind: 'code',
@@ -225,7 +236,7 @@ export const guideSections: GuideSection[] = [
       },
       {
         kind: 'paragraph',
-        text: '也可以在提交任务时设置 `callback_url`，完成后接收以下回调。接收端应按 `task_id` 去重，回调失败会重试。',
+        text: '图片任务也可以在提交时设置 `callback_url`，完成后接收以下回调。接收端应按 `task_id` 去重，回调失败会重试。',
       },
       {
         kind: 'code',

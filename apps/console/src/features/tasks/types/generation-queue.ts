@@ -1,4 +1,7 @@
+export type GenerationQueueKind = 'image' | 'text'
+
 export interface GenerationQueueItem {
+  taskKind: GenerationQueueKind
   taskId: string
   platform: string
   modelId: string
