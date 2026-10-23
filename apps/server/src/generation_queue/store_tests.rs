@@ -93,3 +93,40 @@ fn test_store(name: &str) -> AppStore {
     ));
     AppStore::load(root.join("state.json"))
 }
+
+#[test]
+fn queue_order_counts_and_filters_are_independent_by_task_kind() {
+    let store = test_store("separate-kinds");
+    insert_job(&store, "image-1", "owner");
+    let (mut task, mut job) = queued_image_records(
+        "text-1".into(),
+        "test".into(),
+        &serde_json::from_value(serde_json::json!({"model":"text-model"})).unwrap(),
+        "caller-key",
+        "encrypted".into(),
+        Utc::now().to_rfc3339(),
+    )
+    .unwrap();
+    task.task_kind = "text".into();
+    job.task_kind = "text".into();
+    job.owner_key = "owner".into();
+    store.create_generation_job(task, job).unwrap();
+    insert_job(&store, "image-2", "owner");
+    assert_eq!(store.generation_job("image-1", None).unwrap().queue_seq, 1);
+    assert_eq!(store.generation_job("text-1", None).unwrap().queue_seq, 1);
+    assert_eq!(store.generation_job("image-2", None).unwrap().queue_seq, 2);
+    assert_eq!(store.active_generation_job_count("image"), 2);
+    assert_eq!(store.active_generation_job_count("text"), 1);
+    let (text, total) = store.list_generation_jobs_for_kind(Some("owner"), Some("text"), 20, 0);
+    assert_eq!(total, 1);
+    assert_eq!(text[0].task_id, "text-1");
+    let now = Utc::now();
+    let claimed = store
+        .claim_generation_job_matching(now, now + Duration::hours(6), |job| job.task_kind == "text")
+        .unwrap();
+    assert_eq!(claimed.task_id, "text-1");
+    assert_eq!(
+        store.generation_job("image-1", None).unwrap().state,
+        GenerationJobState::Queued
+    );
+}

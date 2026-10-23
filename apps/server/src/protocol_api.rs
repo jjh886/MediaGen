@@ -1,6 +1,5 @@
 pub(crate) use crate::protocol_task::{run_plugin, run_with_failover};
 use crate::ServerState;
-use actix_web::HttpMessage;
 use actix_web::{web, HttpRequest, HttpResponse};
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use futures_util::StreamExt;
@@ -89,10 +88,21 @@ pub(crate) async fn dispatch(
         Ok(body) => body,
         Err(_) => return error(400, "invalid_json", "请求体不是有效 JSON"),
     };
+    let key = crate::routes::api_key_from_request(&request).unwrap_or_default();
+    let context = crate::request_identity::ProtocolRequest::from_http(&request, &key, &body);
+    execute(state, context, body, endpoint, key).await
+}
+
+pub(crate) async fn execute(
+    state: web::Data<ServerState>,
+    context: crate::request_identity::ProtocolRequest,
+    body: Value,
+    endpoint: &str,
+    key: String,
+) -> HttpResponse {
     if let Err(message) = crate::protocol_request::validate_request(&body, endpoint) {
         return error(400, "invalid_request", &message);
     }
-    let key = crate::routes::api_key_from_request(&request).unwrap_or_default();
     let model_id = body["model"].as_str().unwrap_or_default().to_string();
     let Some((manifest, model, _)) = crate::model_api::resolve(&state, &model_id, &key) else {
         return error(404, "model_not_found", "模型不存在，请先获取模型目录");
@@ -115,6 +125,7 @@ pub(crate) async fn dispatch(
     } else {
         body.clone()
     };
+    payload.as_object_mut().unwrap().remove("async");
     payload["model"] = json!(model.model_id);
     let capabilities = model
         .extra
@@ -141,10 +152,13 @@ pub(crate) async fn dispatch(
         return error(400, "unsupported_parameter", &message);
     }
 
-    let local = request
-        .extensions()
-        .get::<crate::protocol_websocket::LocalContinuation>()
-        .is_some_and(|local| payload["previous_response_id"].as_str() == Some(local.0.as_str()));
+    if body["async"] == true && !context.queued {
+        return crate::generation_queue::enqueue_text(state, key, body, endpoint, context).await;
+    }
+    let local = context
+        .local_previous
+        .as_deref()
+        .is_some_and(|id| payload["previous_response_id"].as_str() == Some(id));
     if local {
         payload
             .as_object_mut()
@@ -168,7 +182,7 @@ pub(crate) async fn dispatch(
     }
     let (mut affinity_id, mut preferred) = crate::conversation_affinity::identify(
         &state,
-        &request,
+        context.connection_id.as_deref(),
         &key,
         &manifest.platform_id,
         &body,
@@ -176,11 +190,12 @@ pub(crate) async fn dispatch(
     );
     let session_id = crate::conversation_affinity::session_identity(
         &state,
-        &request,
+        context.connection_id.as_deref(),
         &key,
         &manifest.platform_id,
         &body,
         endpoint,
+        &context.task_id,
     );
     let session_lock = if let Some(id) = session_id.as_ref() {
         affinity_id = id.clone();
@@ -217,8 +232,8 @@ pub(crate) async fn dispatch(
     let store_response = endpoint == "responses" && body["store"] != false;
     let previous_response_id = body["previous_response_id"].clone();
     let metadata = body.get("metadata").cloned().unwrap_or(json!({}));
-    let request_id = crate::request_identity::id(&request);
-    let task_id = crate::request_identity::recovery_id(&request, &key, &body);
+    let request_id = context.request_id;
+    let task_id = context.task_id;
     let session_base = if session_lock.is_some() {
         match crate::conversation_affinity::begin_session(&state, &affinity_id, &task_id).await {
             Ok(base) => base,
@@ -266,11 +281,14 @@ pub(crate) async fn dispatch(
     if endpoint != "speech" {
         crate::conversation_affinity::remember(&state.store, &affinity_id, &account.id);
     }
-    let (sender, mut receiver) = mpsc::channel(8);
+    let (sender, receiver) = mpsc::channel(8);
     let events = streaming.then_some(sender.clone());
     let task_state = state.clone();
     let task_request_id = task_id.clone();
     let is_audio = endpoint == "speech";
+    let queued = context.queued;
+    let is_chat = endpoint == "chat";
+    let response_model_id = model_id.clone();
     let mut job = AbortJob(tokio::spawn(async move {
         let _lease = lease;
         let _session_lock = session_lock;
@@ -340,6 +358,20 @@ pub(crate) async fn dispatch(
                 }
             }
         }
+        if queued {
+            if let Ok(value) = &result {
+                let response = if is_chat {
+                    crate::protocol_request::chat_response(&value["response"], &response_model_id)
+                } else {
+                    value["response"].clone()
+                };
+                if let Err(message) =
+                    crate::generation_queue::result::save(&task_state, &task_id, &response).await
+                {
+                    result = Err(message);
+                }
+            }
+        }
         match &result {
             Ok(value) => {
                 if !is_audio {
@@ -393,55 +425,15 @@ pub(crate) async fn dispatch(
         result
     }));
     if streaming {
-        let first = match tokio::time::timeout(std::time::Duration::from_secs(180), receiver.recv())
-            .await
-        {
-            Ok(Some(event)) => event,
-            _ => return error(504, "upstream_timeout", "等待上游响应超时或流已关闭"),
-        };
-        if first["type"] == "error" {
-            return HttpResponse::build(
-                actix_web::http::StatusCode::from_u16(
-                    first["status"].as_u64().unwrap_or(502) as u16
-                )
-                .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY),
-            )
-            .json(json!({"error":first["error"]}));
-        }
-        let first = Some(first);
-        let encoder = crate::protocol_stream::Encoder::new(
-            endpoint == "chat",
+        return crate::protocol_stream::response(
+            receiver,
+            job,
+            endpoint,
             model_id,
             body["stream_options"]["include_usage"] == true,
-        );
-        let stream = futures_util::stream::unfold(
-            (receiver, encoder, job, first),
-            |(mut receiver, mut encoder, job, mut first)| async move {
-                loop {
-                    if encoder.terminal {
-                        return None;
-                    }
-                    let event = if let Some(event) = first.take() {
-                        event
-                    } else {
-                        receiver.recv().await?
-                    };
-                    let frame = encoder.encode(&event);
-                    if !frame.is_empty() {
-                        return Some((
-                            Ok::<_, actix_web::Error>(web::Bytes::from(frame)),
-                            (receiver, encoder, job, first),
-                        ));
-                    }
-                }
-            },
-        );
-        return HttpResponse::Ok()
-            .insert_header(("x-request-id", request_id))
-            .insert_header(("cache-control", "no-cache"))
-            .insert_header(("x-accel-buffering", "no"))
-            .content_type("text/event-stream")
-            .streaming(stream);
+            request_id,
+        )
+        .await;
     }
     drop(receiver);
     match (&mut job.0).await {
@@ -479,7 +471,7 @@ pub(crate) async fn dispatch(
     }
 }
 
-struct AbortJob(tokio::task::JoinHandle<Result<Value, String>>);
+pub(crate) struct AbortJob(tokio::task::JoinHandle<Result<Value, String>>);
 impl Drop for AbortJob {
     fn drop(&mut self) {
         self.0.abort();

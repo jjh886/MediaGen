@@ -27,21 +27,33 @@ pub(crate) fn start_worker(state: web::Data<ServerState>) {
     });
 }
 
-fn dispatch_available(state: &web::Data<ServerState>) {
+pub(super) fn dispatch_available(state: &web::Data<ServerState>) {
     loop {
-        if state.image_task_queue.direct_waiter_count() > 0 {
-            return;
-        }
         let settings = state.store.settings();
-        let Some(permit) = state.image_task_queue.try_acquire_background(&settings) else {
-            return;
-        };
+        let permit = state.image_task_queue.try_acquire_background(&settings);
         let now = Utc::now();
-        let job = state
-            .store
-            .claim_next_generation_job(now, now + ChronoDuration::hours(LEASE_HOURS));
+        let job = state.store.with_account_dispatch(|| {
+            let text_available = super::text::has_capacity(state);
+            state.store.claim_generation_job_matching(
+                now,
+                now + ChronoDuration::hours(LEASE_HOURS),
+                |job| {
+                    if job.task_kind == "text" {
+                        text_available
+                    } else {
+                        permit.is_some()
+                    }
+                },
+            )
+        });
         let Some(job) = job else {
             return;
+        };
+        let permit = if job.task_kind == "text" {
+            drop(permit);
+            None
+        } else {
+            permit
         };
         let state = state.clone();
         actix_web::rt::spawn(async move {
@@ -53,7 +65,7 @@ fn dispatch_available(state: &web::Data<ServerState>) {
 async fn execute_job(
     state: web::Data<ServerState>,
     job: crate::store::GenerationJobRecord,
-    _permit: crate::image_task_queue::ImageTaskPermit,
+    _permit: Option<crate::image_task_queue::ImageTaskPermit>,
 ) {
     let caller_key = match job.credential_ciphertext.is_empty() {
         true => String::new(),
@@ -65,26 +77,38 @@ async fn execute_job(
             }
         },
     };
-    let body = match serde_json::from_str::<OpenAiImageRequest>(&job.request_json) {
-        Ok(value) => value,
-        Err(error) => {
-            finish_invalid_job(&state, &job.task_id, &format!("任务数据无效: {error}"));
-            return;
-        }
+    let (callback_body, result) = if job.task_kind == "text" {
+        (
+            None,
+            super::text::run(state.clone(), &job, caller_key).await,
+        )
+    } else {
+        let body = match serde_json::from_str::<OpenAiImageRequest>(&job.request_json) {
+            Ok(value) => value,
+            Err(_) => {
+                finish_invalid_job(&state, &job.task_id, "任务数据无效");
+                return;
+            }
+        };
+        let result = crate::image_api::run_queued_image_flow(
+            state.clone(),
+            body.clone(),
+            caller_key,
+            &job.task_id,
+        )
+        .await
+        .map_err(|(status, code, message)| (status, code.to_string(), message));
+        (Some(body), result)
     };
-    let callback_body = body.clone();
-    let result =
-        crate::image_api::run_queued_image_flow(state.clone(), body, caller_key, &job.task_id)
-            .await;
-    finish_execution(&state, &job.task_id, &callback_body, result).await;
+    finish_execution(&state, &job.task_id, callback_body.as_ref(), result).await;
     state.generation_queue_notify.notify_waiters();
 }
 
 async fn finish_execution(
     state: &web::Data<ServerState>,
     task_id: &str,
-    body: &OpenAiImageRequest,
-    result: Result<Value, (u16, &'static str, String)>,
+    body: Option<&OpenAiImageRequest>,
+    result: Result<Value, (u16, String, String)>,
 ) {
     let Some(task) = state.store.task_by_id(task_id) else {
         requeue(state, task_id, "storage", "任务记录不存在", 120);
@@ -95,31 +119,45 @@ async fn finish_execution(
         return;
     }
     match result {
-        Err((403, code, message)) | Err((_, code @ "insufficient_quota", message)) => {
-            finish_terminal_failure(state, task_id, body, code, &message)
+        Err((status, code, message))
+            if status == 403
+                || code == "insufficient_quota"
+                || (body.is_none() && matches!(status, 400 | 401 | 404 | 422)) =>
+        {
+            finish_terminal_failure(state, task_id, body, &code, &message)
         }
         Ok(response) if task.status == "completed" => {
             finish_completed(state, task_id, body, response).await
         }
         Ok(_) => requeue(state, task_id, "incomplete", "任务未产生完整结果", 120),
         Err((_, code, message)) if terminal_failure(&message) => {
-            finish_terminal_failure(state, task_id, body, code, &message)
+            finish_terminal_failure(state, task_id, body, &code, &message)
         }
         Err((_, code, message)) => requeue(
             state,
             task_id,
-            code,
+            &code,
             &message,
-            retry_seconds(code, &message),
+            retry_seconds(&code, &message),
         ),
     }
 }
 
-fn finish_cancelled(state: &web::Data<ServerState>, task_id: &str, body: &OpenAiImageRequest) {
+fn finish_cancelled(
+    state: &web::Data<ServerState>,
+    task_id: &str,
+    body: Option<&OpenAiImageRequest>,
+) {
     state
         .store
         .finish_generation_job(task_id, GenerationJobState::Cancelled, Some("用户取消"));
-    super::callback::spawn_cancelled(state.get_ref().clone(), task_id.to_string(), body.clone());
+    if let Some(body) = body {
+        super::callback::spawn_cancelled(
+            state.get_ref().clone(),
+            task_id.to_string(),
+            body.clone(),
+        );
+    }
     crate::weixin::delivery::queue_terminal_status(
         state.get_ref(),
         task_id,
@@ -131,26 +169,28 @@ fn finish_cancelled(state: &web::Data<ServerState>, task_id: &str, body: &OpenAi
 async fn finish_completed(
     state: &web::Data<ServerState>,
     task_id: &str,
-    body: &OpenAiImageRequest,
+    body: Option<&OpenAiImageRequest>,
     response: Value,
 ) {
     state
         .store
         .finish_generation_job(task_id, GenerationJobState::Completed, None);
     crate::weixin::delivery::queue_completed_response(state.get_ref(), task_id, &response).await;
-    super::callback::spawn_completed(
-        state.get_ref().clone(),
-        task_id.to_string(),
-        body.clone(),
-        response,
-    );
+    if let Some(body) = body {
+        super::callback::spawn_completed(
+            state.get_ref().clone(),
+            task_id.to_string(),
+            body.clone(),
+            response,
+        );
+    }
 }
 
 fn finish_terminal_failure(
     state: &web::Data<ServerState>,
     task_id: &str,
-    body: &OpenAiImageRequest,
-    code: &'static str,
+    body: Option<&OpenAiImageRequest>,
+    code: &str,
     message: &str,
 ) {
     let summary = if terminal_failure(message) {
@@ -168,13 +208,15 @@ fn finish_terminal_failure(
         "failed",
         Some(&summary),
     );
-    super::callback::spawn_failed(
-        state.get_ref().clone(),
-        task_id.to_string(),
-        body.clone(),
-        code,
-        &summary,
-    );
+    if let Some(body) = body {
+        super::callback::spawn_failed(
+            state.get_ref().clone(),
+            task_id.to_string(),
+            body.clone(),
+            code,
+            &summary,
+        );
+    }
 }
 
 fn requeue(
@@ -288,8 +330,8 @@ mod tests {
             finish_execution(
                 &state,
                 &id,
-                &body,
-                Err((status, code, "账号未获授权或额度为零".into())),
+                Some(&body),
+                Err((status, code.to_string(), "账号未获授权或额度为零".into())),
             )
             .await;
             let job = state.store.generation_job(&id, None).unwrap();
@@ -300,6 +342,123 @@ mod tests {
                 Some("账号未获授权或额度为零")
             );
         }
+    }
+
+    #[actix_web::test]
+    async fn image_and_text_queues_run_independently_when_other_kind_is_full() {
+        use serde_json::json;
+        let original = crate::protocol_api_tests::state();
+        let images = crate::image_api_tests::queue_state("independent-queues");
+        let mut config = original.get_ref().clone();
+        let plugins = config
+            .plugin_loader
+            .get_plugin_dir("test")
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_owned();
+        std::fs::create_dir_all(plugins.join("fake")).unwrap();
+        std::fs::copy(
+            images
+                .plugin_loader
+                .get_plugin_dir("fake")
+                .unwrap()
+                .join("manifest.json"),
+            plugins.join("fake/manifest.json"),
+        )
+        .unwrap();
+        config.plugin_loader = std::sync::Arc::new(
+            mediagen_plugin_runtime::PluginLoader::load_from(&plugins).unwrap(),
+        );
+        config
+            .store
+            .insert_account(images.store.account_by_id("acc-queue").unwrap());
+        config.store.update_settings(crate::store::SettingsUpdate {
+            image_task_concurrency: Some(1),
+            ..Default::default()
+        });
+        let state = web::Data::new(config);
+        let permit = state
+            .image_task_queue
+            .try_acquire_background(&state.store.settings())
+            .unwrap();
+        let image_id = super::super::enqueue_image_job(
+            &state,
+            "key-a",
+            state.credential_cipher.encrypt("key-a").unwrap(),
+            serde_json::from_value(json!({"model":"fake-image","prompt":"draw"})).unwrap(),
+        )
+        .unwrap_or_else(|_| panic!("图片任务入队失败"));
+        let body = json!({"model":"text-model","input":"test","async":true});
+        let request = actix_web::test::TestRequest::post()
+            .uri("/v1/responses")
+            .to_http_request();
+        let first = crate::request_identity::ProtocolRequest::from_http(&request, "key-a", &body);
+        let text_id = first.task_id.clone();
+        assert_eq!(
+            super::super::enqueue_text(
+                state.clone(),
+                "key-a".into(),
+                body.clone(),
+                "responses",
+                first
+            )
+            .await
+            .status(),
+            202
+        );
+        dispatch_available(&state);
+        wait_completed(&state, &text_id).await;
+        assert_eq!(
+            state.store.generation_job(&image_id, None).unwrap().state,
+            GenerationJobState::Queued
+        );
+        drop(permit);
+        let manifest = state.plugin_loader.get_plugin("test").unwrap();
+        let busy = (0..3)
+            .map(|i| {
+                crate::protocol_task::reserve(
+                    &state,
+                    manifest,
+                    "text-model",
+                    "text",
+                    "key-a",
+                    &format!("busy-{i}"),
+                    None,
+                )
+                .unwrap()
+                .1
+            })
+            .collect::<Vec<_>>();
+        let second = crate::request_identity::ProtocolRequest::from_http(&request, "key-a", &body);
+        let second_id = second.task_id.clone();
+        assert_eq!(
+            super::super::enqueue_text(state.clone(), "key-a".into(), body, "responses", second)
+                .await
+                .status(),
+            202
+        );
+        dispatch_available(&state);
+        wait_completed(&state, &image_id).await;
+        assert_eq!(
+            state.store.generation_job(&second_id, None).unwrap().state,
+            GenerationJobState::Queued
+        );
+        drop(busy);
+        dispatch_available(&state);
+        wait_completed(&state, &second_id).await;
+    }
+
+    async fn wait_completed(state: &ServerState, id: &str) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while state.store.generation_job(id, None).unwrap().state
+                != GenerationJobState::Completed
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
     }
 
     #[test]

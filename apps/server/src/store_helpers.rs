@@ -35,11 +35,7 @@ pub(crate) fn account_ready_for_kind(
         scoped.total_limit = account.policy.text_total_limit;
         scoped.used_today = account.policy.text_used_today;
         scoped.used_total = account.policy.text_used_total;
-        scoped.concurrency_limit = if account.policy.text_concurrency_limit == 0 {
-            u32::MAX
-        } else {
-            account.policy.text_concurrency_limit
-        };
+        scoped.concurrency_limit = text_concurrency_limit(account);
     }
     let relevant = tasks
         .iter()
@@ -47,6 +43,14 @@ pub(crate) fn account_ready_for_kind(
         .cloned()
         .collect::<Vec<_>>();
     account_ready_for_dispatch_at(&scoped, &relevant, Utc::now())
+}
+
+pub(crate) fn text_concurrency_limit(account: &AccountRecord) -> u32 {
+    if account.policy.text_concurrency_limit == 0 {
+        crate::store_models::DEFAULT_TEXT_CONCURRENCY_LIMIT
+    } else {
+        account.policy.text_concurrency_limit
+    }
 }
 
 /// 把跨日账号恢复为新一天的初始状态，避免每日用量一直累加成总用量。

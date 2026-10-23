@@ -1,5 +1,4 @@
 use crate::{store::AppStore, ServerState};
-use actix_web::{HttpMessage, HttpRequest};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
@@ -8,7 +7,7 @@ pub(crate) struct ConnectionId(pub String);
 /// 绑定按调用者和平台隔离；不存原始对话或 API Key。
 pub(crate) fn identify(
     state: &ServerState,
-    request: &HttpRequest,
+    connection_id: Option<&str>,
     key: &str,
     platform: &str,
     body: &Value,
@@ -26,12 +25,7 @@ pub(crate) fn identify(
                 .filter(|s| !s.is_empty())
                 .map(str::to_owned)
         })
-        .or_else(|| {
-            request
-                .extensions()
-                .get::<ConnectionId>()
-                .map(|v| v.0.clone())
-        });
+        .or_else(|| connection_id.map(str::to_owned));
     let input = crate::protocol_storage::input_items(&payload["input"]);
     let first = input
         .iter()
@@ -65,11 +59,12 @@ pub(crate) fn identify(
 /// 明确的窗口标识或 Responses 续接才共享平台会话；缓存键和相同正文不能合并窗口。
 pub(crate) fn session_identity(
     state: &ServerState,
-    request: &HttpRequest,
+    connection_id: Option<&str>,
     key: &str,
     platform: &str,
     body: &Value,
     endpoint: &str,
+    task_id: &str,
 ) -> Option<String> {
     if !matches!(endpoint, "responses" | "chat") {
         return None;
@@ -91,14 +86,10 @@ pub(crate) fn session_identity(
     {
         return Some(prior);
     }
-    let connection = request
-        .extensions()
-        .get::<ConnectionId>()
-        .map(|id| id.0.clone());
-    let identity = if let Some(connection) = connection {
+    let identity = if let Some(connection) = connection_id {
         json!({"connection":connection})
     } else if endpoint == "responses" && body["store"] != false {
-        json!({"request":crate::request_identity::recovery_id(request, key, body)})
+        json!({"request":task_id})
     } else {
         return None;
     };
@@ -132,27 +123,44 @@ mod tests {
     #[actix_web::test]
     async fn explicit_session_is_scoped_and_never_inferred_from_cache_or_prompt() {
         let state = crate::protocol_api_tests::state();
-        let request = actix_web::test::TestRequest::default().to_http_request();
         let body = json!({"metadata":{"session_id":"window"}});
-        let first = session_identity(&state, &request, "owner-a", "test", &body, "chat");
+        let first = session_identity(&state, None, "owner-a", "test", &body, "chat", "request");
         assert!(first.is_some());
         assert_eq!(
             first,
-            session_identity(&state, &request, "owner-a", "test", &body, "responses")
+            session_identity(
+                &state,
+                None,
+                "owner-a",
+                "test",
+                &body,
+                "responses",
+                "request"
+            )
         );
         assert_ne!(
             first,
-            session_identity(&state, &request, "owner-b", "test", &body, "chat")
+            session_identity(&state, None, "owner-b", "test", &body, "chat", "request")
         );
         assert_ne!(
             first,
-            session_identity(&state, &request, "owner-a", "other", &body, "chat")
+            session_identity(&state, None, "owner-a", "other", &body, "chat", "request")
         );
-        assert!(session_identity(&state, &request, "owner-a", "test", &body, "compact").is_none());
-        let unbound = json!({"input":"same","prompt_cache_key":"shared","store":false});
         assert!(
-            session_identity(&state, &request, "owner-a", "test", &unbound, "responses").is_none()
+            session_identity(&state, None, "owner-a", "test", &body, "compact", "request")
+                .is_none()
         );
+        let unbound = json!({"input":"same","prompt_cache_key":"shared","store":false});
+        assert!(session_identity(
+            &state,
+            None,
+            "owner-a",
+            "test",
+            &unbound,
+            "responses",
+            "request"
+        )
+        .is_none());
     }
     #[actix_web::test]
     async fn affinity_is_owned_stays_sticky_and_escapes_expired_accounts() {
@@ -162,14 +170,13 @@ mod tests {
             .insert_account(crate::test_fixtures::account_record(
                 "second", "test", "Second", "",
             ));
-        let request = actix_web::test::TestRequest::default().to_http_request();
         let payload = json!({"input":"hello","prompt_cache_key":"session"});
-        let (key, preferred) = identify(&state, &request, "key-a", "test", &payload, &payload);
+        let (key, preferred) = identify(&state, None, "key-a", "test", &payload, &payload);
         assert!(preferred.is_none());
         remember(&state.store, &key, "account");
-        let (_, preferred) = identify(&state, &request, "key-a", "test", &payload, &payload);
+        let (_, preferred) = identify(&state, None, "key-a", "test", &payload, &payload);
         assert_eq!(preferred.as_deref(), Some("account"));
-        let (_, other) = identify(&state, &request, "key-b", "test", &payload, &payload);
+        let (_, other) = identify(&state, None, "key-b", "test", &payload, &payload);
         assert!(other.is_none());
         let manifest = state.plugin_loader.get_plugin("test").unwrap();
         for id in ["turn1", "turn2"] {

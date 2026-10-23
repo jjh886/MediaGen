@@ -282,6 +282,7 @@ fn configure_management_routes(cfg: &mut web::ServiceConfig) {
         )
         .route("/api/accounts/{id}/toggle", web::post().to(toggle_account))
         .route("/api/tasks", web::get().to(tasks))
+        .route("/api/tasks/{id}/result", web::get().to(routes::task_result))
         .route(
             "/api/tasks/filter-options",
             web::get().to(routes::task_filter_options),

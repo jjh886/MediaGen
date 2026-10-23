@@ -14,7 +14,7 @@ use crate::ServerState;
 
 use super::{owner_key, queued_image_records};
 
-const MAX_ACTIVE_GENERATION_JOBS: usize = 10_000;
+pub(super) const MAX_ACTIVE_GENERATION_JOBS: usize = 10_000;
 const MAX_BATCH_TASKS: usize = 1_000;
 
 pub(crate) async fn enqueue_image(
@@ -30,6 +30,10 @@ pub(crate) async fn enqueue_image(
         Ok(value) => value,
         Err(error) => return error.into_response(),
     };
+    accepted(&task_id)
+}
+
+pub(super) fn accepted(task_id: &str) -> HttpResponse {
     HttpResponse::Accepted().json(json!({
         "success": true,
         "data": {
@@ -57,7 +61,7 @@ pub(crate) fn enqueue_image_job(
     {
         return Err(queue_error(400, "FLOW_NOT_FOUND", "模型不支持图片生成"));
     }
-    if state.store.active_generation_job_count() >= MAX_ACTIVE_GENERATION_JOBS {
+    if state.store.active_generation_job_count("image") >= MAX_ACTIVE_GENERATION_JOBS {
         return Err(queue_error(429, "QUEUE_FULL", "异步生成队列已满"));
     }
     let task_id = format!("task-{}", Uuid::new_v4());
@@ -104,12 +108,14 @@ pub(crate) async fn admin_list_queue(
     state: web::Data<ServerState>,
     query: web::Query<ListQuery>,
 ) -> HttpResponse {
-    let (jobs, total) = state.store.list_all_generation_jobs(
+    let (jobs, total) = state.store.list_generation_jobs_for_kind(
+        None,
+        query.task_kind.as_ref().map(QueueKind::as_str),
         query.limit.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100),
         query.offset.unwrap_or(0),
     );
     HttpResponse::Ok().json(json!({
-        "data": queue_response(&state, jobs, total, query.offset.unwrap_or(0))
+        "data": queue_response(&state, jobs, total, None)
     }))
 }
 
@@ -122,14 +128,15 @@ pub(crate) async fn list_queue(
         return public_error(401, "UNAUTHORIZED", "无效的 Bearer Token");
     };
     let offset = query.offset.unwrap_or(0);
-    let (jobs, total) = state.store.list_generation_jobs(
-        &owner,
+    let (jobs, total) = state.store.list_generation_jobs_for_kind(
+        Some(&owner),
+        query.task_kind.as_ref().map(QueueKind::as_str),
         query.limit.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100),
         offset,
     );
     HttpResponse::Ok().json(json!({
         "success": true,
-        "data": queue_response(&state, jobs, total, offset),
+        "data": queue_response(&state, jobs, total, Some(&owner)),
     }))
 }
 
@@ -160,7 +167,14 @@ pub(crate) async fn task_detail(
         return public_error(401, "UNAUTHORIZED", "无效的 Bearer Token");
     };
     let task_id = path.into_inner();
-    match build_task_detail(&state, &owner, &task_id, &queue_positions(&state, &owner)).await {
+    match build_task_detail(
+        &state,
+        &owner,
+        &task_id,
+        &queue_positions(&state, Some(&owner)),
+    )
+    .await
+    {
         Some(detail) => HttpResponse::Ok().json(json!({ "success": true, "data": detail })),
         None => public_error(404, "TASK_NOT_FOUND", "异步任务不存在"),
     }
@@ -178,7 +192,7 @@ pub(crate) async fn batch_task_details(
     if !(1..=MAX_BATCH_TASKS).contains(&task_ids.len()) {
         return public_error(400, "INVALID_REQUEST", "任务数量必须在 1 到 1000 之间");
     }
-    let positions = queue_positions(&state, &owner);
+    let positions = queue_positions(&state, Some(&owner));
     let mut items = Vec::new();
     let mut missing = Vec::new();
     for task_id in task_ids {
@@ -195,8 +209,25 @@ pub(crate) async fn batch_task_details(
 
 #[derive(Deserialize)]
 pub(crate) struct ListQuery {
+    #[serde(rename = "taskKind", alias = "task_kind")]
+    task_kind: Option<QueueKind>,
     limit: Option<usize>,
     offset: Option<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum QueueKind {
+    Image,
+    Text,
+}
+impl QueueKind {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Image => "image",
+            Self::Text => "text",
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -250,12 +281,12 @@ fn queue_response(
     state: &ServerState,
     jobs: Vec<GenerationJobRecord>,
     total: usize,
-    offset: usize,
+    owner: Option<&str>,
 ) -> serde_json::Value {
+    let positions = queue_positions(state, owner);
     let items = jobs
         .iter()
-        .enumerate()
-        .filter_map(|(index, job)| queue_item(state, job, offset + index + 1))
+        .filter_map(|job| queue_item(state, job, *positions.get(&job.task_id)?))
         .collect::<Vec<_>>();
     json!({ "total": total, "items": items })
 }
@@ -265,13 +296,13 @@ fn queue_item(
     job: &GenerationJobRecord,
     position: usize,
 ) -> Option<serde_json::Value> {
-    let request = serde_json::from_str::<OpenAiImageRequest>(&job.request_json).ok()?;
     let task = state.store.task_by_id(&job.task_id)?;
     Some(json!({
         "taskId": job.task_id,
         "platform": task.platform,
-        "modelId": request.model,
-        "prompt": request.prompt_text(),
+        "modelId": task.model_id,
+        "prompt": task.prompt,
+        "taskKind": job.task_kind,
         "status": "queued",
         "position": position,
         "queuedAt": job.created_at,
@@ -296,7 +327,7 @@ async fn build_task_detail(
             Ok(Some(value)) => Some(value),
             Ok(None) => metadata,
             Err(_) => Some(
-                json!({"error":{"code":"RESULT_STORAGE_ERROR","message":"图片结果暂时无法读取"}}),
+                json!({"error":{"code":"RESULT_STORAGE_ERROR","message":"生成结果暂时无法读取"}}),
             ),
         }
     } else {
@@ -307,10 +338,11 @@ async fn build_task_detail(
         "platform": task.platform,
         "modelId": task.model_id,
         "prompt": task.prompt,
+        "taskKind": job.task_kind,
         "status": status,
         "position": positions.get(task_id),
         "result": result,
-        "failureReason": terminal_reason(&task.status, task.error_message.as_deref()),
+        "failureReason": terminal_reason(status, task.error_message.as_deref()),
         "queuedAt": job.created_at,
         "startedAt": job.started_at,
         "updatedAt": job.updated_at,
@@ -318,14 +350,18 @@ async fn build_task_detail(
     }))
 }
 
-fn queue_positions(state: &ServerState, owner: &str) -> HashMap<String, usize> {
+fn queue_positions(state: &ServerState, owner: Option<&str>) -> HashMap<String, usize> {
+    let mut counts = HashMap::<String, usize>::new();
     state
         .store
-        .list_generation_jobs(owner, MAX_ACTIVE_GENERATION_JOBS, 0)
+        .list_generation_jobs_for_kind(owner, None, MAX_ACTIVE_GENERATION_JOBS * 2, 0)
         .0
         .into_iter()
-        .enumerate()
-        .map(|(index, job)| (job.task_id, index + 1))
+        .map(|job| {
+            let position = counts.entry(job.task_kind).or_default();
+            *position += 1;
+            (job.task_id, *position)
+        })
         .collect()
 }
 
@@ -333,7 +369,6 @@ fn visible_status(job: &GenerationJobState, task_status: &str) -> &'static str {
     match job {
         GenerationJobState::Queued | GenerationJobState::RetryWait => "queued",
         GenerationJobState::Leased if task_status == "completed" => "completed",
-        GenerationJobState::Leased if task_status == "failed" => "failed",
         GenerationJobState::Leased if task_status == "cancelled" => "cancelled",
         GenerationJobState::Leased => "processing",
         GenerationJobState::Completed => "completed",
@@ -384,6 +419,23 @@ mod tests {
             "task-2".to_string(),
         ];
         assert_eq!(normalize_task_ids(&ids), vec!["task-2", "task-1"]);
+    }
+
+    #[test]
+    fn failed_attempt_is_not_terminal_before_worker_decides_retry() {
+        assert_eq!(
+            visible_status(&GenerationJobState::Leased, "failed"),
+            "processing"
+        );
+        assert_eq!(
+            visible_status(&GenerationJobState::RetryWait, "pending"),
+            "queued"
+        );
+        assert_eq!(
+            visible_status(&GenerationJobState::Failed, "failed"),
+            "failed"
+        );
+        assert_eq!(terminal_reason("queued", Some("temporary")), None);
     }
 
     #[test]

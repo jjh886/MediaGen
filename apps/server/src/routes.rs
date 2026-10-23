@@ -242,6 +242,34 @@ pub async fn tasks(state: web::Data<ServerState>, query: web::Query<TaskQuery>) 
     HttpResponse::Ok().json(serde_json::json!({ "data": data }))
 }
 
+/// 管理台按需读取文本结果，不把完整生成内容塞入分页列表。
+pub async fn task_result(state: web::Data<ServerState>, path: web::Path<String>) -> HttpResponse {
+    let Some(task) = state.store.task_by_id(&path) else {
+        return HttpResponse::NotFound().json(json!({"error":"任务不存在"}));
+    };
+    if task.task_kind != "text" || task.status != "completed" {
+        return HttpResponse::Conflict().json(json!({"error":"当前任务没有已完成的文本结果"}));
+    }
+    let result = match crate::generation_queue::result::read(&state, &task.id).await {
+        Ok(Some(value)) => Some(value),
+        Ok(None) => task
+            .result_data
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .and_then(|value| value.get("response").cloned()),
+        Err(_) => {
+            return HttpResponse::ServiceUnavailable()
+                .json(json!({"error":"结果暂时无法读取，请重试"}))
+        }
+    };
+    match result {
+        Some(value) => HttpResponse::Ok()
+            .insert_header(("cache-control", "no-store"))
+            .json(json!({"data":value})),
+        None => HttpResponse::NotFound().json(json!({"error":"此任务未保存文本结果"})),
+    }
+}
+
 pub async fn cancel_task(state: web::Data<ServerState>, path: web::Path<String>) -> impl Responder {
     let task_id = path.into_inner();
     match state.store.cancel_task_or_generation_job(&task_id) {

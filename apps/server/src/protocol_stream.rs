@@ -145,3 +145,57 @@ impl Encoder {
         format!("data: {chunk}\n\n")
     }
 }
+
+pub(crate) async fn response(
+    mut receiver: tokio::sync::mpsc::Receiver<Value>,
+    job: crate::protocol_api::AbortJob,
+    endpoint: &str,
+    model_id: String,
+    include_usage: bool,
+    request_id: String,
+) -> actix_web::HttpResponse {
+    use crate::protocol_api::error;
+    use actix_web::{web, HttpResponse};
+    let first =
+        match tokio::time::timeout(std::time::Duration::from_secs(180), receiver.recv()).await {
+            Ok(Some(event)) => event,
+            _ => return error(504, "upstream_timeout", "等待上游响应超时或流已关闭"),
+        };
+    if first["type"] == "error" {
+        return HttpResponse::build(
+            actix_web::http::StatusCode::from_u16(first["status"].as_u64().unwrap_or(502) as u16)
+                .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY),
+        )
+        .json(json!({"error":first["error"]}));
+    }
+    let first = Some(first);
+    let encoder = crate::protocol_stream::Encoder::new(endpoint == "chat", model_id, include_usage);
+    let stream = futures_util::stream::unfold(
+        (receiver, encoder, job, first),
+        |(mut receiver, mut encoder, job, mut first)| async move {
+            loop {
+                if encoder.terminal {
+                    return None;
+                }
+                let event = if let Some(event) = first.take() {
+                    event
+                } else {
+                    receiver.recv().await?
+                };
+                let frame = encoder.encode(&event);
+                if !frame.is_empty() {
+                    return Some((
+                        Ok::<_, actix_web::Error>(web::Bytes::from(frame)),
+                        (receiver, encoder, job, first),
+                    ));
+                }
+            }
+        },
+    );
+    HttpResponse::Ok()
+        .insert_header(("x-request-id", request_id))
+        .insert_header(("cache-control", "no-cache"))
+        .insert_header(("x-accel-buffering", "no"))
+        .content_type("text/event-stream")
+        .streaming(stream)
+}

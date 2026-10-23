@@ -235,7 +235,10 @@ impl AppStore {
         let account = AccountRecord {
             policy: crate::store_models::AccountPolicy {
                 user_id: profile.user_id.clone(),
-                text_concurrency_limit: limits.map(|tier| tier.text_concurrency_limit).unwrap_or(0),
+                text_concurrency_limit: limits
+                    .map(|tier| tier.text_concurrency_limit)
+                    .filter(|limit| *limit > 0)
+                    .unwrap_or(crate::store_models::DEFAULT_TEXT_CONCURRENCY_LIMIT),
                 text_daily_limit: limits.map(|tier| tier.text_daily_limit).unwrap_or(0),
                 text_total_limit: limits.map(|tier| tier.text_total_limit).unwrap_or(0),
                 ..Default::default()

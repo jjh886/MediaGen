@@ -39,6 +39,19 @@ pub(crate) async fn reserve_affinity_wait(
     requirements: Option<&Value>,
     preferred: Option<&str>,
 ) -> Result<(AccountRecord, Lease), String> {
+    // 持久队列负责等待和重试，执行尝试只复用账号准入，不再嵌套同步等待队列。
+    if state.store.generation_job(id, None).is_some() {
+        return reserve_affinity(
+            state,
+            manifest,
+            model,
+            kind,
+            key,
+            id,
+            requirements,
+            preferred,
+        );
+    }
     let pending = state
         .store
         .list_tasks(Some(&manifest.platform_id))

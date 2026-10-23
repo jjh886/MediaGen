@@ -5,7 +5,9 @@ mod records;
 pub(crate) mod result;
 #[cfg(test)]
 mod store_tests;
+mod text;
 mod worker;
+pub(crate) use text::enqueue_text;
 
 pub(crate) use api::{
     admin_list_queue, admin_queue_action, batch_task_details, enqueue_image, enqueue_image_job,

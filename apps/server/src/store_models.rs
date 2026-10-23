@@ -47,6 +47,8 @@ impl AccountRecord {
     }
 }
 
+pub(crate) const DEFAULT_TEXT_CONCURRENCY_LIMIT: u32 = 3;
+
 /// 账号调度和健康状态；旧数据通过默认值兼容。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -73,7 +75,7 @@ impl Default for AccountPolicy {
             quota_windows: Vec::new(),
             user_id: String::new(),
             priority: 0,
-            text_concurrency_limit: 0,
+            text_concurrency_limit: DEFAULT_TEXT_CONCURRENCY_LIMIT,
             text_daily_limit: 0,
             text_total_limit: 0,
             text_used_today: 0,

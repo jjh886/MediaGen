@@ -16,6 +16,7 @@ pub(crate) fn validate_request(body: &Value, endpoint: &str) -> Result<(), Strin
             "stream",
         ],
         "chat" => &[
+            "async",
             "model",
             "messages",
             "audio",
@@ -60,6 +61,7 @@ pub(crate) fn validate_request(body: &Value, endpoint: &str) -> Result<(), Strin
             "reasoning",
         ],
         _ => &[
+            "async",
             "model",
             "input",
             "instructions",
@@ -113,6 +115,12 @@ pub(crate) fn validate_request(body: &Value, endpoint: &str) -> Result<(), Strin
         {
             return Err(format!("{field} 必须是布尔值"));
         }
+    }
+    if body.get("async").is_some_and(|value| !value.is_boolean()) {
+        return Err("async 必须是布尔值".into());
+    }
+    if body["async"] == true && body["stream"] == true {
+        return Err("async 排队模式通过任务接口查询结果，不能同时启用 stream".into());
     }
     if body["background"] == true {
         return Err("当前插件不支持 background".into());

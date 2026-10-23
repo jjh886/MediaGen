@@ -8,7 +8,7 @@ fn path(state: &ServerState, id: &str) -> std::path::PathBuf {
         .join(format!("{}.json", crate::access_control::hash_secret(id)))
 }
 pub(crate) async fn save(state: &ServerState, id: &str, value: &Value) -> Result<(), String> {
-    let json = serde_json::to_string(value).map_err(|_| "图片结果编码失败")?;
+    let json = serde_json::to_string(value).map_err(|_| "生成结果编码失败")?;
     let encrypted = state.credential_cipher.encrypt(&json)?;
     crate::account_login_credentials::write_private_file(&path(state, id), encrypted.as_bytes())
         .await
@@ -17,13 +17,13 @@ pub(crate) async fn read(state: &ServerState, id: &str) -> Result<Option<Value>,
     let bytes = match tokio::fs::read(path(state, id)).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err("读取图片结果失败".into()),
+        Err(_) => return Err("读取生成结果失败".into()),
     };
-    let encoded = std::str::from_utf8(&bytes).map_err(|_| "图片结果编码无效")?;
+    let encoded = std::str::from_utf8(&bytes).map_err(|_| "生成结果编码无效")?;
     let json = state.credential_cipher.decrypt(encoded)?;
     serde_json::from_str(&json)
         .map(Some)
-        .map_err(|_| "图片结果格式无效".into())
+        .map_err(|_| "生成结果格式无效".into())
 }
 
 #[cfg(test)]

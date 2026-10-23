@@ -27,11 +27,26 @@ pub(crate) fn queued_image_records(
         created_at: now.clone(),
         completed_at: None,
     };
+    Ok(queued_records(
+        task,
+        serde_json::to_string(body)?,
+        caller_key,
+        credential_ciphertext,
+    ))
+}
+
+pub(super) fn queued_records(
+    task: TaskRecord,
+    request_json: String,
+    caller_key: &str,
+    credential_ciphertext: String,
+) -> (TaskRecord, GenerationJobRecord) {
+    let now = task.created_at.clone();
     let job = GenerationJobRecord {
-        task_id,
+        task_id: task.id.clone(),
         owner_key: owner_key(caller_key),
-        task_kind: "image".to_string(),
-        request_json: serde_json::to_string(body)?,
+        task_kind: task.task_kind.clone(),
+        request_json,
         credential_ciphertext,
         state: GenerationJobState::Queued,
         priority: 100,
@@ -46,5 +61,5 @@ pub(crate) fn queued_image_records(
         started_at: None,
         completed_at: None,
     };
-    Ok((task, job))
+    (task, job)
 }

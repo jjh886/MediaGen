@@ -23,6 +23,7 @@ impl AppStore {
         }
         job.queue_seq = jobs
             .iter()
+            .filter(|item| item.task_kind == job.task_kind)
             .map(|item| item.queue_seq)
             .max()
             .unwrap_or(0)
@@ -35,12 +36,12 @@ impl AppStore {
         Ok(())
     }
 
-    pub fn active_generation_job_count(&self) -> usize {
+    pub fn active_generation_job_count(&self, kind: &str) -> usize {
         self.generation_jobs
             .lock()
             .unwrap_or_else(|err| err.into_inner())
             .iter()
-            .filter(|job| job_is_counted(job))
+            .filter(|job| job.task_kind == kind && job_is_counted(job))
             .count()
     }
 
@@ -49,7 +50,7 @@ impl AppStore {
         limit: usize,
         offset: usize,
     ) -> (Vec<GenerationJobRecord>, usize) {
-        self.list_generation_jobs_for_owner(None, limit, offset)
+        self.list_generation_jobs_for_kind(None, None, limit, offset)
     }
 
     pub fn list_generation_jobs(
@@ -58,12 +59,13 @@ impl AppStore {
         limit: usize,
         offset: usize,
     ) -> (Vec<GenerationJobRecord>, usize) {
-        self.list_generation_jobs_for_owner(Some(owner_key), limit, offset)
+        self.list_generation_jobs_for_kind(Some(owner_key), None, limit, offset)
     }
 
-    fn list_generation_jobs_for_owner(
+    pub(crate) fn list_generation_jobs_for_kind(
         &self,
         owner_key: Option<&str>,
+        kind: Option<&str>,
         limit: usize,
         offset: usize,
     ) -> (Vec<GenerationJobRecord>, usize) {
@@ -74,7 +76,9 @@ impl AppStore {
         let mut active = jobs
             .iter()
             .filter(|job| {
-                job_is_visible(job) && owner_key.is_none_or(|expected| job.owner_key == expected)
+                job_is_visible(job)
+                    && owner_key.is_none_or(|expected| job.owner_key == expected)
+                    && kind.is_none_or(|kind| job.task_kind == kind)
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -103,6 +107,15 @@ impl AppStore {
         now: DateTime<Utc>,
         lease_until: DateTime<Utc>,
     ) -> Option<GenerationJobRecord> {
+        self.claim_generation_job_matching(now, lease_until, |_| true)
+    }
+
+    pub(crate) fn claim_generation_job_matching(
+        &self,
+        now: DateTime<Utc>,
+        lease_until: DateTime<Utc>,
+        eligible: impl Fn(&GenerationJobRecord) -> bool,
+    ) -> Option<GenerationJobRecord> {
         let mut jobs = self
             .generation_jobs
             .lock()
@@ -112,6 +125,7 @@ impl AppStore {
             .enumerate()
             .filter(|(_, job)| {
                 job_is_visible(job)
+                    && eligible(job)
                     && parse_time(&job.next_attempt_at).is_some_and(|ready_at| ready_at <= now)
             })
             .min_by(|(_, left), (_, right)| queue_order(left, right))
@@ -321,17 +335,19 @@ fn queue_order(left: &GenerationJobRecord, right: &GenerationJobRecord) -> Order
 }
 
 fn promote_jobs(jobs: &mut [GenerationJobRecord], task_ids: &[String]) {
-    let min_seq = jobs
-        .iter()
-        .filter(|job| job_is_visible(job))
-        .map(|job| job.queue_seq)
-        .min()
-        .unwrap_or(0);
+    let mut first = std::collections::HashMap::<String, i64>::new();
+    for job in jobs.iter().filter(|job| job_is_visible(job)) {
+        first
+            .entry(job.task_kind.clone())
+            .and_modify(|seq| *seq = (*seq).min(job.queue_seq))
+            .or_insert(job.queue_seq);
+    }
     let now = Utc::now().to_rfc3339();
     for (index, task_id) in task_ids.iter().enumerate() {
         if let Some(job) = jobs.iter_mut().find(|job| job.task_id == *task_id) {
             job.priority = 200;
-            job.queue_seq = min_seq - task_ids.len() as i64 + index as i64;
+            job.queue_seq = first.get(&job.task_kind).copied().unwrap_or(0) - task_ids.len() as i64
+                + index as i64;
             job.updated_at = now.clone();
         }
     }
