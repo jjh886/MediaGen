@@ -68,6 +68,10 @@ async fn read_and_dispatch(
             Err(_) => return error(400, "invalid_body", "读取请求体失败"),
         };
         if bytes.len().saturating_add(chunk.len()) > crate::MAX_REQUEST_BODY_BYTES {
+            eprintln!(
+                "{}",
+                json!({"event":"request_body_rejected", "request_id":crate::request_identity::id(&request), "path":request.path(), "status":413, "code":"body_too_large", "received_at_least_bytes":bytes.len().saturating_add(chunk.len()), "limit_bytes":crate::MAX_REQUEST_BODY_BYTES})
+            );
             return error(413, "body_too_large", "请求体超过 50 MiB 限制");
         }
         bytes.extend_from_slice(&chunk);

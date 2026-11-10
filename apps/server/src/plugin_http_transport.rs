@@ -10,6 +10,7 @@ pub(super) struct TransportResponse {
 
 impl ServerPluginHost {
     pub(super) async fn send_http(&self, params: &Value) -> Result<TransportResponse, String> {
+        let started = std::time::Instant::now();
         let result = self.send_http_inner(params).await;
         let (status, error, headers) = match &result {
             Ok(response) if response.status >= 400 => {
@@ -25,7 +26,7 @@ impl ServerPluginHost {
         let detail = json!({"event":"plugin_http_failure", "request_id":self.request_id,
             "method":params["method"].as_str().unwrap_or("GET"),
             "url":crate::protocol_error::sanitize_error(params["url"].as_str().unwrap_or("")),
-            "status":status, "error":error,
+            "status":status, "error":error, "elapsed_ms":started.elapsed().as_millis(),
             "upstream_request_id":headers.and_then(|headers| headers.get("x-request-id")).map(|id| crate::protocol_error::sanitize_error(id)),
             "cf_ray":headers.and_then(|headers| headers.get("cf-ray")).map(|id| crate::protocol_error::sanitize_error(id))});
         eprintln!("{detail}");
@@ -389,10 +390,15 @@ mod fingerprint_tests {
             .unwrap();
             let host = ServerPluginHost::new_with_metadata(format!("http://{address}"), &metadata)
                 .with_http_profile(&manifest);
-            assert!(host
+            let error = host
                 .send_http(&json!({"url":"https://example.test/", "timeout_ms":2000}))
                 .await
-                .is_err());
+                .err()
+                .unwrap();
+            assert!(
+                error.contains("caused by:"),
+                "必须保留实际 TLS 错误链: {error}"
+            );
             let hello = tokio::time::timeout(Duration::from_secs(3), capture)
                 .await
                 .unwrap()
