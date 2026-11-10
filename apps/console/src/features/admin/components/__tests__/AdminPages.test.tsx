@@ -71,6 +71,7 @@ describe('AdminPages', () => {
     render(<ApiKeysPage />)
 
     expect(await screen.findByText('Web 用户')).toBeInTheDocument()
+    expect(screen.getByText('2026/06/29 08:00:00')).toBeInTheDocument()
     expect(screen.queryByPlaceholderText('新的 API Key')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '新增 API Key' }))

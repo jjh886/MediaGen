@@ -7,7 +7,7 @@ describe('accountResetText', () => {
 
     expect(
       accountResetText({ login_state: 'daily_quota_exhausted', cooldown_until: cooldownUntil })
-    ).toContain('额度恢复时间')
+    ).toBe('额度恢复时间 08/15 04:35')
     expect(accountResetText({ login_state: 'cooldown', cooldown_until: cooldownUntil })).toContain(
       '额度恢复时间'
     )

@@ -70,6 +70,7 @@ describe('TaskList 取消生成中任务', () => {
     filters = { status: 'completed' }
     render(<TaskList />)
     await screen.findByRole('option', { name: 'old-model' })
+    expect(screen.getByText('07/20 18:00')).toBeInTheDocument()
     expect(screen.getAllByRole('combobox')).toHaveLength(4)
     expect(screen.getByRole('group', { name: '任务筛选' })).toContainElement(
       screen.getByRole('button', { name: '刷新' })
@@ -121,4 +122,21 @@ it('任务详情读取异步文本结果并提供复制，显示失败后允许�
   expect(fetchTaskResult).toHaveBeenLastCalledWith('task-running')
   fireEvent.click(screen.getByRole('button', { name: '复制' }))
   expect(writeText).toHaveBeenCalledWith('原始文本结果')
+})
+
+it('任务详情以 UTC+8 显示创建和完成时间，耗时不受时区转换影响', () => {
+  render(
+    <TaskDetail
+      task={{
+        ...runningTask,
+        status: 'completed',
+        created_at: '2026-12-31T15:59:00Z',
+        completed_at: '2026-12-31T16:01:00Z',
+      }}
+      onCancel={vi.fn()}
+      onClose={vi.fn()}
+    />
+  )
+  expect(screen.getByText('2026/12/31 23:59:00')).toBeInTheDocument()
+  expect(screen.getByText('2027/01/01 00:01:00（耗时 2分0秒）')).toBeInTheDocument()
 })

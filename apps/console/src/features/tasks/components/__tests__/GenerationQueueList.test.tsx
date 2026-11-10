@@ -45,6 +45,7 @@ describe('GenerationQueueList', () => {
 
   it('确认后才执行取消操作', async () => {
     render(<GenerationQueueList />)
+    expect(screen.getByText('07/18 18:00')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
 
     expect(screen.getByText('取消排队任务')).toBeInTheDocument()
