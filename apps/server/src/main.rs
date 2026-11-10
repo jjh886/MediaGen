@@ -1,3 +1,5 @@
+pub(crate) const MAX_REQUEST_BODY_BYTES: usize = 50 * 1024 * 1024;
+
 mod access_control;
 mod account_browser_profile;
 mod account_login;
@@ -316,7 +318,7 @@ fn configure_management_routes(cfg: &mut web::ServiceConfig) {
 fn configure_openai_routes(cfg: &mut web::ServiceConfig) {
     cfg.app_data(
         web::JsonConfig::default()
-            .limit(50 * 1024 * 1024)
+            .limit(MAX_REQUEST_BODY_BYTES)
             .error_handler(|error, request| {
                 if !request.path().starts_with("/v1/") {
                     return error.into();

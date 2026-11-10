@@ -104,7 +104,16 @@ pub(crate) async fn transcribe(
                 account: account.clone(),
                 task_id: task_id.clone(),
             };
-            crate::media_execution::classify_and_apply_failure(&state, &context, &message);
+            let decision =
+                crate::media_execution::classify_and_apply_failure(&state, &context, &message);
+            crate::protocol_error::record_failure(
+                &state,
+                &context,
+                &task_id,
+                request.path(),
+                &decision,
+                &key,
+            );
             state.store.fail_task(&task_id, "音频处理失败".into());
             let (status, code, public) = crate::protocol_api::public_failure(&message);
             error(status, code, &public)

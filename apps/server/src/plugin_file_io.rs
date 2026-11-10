@@ -45,15 +45,46 @@ impl ServerPluginHost {
         let content = tokio::fs::read_to_string(&path)
             .await
             .map_err(|err| format!("file.read_json 读取失败 {path}: {err}"))?;
-        let stored: Value = serde_json::from_str(&content).map_err(|_| "JSON 文件格式无效")?;
-        if stored["storage_format"] == "mediagen.encrypted.v1" {
+        let mut stored: Value = serde_json::from_str(&content).map_err(|_| "JSON 文件格式无效")?;
+        let encrypted = stored["storage_format"] == "mediagen.encrypted.v1";
+        if encrypted {
             let cipher = self.credential_cipher.as_ref().ok_or("安全存储未配置")?;
             let plaintext = cipher.decrypt(stored["ciphertext"].as_str().ok_or("凭据密文缺失")?)?;
-            return serde_json::from_str(&plaintext).map_err(|_| "凭据格式无效".into());
+            stored = serde_json::from_str(&plaintext).map_err(|_| "凭据格式无效")?;
         }
         if self.protected_files.contains(&PathBuf::from(&path)) {
-            self.write_json(&json!({"path":path,"value":stored}))
-                .await?;
+            if !encrypted {
+                self.write_json(&json!({"path":path,"value":stored}))
+                    .await?;
+            }
+            // 浏览器凭据对插件呈现当前账号环境，磁盘登录与硬件资料保持原样。
+            if self.http_profile == "browser" && stored["auth"].is_object() {
+                *self
+                    .browser_metadata
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) =
+                    stored["auth"]["fingerprint"].clone();
+                if let Some(fp) = self.effective_browser_fingerprint() {
+                    let mut fingerprint = stored["auth"]["fingerprint"]
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default();
+                    if fingerprint
+                        .get("ua_platform")
+                        .and_then(Value::as_str)
+                        .is_some_and(|platform| platform != fp.sec_ch_ua_platform())
+                    {
+                        fingerprint.remove("ua_platform_version");
+                    }
+                    fingerprint.extend(fp.runtime_profile().as_object().unwrap().clone());
+                    let fingerprint = Value::Object(fingerprint);
+                    *self
+                        .browser_metadata
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner()) = fingerprint.clone();
+                    stored["auth"]["fingerprint"] = fingerprint;
+                }
+            }
         }
         Ok(stored)
     }

@@ -61,6 +61,38 @@ impl ServerPluginHost {
             .map_err(|err| err.to_string())
     }
 
+    pub(super) fn effective_browser_fingerprint(&self) -> Option<BrowserFingerprint> {
+        if self.http_profile != "browser" || self.browser_fingerprint.is_some() {
+            return self.browser_fingerprint.clone();
+        }
+        let captured = self
+            .browser_metadata
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let os = captured["ua_platform"]
+            .as_str()
+            .or_else(|| captured["platform"].as_str())
+            .unwrap_or(std::env::consts::OS)
+            .to_lowercase();
+        let os = if os.contains("mac") {
+            "macos"
+        } else if os.contains("linux") {
+            "linux"
+        } else {
+            "windows"
+        };
+        let major = captured["user_agent"]
+            .as_str()
+            .and_then(|ua| ua.split("Chrome/").nth(1))
+            .and_then(|version| version.split('.').next())
+            .and_then(|major| major.parse::<u16>().ok())
+            .unwrap_or(crate::account_browser_profile::supported_browser_versions()[0]);
+        BrowserFingerprint::from_values(
+            os,
+            &crate::account_browser_profile::compatible_browser_version(major).to_string(),
+        )
+    }
+
     pub(crate) fn request_headers(&self, params: &Value) -> Result<HeaderMap, String> {
         let mut headers = request_headers(params)?;
         if !self.request_id.is_empty() {
@@ -70,12 +102,102 @@ impl ServerPluginHost {
                 self.request_id.clone(),
             )?;
         }
-        if params["fingerprint"] == "none" {
+        if params["fingerprint"] == "none" || self.http_profile == "native" {
             return Ok(headers);
         }
-        let Some(fingerprint) = &self.browser_fingerprint else {
+        let Some(fingerprint) = self.effective_browser_fingerprint() else {
             return Ok(headers);
         };
+        // 浏览器 API 使用账号当前环境，不能继续沿用旧登录采集的 UA。
+        if self.http_profile == "browser" {
+            let stale = headers
+                .keys()
+                .filter(|name| name.as_str().starts_with("sec-ch-ua"))
+                .cloned()
+                .collect::<Vec<_>>();
+            for name in stale {
+                headers.remove(name);
+            }
+            for (name, value) in [
+                ("user-agent", fingerprint.user_agent()),
+                ("sec-ch-ua", fingerprint.sec_ch_ua()),
+                (
+                    "sec-ch-ua-platform",
+                    format!("\"{}\"", fingerprint.sec_ch_ua_platform()),
+                ),
+                ("sec-ch-ua-mobile", "?0".into()),
+            ] {
+                headers.insert(
+                    HeaderName::from_static(name),
+                    HeaderValue::from_str(&value).map_err(|_| "浏览器请求头无效")?,
+                );
+            }
+            let captured = self
+                .browser_metadata
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone();
+            let metadata = if captured.is_object() {
+                captured
+            } else {
+                fingerprint.runtime_profile()
+            };
+            for (name, key) in [
+                ("sec-ch-ua-arch", "ua_architecture"),
+                ("sec-ch-ua-bitness", "ua_bitness"),
+                ("sec-ch-ua-full-version", "ua_full_version"),
+                ("sec-ch-ua-model", "ua_model"),
+                ("sec-ch-ua-platform-version", "ua_platform_version"),
+            ] {
+                if let Some(value) = metadata[key].as_str() {
+                    headers.insert(
+                        HeaderName::from_static(name),
+                        HeaderValue::from_str(&json!(value).to_string())
+                            .map_err(|_| "浏览器客户端提示无效")?,
+                    );
+                }
+            }
+            if let Some(brands) = metadata["ua_full_version_list"].as_array() {
+                let value = brands
+                    .iter()
+                    .filter_map(|brand| {
+                        Some(format!(
+                            "{};v={}",
+                            json!(brand["brand"].as_str()?),
+                            json!(brand["version"].as_str()?)
+                        ))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                headers.insert(
+                    HeaderName::from_static("sec-ch-ua-full-version-list"),
+                    HeaderValue::from_str(&value).map_err(|_| "浏览器品牌列表无效")?,
+                );
+            }
+            if let Some(languages) = metadata["languages"].as_array() {
+                let value = languages
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .take(10)
+                    .enumerate()
+                    .map(|(index, value)| {
+                        if index == 0 {
+                            value.to_string()
+                        } else {
+                            format!("{value};q={:.1}", 1.0 - index as f64 / 10.0)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                if !value.is_empty() {
+                    headers.insert(
+                        HeaderName::from_static("accept-language"),
+                        HeaderValue::from_str(&value).map_err(|_| "浏览器语言无效")?,
+                    );
+                }
+            }
+            return Ok(headers);
+        }
         insert_header_if_missing(&mut headers, USER_AGENT, fingerprint.user_agent())?;
         insert_header_if_missing(
             &mut headers,

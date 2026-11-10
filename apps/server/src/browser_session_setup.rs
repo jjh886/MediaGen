@@ -15,6 +15,15 @@ pub(crate) fn prepare_browser_session_create_request(
     apply_shared_browser_profile(state, request)?;
     apply_relogin_defaults(state, request)?;
     validate_browser_fingerprint(request)?;
+    if let Some(fp) = BrowserFingerprint::from_metadata(&request.metadata) {
+        request.metadata.insert(
+            "browser_version".into(),
+            json!(crate::account_browser_profile::compatible_browser_version(
+                fp.chrome_major_version()
+            )
+            .to_string()),
+        );
+    }
     apply_saved_proxy(state, request)
 }
 

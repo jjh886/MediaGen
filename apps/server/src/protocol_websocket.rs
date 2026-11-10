@@ -20,9 +20,9 @@ pub(crate) async fn responses(
         }
     };
     let mut messages = messages
-        .max_frame_size(8 * 1024 * 1024)
+        .max_frame_size(crate::MAX_REQUEST_BODY_BYTES)
         .aggregate_continuations()
-        .max_continuation_size(8 * 1024 * 1024);
+        .max_continuation_size(crate::MAX_REQUEST_BODY_BYTES);
     actix_web::rt::spawn(async move {
         request
             .extensions_mut()
@@ -33,7 +33,9 @@ pub(crate) async fn responses(
         let mut last_model = String::new();
         while let Some(message) = messages.next().await {
             let mut input = match message {
-                Ok(actix_ws::AggregatedMessage::Text(text)) if text.len() <= 8 * 1024 * 1024 => {
+                Ok(actix_ws::AggregatedMessage::Text(text))
+                    if text.len() <= crate::MAX_REQUEST_BODY_BYTES =>
+                {
                     match serde_json::from_str::<Value>(&text) {
                         Ok(value) => value,
                         Err(_) => {

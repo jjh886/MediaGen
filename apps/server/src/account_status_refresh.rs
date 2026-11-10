@@ -8,7 +8,6 @@ use tokio::sync::{Mutex, Notify};
 
 use crate::account_login_check::AccountLoginCheckOutcome;
 use crate::store::{AccountRecord, AppStore};
-use crate::store_helpers::task_is_active;
 use crate::ServerState;
 
 #[derive(Default)]
@@ -96,7 +95,9 @@ pub(crate) async fn refresh_quota(
     let Some(account) = state.store.account_by_id(&id) else {
         return actix_web::HttpResponse::NotFound().json(serde_json::json!({"error":"账号不存在"}));
     };
-    if account.login_state == "disabled" || busy_account_ids(&state).contains(&id) {
+    if account.login_state == "disabled"
+        || (busy_account_ids(&state).contains(&id) && !api_quota_check(&state, &account))
+    {
         return actix_web::HttpResponse::Conflict()
             .json(serde_json::json!({"error":"账号已停用或正在执行任务，请稍后刷新额度"}));
     }
@@ -123,6 +124,16 @@ pub(crate) async fn refresh_quota(
     }
 }
 
+fn api_quota_check(state: &ServerState, account: &AccountRecord) -> bool {
+    state
+        .plugin_loader
+        .get_plugin(&account.platform)
+        .is_some_and(|manifest| {
+            manifest.adapter_mode == mediagen_core::AdapterMode::Api
+                && manifest.flows.contains_key("check_account")
+        })
+}
+
 fn refresh_interval(minutes: u32) -> Option<Duration> {
     (minutes > 0).then(|| Duration::from_secs(u64::from(minutes) * 60))
 }
@@ -140,17 +151,11 @@ async fn wait_for_schedule(runtime: &AccountRefreshRuntime, interval: Option<Dur
 }
 
 fn busy_account_ids(state: &ServerState) -> HashSet<String> {
-    let leases = state
-        .store
-        .protocol_leases
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
     state
         .store
-        .list_tasks(None)
+        .dispatch_tasks(None)
         .into_iter()
-        .filter(|task| task_is_active(task) || leases.contains(&task.id))
+        .filter(|task| task.status == "processing")
         .filter_map(|task| task.account_id)
         .collect()
 }
@@ -164,7 +169,7 @@ async fn refresh_one_account(
     if account.login_state == "disabled" {
         return;
     }
-    if busy_accounts.contains(&account.id) {
+    if busy_accounts.contains(&account.id) && !api_quota_check(state, &account) {
         summary.skipped_busy += 1;
         return;
     }
@@ -292,6 +297,28 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn queued_binding_does_not_occupy_account_but_live_executor_does() {
+        let state = server_state(
+            std::env::temp_dir().join(format!("busy-quota-{}", uuid::Uuid::new_v4())),
+            PluginLoader::empty(),
+        );
+        let account = account_record("account", "test", "Test", "");
+        state.store.insert_account(account.clone());
+        let task = serde_json::from_value(serde_json::json!({
+            "id":"waiting", "platform":"test", "task_kind":"image", "model_id":"image",
+            "prompt":"test", "account_id":"account", "status":"queued", "created_at":"2026-01-01T00:00:00Z"
+        })).unwrap();
+        state.store.insert_task(task);
+        assert!(super::busy_account_ids(&state).is_empty());
+        let lease = crate::protocol_task::Lease::new(state.store.clone(), "waiting".into());
+        assert!(super::busy_account_ids(&state).contains("account"));
+        state.store.cancel_task("waiting");
+        assert!(super::busy_account_ids(&state).contains("account"));
+        drop(lease);
+        assert!(super::busy_account_ids(&state).is_empty());
+    }
+
+    #[test]
     fn zero_disables_refresh_and_minutes_convert_to_duration() {
         assert_eq!(refresh_interval(0), None);
         assert_eq!(refresh_interval(2), Some(Duration::from_secs(120)));
@@ -370,6 +397,13 @@ mod quota_tests {
             .insert_account(crate::test_fixtures::account_record(
                 "quota", "test", "Quota", "",
             ));
+        state.store.insert_task(serde_json::from_value(json!({
+            "id":"busy-quota", "platform":"test", "task_kind":"text", "model_id":"text",
+            "prompt":"test", "account_id":"quota", "status":"processing", "created_at":"2026-01-01T00:00:00Z"
+        })).unwrap());
+        state
+            .store
+            .record_account_failure("quota", "daily_quota_exhausted", "text");
         let app = at::init_service(
             App::new()
                 .app_data(web::Data::new(state.clone()))
@@ -384,6 +418,30 @@ mod quota_tests {
         assert_eq!(response.status(), 200);
         let body: serde_json::Value = at::read_body_json(response).await;
         assert_eq!(body["data"]["quota_windows"][0]["remaining_percent"], 40);
+        assert!(state
+            .store
+            .account_by_id("quota")
+            .unwrap()
+            .policy
+            .quota_holds
+            .is_empty());
+        assert_eq!(
+            state.store.task_by_id("busy-quota").unwrap().status,
+            "processing"
+        );
+        std::fs::write(plugins.join("test/scripts/quota.js"), "function main(){return {status:'available',logged_in:true,quota_task_kind:'text',quota_windows:[{name:'week',remaining_percent:47,task_kind:'text'}]}}").unwrap();
+        let automatic = super::refresh_accounts(&state).await;
+        assert_eq!(automatic.checked, 1);
+        assert_eq!(automatic.skipped_busy, 0);
+        assert_eq!(
+            state
+                .store
+                .account_by_id("quota")
+                .unwrap()
+                .policy
+                .quota_windows[0]["remaining_percent"],
+            47
+        );
         state.store.toggle_account("quota", true);
         assert_eq!(
             at::call_service(

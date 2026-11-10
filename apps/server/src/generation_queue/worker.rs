@@ -307,7 +307,7 @@ fn terminal_failure(error: &str) -> bool {
 }
 
 fn sanitize_error(error: &str) -> String {
-    error.chars().take(500).collect()
+    crate::protocol_error::sanitize_error(error)
 }
 
 fn content_policy_summary(error: &str) -> String {

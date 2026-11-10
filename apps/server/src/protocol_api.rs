@@ -67,8 +67,8 @@ async fn read_and_dispatch(
             Ok(chunk) => chunk,
             Err(_) => return error(400, "invalid_body", "读取请求体失败"),
         };
-        if bytes.len() + chunk.len() > 16 * 1024 * 1024 {
-            return error(413, "body_too_large", "请求体超过 16 MiB 限制");
+        if bytes.len().saturating_add(chunk.len()) > crate::MAX_REQUEST_BODY_BYTES {
+            return error(413, "body_too_large", "请求体超过 50 MiB 限制");
         }
         bytes.extend_from_slice(&chunk);
     }
@@ -286,6 +286,8 @@ pub(crate) async fn execute(
     let events = streaming.then_some(sender.clone());
     let task_state = state.clone();
     let task_request_id = task_id.clone();
+    let trace_request_id = request_id.clone();
+    let task_endpoint = endpoint.to_owned();
     let is_audio = endpoint == "speech";
     let queued = context.queued;
     let is_chat = endpoint == "chat";
@@ -400,15 +402,20 @@ pub(crate) async fn execute(
                     account: account.clone(),
                     task_id: task_id.clone(),
                 };
-                crate::media_execution::classify_and_apply_failure(&task_state, &context, message);
-                let (_, code, public) = public_failure(message);
-                task_state.store.add_audit_log(
-                    "protocol",
-                    "error",
-                    "生成请求失败".into(),
-                    format!("request_id={task_request_id}; code={code}"),
-                    Some(task_id.clone()),
+                let decision = crate::media_execution::classify_and_apply_failure(
+                    &task_state,
+                    &context,
+                    message,
                 );
+                crate::protocol_error::record_failure(
+                    &task_state,
+                    &context,
+                    &trace_request_id,
+                    &task_endpoint,
+                    &decision,
+                    &key,
+                );
+                let (_, code, public) = public_failure(message);
                 task_state
                     .store
                     .fail_task(&task_id, format!("{code}: {public}"));

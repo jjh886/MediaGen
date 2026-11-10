@@ -78,8 +78,15 @@ async fn fingerprint_options(state: web::Data<ServerState>) -> impl Responder {
     {
         Ok(installed_version) => {
             let stable_version = latest_stable_chrome_major().await.max(installed_version);
+            let stable_version =
+                crate::account_browser_profile::compatible_browser_version(stable_version);
+            let versions = crate::account_browser_profile::supported_browser_versions()
+                .iter()
+                .map(u16::to_string)
+                .collect::<Vec<_>>();
             HttpResponse::Ok().json(json!({
                 "data": {
+                    "browser_versions": versions,
                     "browser_version": stable_version.to_string(),
                     "installed_browser_version": installed_version.to_string(),
                     "os": match std::env::consts::OS {

@@ -5,6 +5,31 @@ use serde_json::{json, Value};
 
 use crate::store::AccountRecord;
 
+pub(crate) fn supported_browser_versions() -> &'static [u16] {
+    static VERSIONS: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+    VERSIONS.get_or_init(|| {
+        let mut versions = wreq_util::Profile::VARIANTS
+            .iter()
+            .filter_map(|profile| {
+                let value = serde_json::to_value(profile).ok()?;
+                value.as_str()?.strip_prefix("chrome_")?.parse::<u16>().ok()
+            })
+            .collect::<Vec<_>>();
+        versions.sort_unstable_by(|a, b| b.cmp(a));
+        versions.dedup();
+        versions
+    })
+}
+
+pub(crate) fn compatible_browser_version(requested: u16) -> u16 {
+    let versions = supported_browser_versions();
+    versions
+        .iter()
+        .copied()
+        .find(|version| *version <= requested)
+        .unwrap_or_else(|| *versions.last().expect("传输库必须提供 Chrome 画像"))
+}
+
 pub fn browser_metadata_from_account(account: &AccountRecord) -> HashMap<String, Value> {
     let mut metadata = HashMap::new();
     if !account.proxy_url.trim().is_empty() {
@@ -31,7 +56,13 @@ pub fn add_browser_profile_metadata(
     metadata.insert(BROWSER_OS_METADATA_KEY.to_string(), json!(browser_os));
     metadata.insert(
         BROWSER_VERSION_METADATA_KEY.to_string(),
-        json!(browser_version),
+        json!(browser_version
+            .split('.')
+            .next()
+            .and_then(|v| v.parse::<u16>().ok())
+            .map(compatible_browser_version)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| browser_version.to_string())),
     );
 }
 
@@ -53,6 +84,20 @@ mod tests {
         assert_eq!(metadata["proxy_server"], "socks5h://proxy.example:1080");
         assert_eq!(metadata["browser_os"], "windows");
         assert_eq!(metadata["browser_version"], "126");
+    }
+
+    #[test]
+    fn unsupported_versions_fall_back_to_compatible_profiles() {
+        for (requested, expected) in [
+            (99, 100),
+            (102, 101),
+            (150, 150),
+            (999, super::supported_browser_versions()[0]),
+        ] {
+            let mut metadata = HashMap::new();
+            add_browser_profile_metadata(&mut metadata, "windows", &requested.to_string());
+            assert_eq!(metadata["browser_version"], expected.to_string());
+        }
     }
 
     #[test]

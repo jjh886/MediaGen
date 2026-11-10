@@ -66,6 +66,7 @@ pub struct ServerPluginHost {
     client: reqwest::Client,
     proxy_url: String,
     browser_fingerprint: Option<BrowserFingerprint>,
+    browser_metadata: std::sync::Arc<std::sync::Mutex<Value>>,
 }
 
 impl ServerPluginHost {
@@ -87,12 +88,27 @@ impl ServerPluginHost {
     }
 
     pub(crate) fn with_http_profile(mut self, manifest: &mediagen_core::PluginManifest) -> Self {
-        self.http_profile = manifest
-            .extra
-            .get("http_profile")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
+        self.http_profile = if manifest.extra.contains_key("login_credential_capture") {
+            "browser".into()
+        } else {
+            manifest
+                .extra
+                .get("http_profile")
+                .and_then(Value::as_str)
+                .unwrap_or("native")
+                .to_string()
+        };
+        if self.http_profile == "browser" {
+            if let Some(fp) = &self.browser_fingerprint {
+                self.browser_fingerprint = BrowserFingerprint::from_values(
+                    fp.sec_ch_ua_platform(),
+                    &crate::account_browser_profile::compatible_browser_version(
+                        fp.chrome_major_version(),
+                    )
+                    .to_string(),
+                );
+            }
+        }
         self
     }
 
@@ -148,6 +164,7 @@ impl ServerPluginHost {
                 .unwrap_or_else(|_| reqwest::Client::new()),
             proxy_url,
             browser_fingerprint,
+            browser_metadata: Default::default(),
         }
     }
 
@@ -245,6 +262,7 @@ impl PluginHost for ServerPluginHost {
             None => context,
         }
     }
+
     async fn stream(
         &self,
         action: &str,

@@ -11,7 +11,7 @@ use crate::media_execution::ApiError;
 use crate::media_multipart::image_data_url;
 use crate::video_request::OpenAiVideoRequest;
 
-const MAX_BODY_BYTES: usize = 50 * 1024 * 1024;
+const MAX_BODY_BYTES: usize = crate::MAX_REQUEST_BODY_BYTES;
 
 pub(crate) async fn parse_video_request(
     request: HttpRequest,

@@ -191,7 +191,7 @@ pub(crate) fn record_attempt_failure(
     if decision.usage_consumed {
         state.store.mark_account_usage(&context.account.id);
     }
-    let message = decision.formatted_message();
+    let message = crate::protocol_error::sanitize_error(&decision.formatted_message());
     state
         .store
         .add_task_event(&context.task_id, "error", message.clone());
@@ -376,7 +376,7 @@ pub(crate) fn fail_task(
     decision: &FailureDecision,
 ) -> Result<serde_json::Value, ApiError> {
     ensure_task_not_cancelled(state, &context.task_id)?;
-    let message = decision.formatted_message();
+    let message = crate::protocol_error::sanitize_error(&decision.formatted_message());
     state.store.fail_task(&context.task_id, message.clone());
     let (status, code) = decision.response_error();
     if code == "insufficient_quota" {

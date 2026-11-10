@@ -8,7 +8,7 @@ use serde_json::Value;
 use crate::image_request::{OpenAiImageRef, OpenAiImageRequest};
 use crate::media_multipart::image_data_url;
 
-const MAX_BODY_BYTES: usize = 50 * 1024 * 1024;
+const MAX_BODY_BYTES: usize = crate::MAX_REQUEST_BODY_BYTES;
 
 pub type ParseError = (u16, &'static str, String);
 
