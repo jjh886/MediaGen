@@ -95,7 +95,6 @@ function chatgptApiUploadSignedBlob(auth, uploadUrl, reference) {
     method: 'PUT',
     url: uploadUrl,
     proxy: 'system',
-    tls_profile: chatgptApiTlsProfile(auth),
     headers: {
       'content-type': reference.mime_type,
       'x-ms-blob-type': 'BlockBlob',

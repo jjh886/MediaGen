@@ -75,7 +75,6 @@ function chatgptApiResumeRequest(auth, conversationId, token, timeoutMs) {
     method: 'POST',
     url: CHATGPT_API_ORIGIN + path,
     proxy: 'system',
-    tls_profile: chatgptApiTlsProfile(auth),
     headers: {
       ...chatgptApiBaseHeaders(auth, path, path),
       accept: 'text/event-stream',

@@ -105,7 +105,6 @@ function doubaoCompleteTextMedia(session, state, writer, conversationId, creatio
           response_body_format: 'base64',
           headers: {
             referer: 'https://www.doubao.com/',
-            'user-agent': session.auth?.fingerprint?.user_agent || '',
           },
           timeout_ms: 120000,
         }),

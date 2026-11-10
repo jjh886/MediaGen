@@ -15,7 +15,6 @@ function doubaoSignedRequest(session, path, body, method = 'POST', extraHeaders 
       host.call('http.request', {
         method: 'GET',
         url: security.sdk_url,
-        headers: { 'user-agent': session.auth.fingerprint.user_agent },
         proxy: 'system',
         timeout_ms: 60000,
       }),

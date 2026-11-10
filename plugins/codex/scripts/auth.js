@@ -365,13 +365,12 @@ function codexUpstreamHeaders(accessToken, accountId, accept, ctx) {
 }
 
 function codexSupportedTextModel(model) {
-  return /^gpt-(?:6\.1-sol|6-(?:astra|sol|luna)|5\.6-(?:sol|terra|luna))$/.test(model)
+  return /^gpt-(?:6\.1-(?:sol|terra)|6-(?:astra|sol|luna)|5\.6-(?:sol|terra|luna))$/.test(model)
 }
 
 function codexSupportedEffort(effort, model) {
-  const efforts =
-    model === 'gpt-6.1-sol'
-      ? ['low', 'medium', 'high', 'xhigh', 'max']
-      : ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+  const efforts = /^gpt-6\.1-(?:sol|terra)$/.test(model)
+    ? ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+    : ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
   return efforts.includes(effort)
 }

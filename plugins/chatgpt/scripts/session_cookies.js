@@ -1,15 +1,3 @@
-function chatgptApiTlsProfile(auth) {
-  const version = Number(
-    String(chatgptApiFingerprint(auth).user_agent || '').match(/Chrome\/(\d+)/)?.[1]
-  )
-  const supported = [
-    100, 101, 104, 105, 106, 107, 108, 109, 110, 114, 116, 117, 118, 119, 120, 123, 124, 126, 127,
-    128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146,
-    147, 148, 149,
-  ]
-  return 'chrome_' + (supported.includes(version) ? version : 149)
-}
-
 function chatgptApiRequireNoChallenge(result, operation) {
   const challenge =
     Object.entries(result?.headers || {}).some(
@@ -20,28 +8,6 @@ function chatgptApiRequireNoChallenge(result, operation) {
     throw new Error(
       'verification_required: ' + operation + ' 需要完成 ChatGPT 安全验证，请打开账号验证窗口后继续'
     )
-}
-
-// 将传输 UA 和 Client Hints 与实际可用的 TLS 画像绑定，保留账号设备和硬件身份。
-function chatgptApiAlignFingerprint(auth) {
-  const fp = auth.auth.fingerprint || (auth.auth.fingerprint = {})
-  const major = chatgptApiTlsProfile(auth).slice(7)
-  const version = major + '.0.0.0'
-  fp.user_agent = /Chrome\/\d+/.test(fp.user_agent || '')
-    ? fp.user_agent.replace(/Chrome\/[\d.]+/, 'Chrome/' + version)
-    : 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/' +
-      version +
-      ' Safari/537.36'
-  fp.ua_full_version = version
-  fp.ua_brands = [
-    { brand: 'Not:A-Brand', version: '99' },
-    { brand: 'Chromium', version: major },
-    { brand: 'Google Chrome', version: major },
-  ]
-  fp.ua_full_version_list = fp.ua_brands.map((brand) => ({
-    ...brand,
-    version: brand.brand === 'Not:A-Brand' ? '99.0.0.0' : version,
-  }))
 }
 
 function chatgptApiRememberCookies(auth, response, requestPath = '/') {
@@ -137,5 +103,3 @@ function chatgptApiSaveAuth(auth) {
     },
   })
 }
-
-// 请求、校验和写回分开处理，让各阶段的失败原因保持清晰。

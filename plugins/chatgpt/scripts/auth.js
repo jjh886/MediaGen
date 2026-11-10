@@ -11,7 +11,6 @@ function chatgptApiReadAuth(ctx) {
   Object.defineProperty(stored, 'storage_path', {
     value: ctx.profile_dir + '/' + CHATGPT_API_AUTH_FILE,
   })
-  chatgptApiAlignFingerprint(stored)
   return stored
 }
 
@@ -31,7 +30,6 @@ function chatgptApiRefreshSession(auth) {
       auth.auth = latest.auth
       auth.cookies = latest.cookies
     }
-    chatgptApiAlignFingerprint(auth)
     auth.refreshing = true
     if (!chatgptApiCookieHeader(auth))
       throw new Error('LOGIN_EXPIRED: 登录 Cookie 已过期，请重新登录 ChatGPT。')
@@ -54,7 +52,6 @@ function chatgptApiFetchSession(auth, cookie) {
     method: 'GET',
     url: CHATGPT_API_ORIGIN + '/api/auth/session',
     proxy: 'system',
-    tls_profile: chatgptApiTlsProfile(auth),
     headers: {
       accept: 'application/json',
       cookie,
@@ -69,7 +66,6 @@ function chatgptApiNavigateHome(auth, cookie) {
     method: 'GET',
     url: CHATGPT_API_ORIGIN + '/',
     proxy: 'system',
-    tls_profile: chatgptApiTlsProfile(auth),
     headers: {
       ...chatgptApiBrowserHeaders(auth, 'none'),
       accept:
@@ -155,74 +151,15 @@ function chatgptApiBaseHeaders(auth, targetPath, targetRoute) {
   return chatgptApiCompactObject(headers)
 }
 
-function chatgptApiBrowserHeaders(auth, fetchSite) {
-  const fingerprint = chatgptApiFingerprint(auth)
+function chatgptApiBrowserHeaders(_auth, fetchSite) {
   const sameOrigin = (fetchSite || 'same-origin') !== 'none'
-  const headers = {
-    'accept-encoding': 'gzip, deflate, br, zstd',
-    'accept-language': chatgptApiAcceptLanguage(fingerprint.languages),
+  return chatgptApiCompactObject({
     origin: sameOrigin ? CHATGPT_API_ORIGIN : '',
-    priority: 'u=1, i',
     referer: sameOrigin ? CHATGPT_API_ORIGIN + '/' : '',
-    'sec-ch-ua':
-      chatgptApiUaBrands(fingerprint.ua_brands) || chatgptApiFallbackUaBrands(fingerprint),
-    'sec-ch-ua-arch': chatgptApiOptionalQuoted(fingerprint, 'ua_architecture'),
-    'sec-ch-ua-bitness': chatgptApiOptionalQuoted(fingerprint, 'ua_bitness'),
-    'sec-ch-ua-full-version': chatgptApiOptionalQuoted(fingerprint, 'ua_full_version'),
-    'sec-ch-ua-full-version-list': chatgptApiUaBrands(fingerprint.ua_full_version_list),
-    'sec-ch-ua-mobile': fingerprint.ua_mobile ? '?1' : '?0',
-    'sec-ch-ua-model': chatgptApiOptionalQuoted(fingerprint, 'ua_model'),
-    'sec-ch-ua-platform': chatgptApiQuoted(
-      fingerprint.ua_platform || chatgptApiPlatformName(fingerprint.platform)
-    ),
-    'sec-ch-ua-platform-version': chatgptApiOptionalQuoted(fingerprint, 'ua_platform_version'),
     'sec-fetch-dest': 'empty',
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': fetchSite || 'same-origin',
-    'user-agent': fingerprint.user_agent || '',
-  }
-  return chatgptApiCompactObject(headers)
-}
-
-function chatgptApiOptionalQuoted(value, key) {
-  return Object.prototype.hasOwnProperty.call(value || {}, key) ? chatgptApiQuoted(value[key]) : ''
-}
-
-function chatgptApiFallbackUaBrands(fingerprint) {
-  const major = String(fingerprint.user_agent || '').match(/Chrome\/(\d+)/)?.[1] || ''
-  if (!major) return ''
-  return chatgptApiUaBrands([
-    { brand: 'Not:A-Brand', version: '99' },
-    { brand: 'Google Chrome', version: major },
-    { brand: 'Chromium', version: major },
-  ])
-}
-
-function chatgptApiPlatformName(platform) {
-  const value = String(platform || '').toLowerCase()
-  if (value.includes('mac')) return 'macOS'
-  if (value.includes('win')) return 'Windows'
-  if (value.includes('linux')) return 'Linux'
-  return ''
-}
-
-function chatgptApiUaBrands(brands) {
-  return (Array.isArray(brands) ? brands : [])
-    .filter((item) => item?.brand && item?.version)
-    .map((item) => chatgptApiQuoted(item.brand) + ';v=' + chatgptApiQuoted(item.version))
-    .join(', ')
-}
-
-function chatgptApiQuoted(value) {
-  return '"' + String(value || '').replace(/["\\]/g, '\\$&') + '"'
-}
-
-function chatgptApiAcceptLanguage(languages) {
-  const values = Array.isArray(languages) && languages.length ? languages : ['en-US']
-  return values
-    .slice(0, 10)
-    .map((value, index) => String(value) + (index ? ';q=' + Math.max(0.1, 1 - index / 10) : ''))
-    .join(',')
+  })
 }
 
 function chatgptApiCookieValue(auth, name) {
@@ -239,7 +176,6 @@ function chatgptApiRequest(auth, method, path, options) {
     method,
     url: CHATGPT_API_ORIGIN + path,
     proxy: 'system',
-    tls_profile: chatgptApiTlsProfile(auth),
     headers,
     timeout_ms: config.timeout_ms || (config.sse ? 3 * 60 * 60 * 1000 : 30000),
   }

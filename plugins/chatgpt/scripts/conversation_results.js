@@ -149,7 +149,6 @@ function chatgptApiDownloadImageData(auth, url) {
     method: 'GET',
     url,
     proxy: 'system',
-    tls_profile: chatgptApiTlsProfile(auth),
     headers: chatgptApiDownloadImageHeaders(auth, url),
     response_body_format: 'base64',
     timeout_ms: 120000,

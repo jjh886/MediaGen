@@ -770,7 +770,7 @@
             "@shared/api_text_responses.js",
             "@shared/api_session.js",
             "auth.js",
-            "network_profile.js",
+            "session_cookies.js",
             "startup.js",
             "sentinel_vm.js",
             "sentinel.js",
@@ -792,7 +792,7 @@
           "script_files": [
             "@shared/api_session.js",
             "auth.js",
-            "network_profile.js",
+            "session_cookies.js",
             "startup.js",
             "quota_status.js",
             "check_account.js"
@@ -810,7 +810,7 @@
           "script_files": [
             "@shared/api_session.js",
             "auth.js",
-            "network_profile.js",
+            "session_cookies.js",
             "startup.js",
             "sentinel_vm.js",
             "sentinel.js",
@@ -835,7 +835,7 @@
       "steps": [
         {
           "action": "plugin.run_js",
-          "script_files": ["auth.js", "network_profile.js", "conversation.js", "list_models.js"],
+          "script_files": ["auth.js", "session_cookies.js", "conversation.js", "list_models.js"],
           "timeout_ms": 60000
         }
       ]
@@ -850,7 +850,7 @@
             "@shared/api_text_responses.js",
             "@shared/api_session.js",
             "auth.js",
-            "network_profile.js",
+            "session_cookies.js",
             "startup.js",
             "sentinel_vm.js",
             "sentinel.js",
@@ -874,7 +874,7 @@
       "steps": [
         {
           "action": "plugin.run_js",
-          "script_files": ["auth.js", "network_profile.js", "transcribe_audio.js"],
+          "script_files": ["auth.js", "session_cookies.js", "transcribe_audio.js"],
           "timeout_ms": 300000
         }
       ]
@@ -885,7 +885,7 @@
           "action": "plugin.run_js",
           "script_files": [
             "auth.js",
-            "network_profile.js",
+            "session_cookies.js",
             "startup.js",
             "sentinel_vm.js",
             "sentinel.js",
@@ -911,7 +911,6 @@
   "registration": {
     "enabled": false
   },
-  "http_profile": "chrome_149",
   "version": "1.7.3",
   "schema_version": 1,
   "task_recovery": {

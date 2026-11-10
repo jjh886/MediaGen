@@ -100,7 +100,6 @@ function deepseekRefreshHif(session) {
           headers: {
             accept: '*/*',
             origin: DEEPSEEK_ORIGIN,
-            'user-agent': headers['user-agent'],
             'sec-fetch-mode': 'cors',
             'access-control-request-method': 'GET',
             'access-control-request-headers':

@@ -35,7 +35,6 @@ function chatgptApiQuotaMessageFromImagesPage(auth) {
       method: 'GET',
       url: CHATGPT_API_ORIGIN + '/images',
       proxy: 'system',
-      tls_profile: chatgptApiTlsProfile(auth),
       headers: {
         ...chatgptApiBrowserHeaders(auth, 'none'),
         accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',

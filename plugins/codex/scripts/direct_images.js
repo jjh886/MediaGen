@@ -1,5 +1,11 @@
 // Codex 原生 Images 协议；模型、端点和回退条件全部由插件维护。
-const CODEX_DIRECT_IMAGE_MODELS = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2']
+const CODEX_DIRECT_IMAGE_MODELS = [
+  'gpt-image-2.6-flare',
+  'gpt-image-2.6-sunburst',
+  'gpt-image-2.5-flare',
+  'gpt-image-2.5-sunburst',
+  'gpt-image-2',
+]
 
 function codexImageModel(ctx) {
   const model = String(ctx.model_id || 'gpt-image-2.5-flare').trim()

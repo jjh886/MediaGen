@@ -27,27 +27,15 @@ function apiSessionCookies(session, hostname, pathname = '/') {
 }
 
 function apiSessionHeaders(session, origin, pathname = '/') {
-  const fp = session.auth.fingerprint || {}
   const headers = {
     accept: 'application/json',
     'content-type': 'application/json',
-    'user-agent': fp.user_agent || '',
-    'accept-language': (fp.languages?.length ? fp.languages : ['zh-CN', 'zh'])
-      .slice(0, 10)
-      .map((language, index) => language + (index ? ';q=' + (1 - index / 10).toFixed(1) : ''))
-      .join(','),
     origin,
     referer: origin + '/',
     'sec-fetch-site': 'same-origin',
     'sec-fetch-mode': 'cors',
     'sec-fetch-dest': 'empty',
   }
-  if (fp.ua_brands?.length)
-    headers['sec-ch-ua'] = fp.ua_brands
-      .map((item) => '"' + item.brand + '";v="' + item.version + '"')
-      .join(', ')
-  if (fp.ua_platform) headers['sec-ch-ua-platform'] = '"' + fp.ua_platform + '"'
-  headers['sec-ch-ua-mobile'] = fp.ua_mobile ? '?1' : '?0'
   const cookie = apiSessionCookies(session, origin.replace(/^https:\/\//, ''), pathname)
   if (cookie) headers.cookie = cookie
   return headers

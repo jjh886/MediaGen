@@ -32,7 +32,11 @@ function main(ctx) {
   })
   if (!codexHttpSucceeded(usage))
     return { ...health, status: 'inconclusive', reason: '登录有效，但额度暂时无法确认' }
-  return { ...health, ...codexUsageStatus(usage.data.body) }
+  return {
+    ...health,
+    ...codexUsageStatus(usage.data.body),
+    account: { ...health.account, tier: usage.data.body?.plan_type || health.account?.tier },
+  }
 }
 
 function codexUsageStatus(body) {

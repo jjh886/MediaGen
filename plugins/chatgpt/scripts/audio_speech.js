@@ -219,7 +219,6 @@ function chatgptApiDownloadSpeechUrl(auth, url, format) {
     method: 'GET',
     url,
     proxy: 'system',
-    tls_profile: chatgptApiTlsProfile(auth),
     headers: {
       ...chatgptApiDownloadImageHeaders(auth, url),
       accept: 'audio/*,*/*',
