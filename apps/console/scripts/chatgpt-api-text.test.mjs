@@ -27,7 +27,7 @@ beforeEach(() => {
   for (const name of [
     '../../_shared/api_session.js',
     'auth.js',
-    'network_profile.js',
+    'session_cookies.js',
     'startup.js',
     'sentinel_vm.js',
     'sentinel.js',
@@ -635,7 +635,7 @@ describe('ChatGPT API 文本协议', () => {
 
 it('音频转写使用宿主支持的文件表单而非退化为JSON的multipart值', () => {
   vm.runInContext(
-    'chatgptApiBaseHeaders = () => ({"content-type":"application/json"}); chatgptApiTlsProfile = () => "chrome_131"; chatgptApiRememberCookies = (_auth, response) => response;',
+    'chatgptApiBaseHeaders = () => ({"content-type":"application/json"}); chatgptApiRememberCookies = (_auth, response) => response;',
     context
   )
   const requests = []
@@ -678,7 +678,7 @@ it('结构化表单错误显示字段但不输出回显输入', () => {
 
 it('同一音轨的历史引用只转写一次，不把同名的不同音轨错误合并', () => {
   vm.runInContext(
-    'chatgptApiBaseHeaders=()=>({}); chatgptApiTlsProfile=()=>"chrome_131"; chatgptApiRememberCookies=(_auth,response)=>response;',
+    'chatgptApiBaseHeaders=()=>({}); chatgptApiRememberCookies=(_auth,response)=>response;',
     context
   )
   let requests = 0

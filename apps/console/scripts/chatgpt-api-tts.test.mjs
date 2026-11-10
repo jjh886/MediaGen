@@ -17,7 +17,7 @@ beforeEach(() => {
   for (const name of [
     '../../_shared/api_session.js',
     'auth.js',
-    'network_profile.js',
+    'session_cookies.js',
     'conversation.js',
     '../../_shared/api_text_attachments.js',
     '../../_shared/api_text_responses.js',

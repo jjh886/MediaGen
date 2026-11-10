@@ -39,7 +39,7 @@ beforeEach(() => {
   })
   for (const name of [
     'auth',
-    'network_profile',
+    'session_cookies',
     'conversation',
     'conversation_results',
     '../../_shared/api_text_attachments',

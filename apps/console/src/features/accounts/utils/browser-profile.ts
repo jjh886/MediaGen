@@ -38,10 +38,13 @@ export function buildBrowserProfilePayload(form: BrowserProfileFormState): Brows
   return { browser_os: form.os, browser_version: form.version }
 }
 
-export function browserVersionChoices(latestVersion: string): string[] {
+export function browserVersionChoices(latestVersion: string, supported: string[]): string[] {
   const major = Number(latestVersion)
-  if (!Number.isInteger(major) || major < 3 || major > 999) return []
-  return [major, major - 1, major - 2].map(String)
+  if (!Number.isInteger(major) || major < 100 || major > 999) return []
+  return [...new Set(supported)]
+    .filter((version) => /^\d{3}$/.test(version) && Number(version) <= major)
+    .sort((a, b) => Number(b) - Number(a))
+    .slice(0, 3)
 }
 
 function normalizeBrowserOs(value?: string | null): BrowserOs {

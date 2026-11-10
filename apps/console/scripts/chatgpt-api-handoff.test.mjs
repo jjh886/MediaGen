@@ -5,8 +5,8 @@ import path from 'node:path'
 import { expect, it, vi } from 'vitest'
 
 const source = [
-  '../../../plugins/chatgpt/scripts/network_profile.js',
   '../../../plugins/chatgpt/scripts/auth.js',
+  '../../../plugins/chatgpt/scripts/session_cookies.js',
   '../../../plugins/chatgpt/scripts/poll_retry.js',
 ]
   .map((file) =>
@@ -23,7 +23,6 @@ it('接续 Conduit 原会话并立即保存恢复凭据，不重复提交用户�
     return saved
   })
   const context = vm.createContext({
-    chatgptApiTlsProfile: () => 'chrome_149',
     chatgptApiCheckpoint: checkpoint,
     receive: (event) => events.push(event),
     host: {
@@ -73,7 +72,6 @@ it('接续失败保留上游状态，不再次发送生成请求', () => {
     return { ok: false, status: 429 }
   })
   const context = vm.createContext({
-    chatgptApiTlsProfile: () => 'chrome_149',
     chatgptApiCheckpoint: () => ({ phase: 'accepted', conversation_id: 'original' }),
     host: { stream },
   })
@@ -88,7 +86,6 @@ it('接续失败保留上游状态，不再次发送生成请求', () => {
 
 it('缺失恢复凭据时明确报错，不能把转交当作成功', () => {
   const context = vm.createContext({
-    chatgptApiTlsProfile: () => 'chrome_149',
     host: {
       stream: (_action, _request, callback) => {
         callback({ type: 'stream_handoff' })

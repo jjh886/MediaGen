@@ -55,11 +55,13 @@ export interface BrowserSessionCreateRequest {
 
 export async function fetchBrowserFingerprintOptions(): Promise<{
   browser_version: string
+  browser_versions: string[]
   installed_browser_version: string
   os: 'windows' | 'macos' | 'linux'
 }> {
   return await apiGet<{
     browser_version: string
+    browser_versions: string[]
     installed_browser_version: string
     os: 'windows' | 'macos' | 'linux'
   }>('/api/browser-sessions/fingerprint-options')

@@ -40,6 +40,7 @@ export default function AccountBrowserProfileFields({
   onInitialized,
 }: AccountBrowserProfileFieldsProps) {
   const [latestVersion, setLatestVersion] = useState('')
+  const [supportedVersions, setSupportedVersions] = useState<string[]>([])
   const [installedVersion, setInstalledVersion] = useState('')
   const [loadError, setLoadError] = useState('')
   const latest = useRef({ value, onChange, onInitialized })
@@ -48,9 +49,10 @@ export default function AccountBrowserProfileFields({
   useEffect(() => {
     let active = true
     void fetchBrowserFingerprintOptions()
-      .then(({ browser_version, installed_browser_version, os }) => {
+      .then(({ browser_version, browser_versions, installed_browser_version, os }) => {
         if (active) {
           setLatestVersion(browser_version)
+          setSupportedVersions(browser_versions)
           setInstalledVersion(installed_browser_version)
           setLoadError('')
           if (!latest.current.value.version) {
@@ -79,9 +81,14 @@ export default function AccountBrowserProfileFields({
     }
   }, [])
 
-  const versions = browserVersionChoices(latestVersion)
-  if (value.version && !versions.includes(value.version)) versions.push(value.version)
-  const selectedVersion = value.version || latestVersion
+  const versions = browserVersionChoices(latestVersion, supportedVersions)
+  const selectedVersion = value.version
+    ? (supportedVersions.find((version) => Number(version) <= Number(value.version)) ??
+      supportedVersions.at(-1) ??
+      latestVersion)
+    : latestVersion
+  if (supportedVersions.includes(selectedVersion) && !versions.includes(selectedVersion))
+    versions.push(selectedVersion)
   const chooseOs = (os: BrowserOs) =>
     onChange({ ...value, enabled: true, os, version: selectedVersion })
   const chooseVersion = (version: string) => onChange({ ...value, enabled: true, version })
@@ -127,7 +134,7 @@ export default function AccountBrowserProfileFields({
         {versions.map((version) => (
           <span key={version}>
             {option(
-              `Chrome ${version}${version === latestVersion ? ' · 最新稳定版' : ''}`,
+              `Chrome ${version}${version === latestVersion ? ' · 推荐版本' : ''}`,
               value.enabled && selectedVersion === version,
               () => chooseVersion(version)
             )}

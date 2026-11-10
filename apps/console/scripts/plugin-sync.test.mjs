@@ -57,7 +57,7 @@ describe('新版插件装配与协议', () => {
     )
     expect(deepseek.flows.generate_text.steps[0].script_files).toContain('lifecycle.js')
     expect(chatgpt.flows.generate_audio.steps[0].script_files).toEqual(
-      expect.arrayContaining(['network_profile.js', 'text_conversation.js'])
+      expect.arrayContaining(['auth.js', 'text_conversation.js'])
     )
     expect(codex.login_detection.script_files).toEqual(['auth.js', 'finish_oauth_login.js'])
   })
@@ -89,13 +89,19 @@ describe('新版插件装配与协议', () => {
   })
 
   it('Codex 目录和请求保持一致，6.1 不接受 none，fast 使用 priority', () => {
-    const models = ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.5', 'gpt-5.4', 'gpt-4o', 'old-model'].map(
-      (slug) => ({
-        slug,
-        supported_reasoning_levels: [{ effort: 'none' }, { effort: 'low' }, { effort: 'ultra' }],
-        default_reasoning_level: 'low',
-      })
-    )
+    const models = [
+      'gpt-6.1-sol',
+      'gpt-6.1-terra',
+      'gpt-6-sol',
+      'gpt-5.5',
+      'gpt-5.4',
+      'gpt-4o',
+      'old-model',
+    ].map((slug) => ({
+      slug,
+      supported_reasoning_levels: [{ effort: 'none' }, { effort: 'low' }, { effort: 'ultra' }],
+      default_reasoning_level: 'low',
+    }))
     const run = scripts(
       ['codex/scripts/auth.js', 'codex/scripts/text_responses.js', 'codex/scripts/list_models.js'],
       {
@@ -105,9 +111,14 @@ describe('新版插件装配与协议', () => {
     )
     run('codexEnsureFreshAuth=()=>({tokens:{access_token:"test"}})')
     const discovered = run('main({}).models')
-    expect(discovered.map((model) => model.model_id)).toEqual(['gpt-6.1-sol', 'gpt-6-sol'])
-    expect(discovered[0].capabilities.reasoning.efforts).toEqual(['low'])
-    expect(discovered[1].capabilities.reasoning.efforts).toEqual(['none', 'low'])
+    expect(discovered.map((model) => model.model_id)).toEqual([
+      'gpt-6.1-sol',
+      'gpt-6.1-terra',
+      'gpt-6-sol',
+    ])
+    expect(discovered[0].capabilities.reasoning.efforts).toEqual(['low', 'ultra'])
+    expect(discovered[1].capabilities.reasoning.efforts).toEqual(['low', 'ultra'])
+    expect(discovered[2].capabilities.reasoning.efforts).toEqual(['none', 'low'])
     expect(
       run(
         `codexNormalizeResponsesRequest({model:'gpt-6.1-sol',input:'你好',service_tier:'fast'},{}).payload.service_tier`
@@ -122,7 +133,12 @@ describe('新版插件装配与协议', () => {
     const image = scripts(['codex/scripts/direct_images.js'])
     expect(image('codexImageModel({model_id:"codex"})')).toBe('gpt-image-2.5-flare')
     expect(() => image('codexImageModel({model_id:"gpt-image-1.5"})')).toThrow('unsupported_model')
-    for (const model of ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']) {
+    for (const model of [
+      'gpt-image-2.6-flare',
+      'gpt-image-2.6-sunburst',
+      'gpt-image-2.5-flare',
+      'gpt-image-2.5-sunburst',
+    ]) {
       expect(image('codexImageModel({model_id:model})', { model })).toBe(model)
       expect(() => image('codexImageModel({model_id:model+"-2026-09-08"})', { model })).toThrow(
         'unsupported_model'
@@ -132,7 +148,7 @@ describe('新版插件装配与协议', () => {
 
   it('文本启动不访问图片启动接口，挑战页进入人工验证状态', () => {
     const paths = []
-    const run = scripts(['chatgpt/scripts/network_profile.js', 'chatgpt/scripts/startup.js'])
+    const run = scripts(['chatgpt/scripts/session_cookies.js', 'chatgpt/scripts/startup.js'])
     run(
       'chatgptApiFingerprint=()=>({});chatgptApiRequireOk=value=>value;chatgptApiRequest=request',
       {
@@ -219,4 +235,40 @@ describe('Codex 长上下文处理', () => {
     )
     expect(checkpoints.map((item) => item.phase)).toEqual(['submitting', 'ready'])
   })
+})
+
+it('Codex 单周 Pro 额度和客户端身份不会混入浏览器指纹', () => {
+  const calls = []
+  const run = scripts(['codex/scripts/auth.js', 'codex/scripts/check_account.js'], {
+    tryCall(_action, request) {
+      calls.push(request)
+      expect(request.headers['user-agent']).toContain('codex-tui/')
+      expect(request.headers['sec-ch-ua']).toBeUndefined()
+      return {
+        success: true,
+        data: {
+          ok: true,
+          body: {
+            plan_type: 'pro',
+            rate_limit: {
+              allowed: true,
+              limit_reached: false,
+              primary_window: {
+                used_percent: 53,
+                limit_window_seconds: 604800,
+                reset_after_seconds: 1000,
+              },
+              secondary_window: null,
+            },
+          },
+        },
+      }
+    },
+  })
+  run('codexEnsureFreshAuth = () => ({ tokens: { access_token: "test", account_id: "account" } })')
+  const result = run('main({account:{browser_os:"macos"}})')
+  expect(calls).toHaveLength(2)
+  expect(result.account.tier).toBe('pro')
+  expect(result.status).toBe('available')
+  expect(result.quota_windows[0].remaining_percent).toBe(47)
 })

@@ -20,7 +20,16 @@ describe('browser-profile', () => {
       os: 'macos',
       version: '128',
     })
-    expect(browserVersionChoices('154')).toEqual(['154', '153', '152'])
+    expect(browserVersionChoices('154', ['154', '153', '152'])).toEqual(['154', '153', '152'])
+  })
+
+  it('只展示服务端支持的版本，不补出缺失版本', () => {
+    expect(browserVersionChoices('155', ['150', '153', '154', '154', '999', 'invalid'])).toEqual([
+      '154',
+      '153',
+      '150',
+    ])
+    expect(browserVersionChoices('155', [])).toEqual([])
   })
 
   it('关闭模拟后不写入系统和版本', () => {

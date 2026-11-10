@@ -258,12 +258,13 @@ describe('API 会话凭据刷新边界', () => {
     ).toThrow('预检未允许')
   })
 
-  it('保留账号语言优先级，并为 DeepSeek 会话使用对应的网页来源地址', () => {
+  it('插件只提供 DeepSeek 网页来源，浏览器指纹由宿主补齐', () => {
     const run = scripts(['_shared/api_session.js', 'deepseek-api/scripts/auth.js'])
     const result = run(`deepseekHeaders({cookies:[],conversationId:'session-1',auth:{
       access_token:'test-token',fingerprint:{languages:['zh-CN','zh','en']}
     }},'/api/v0/chat/completion')`)
-    expect(result['accept-language']).toBe('zh-CN,zh;q=0.9,en;q=0.8')
+    for (const name of ['accept-language', 'user-agent', 'sec-ch-ua', 'sec-ch-ua-platform'])
+      expect(result[name]).toBeUndefined()
     expect(result.referer).toBe('https://chat.deepseek.com/a/chat/s/session-1')
     expect(result.accept).toBe('*/*')
   })
