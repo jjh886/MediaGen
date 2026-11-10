@@ -96,9 +96,9 @@ data: [DONE]
 
 ## 插件协议与模型同步
 
-Codex 文本模型包括 `gpt-6.1-sol`、`gpt-6-astra`、`gpt-6-sol`、`gpt-6-luna`、`gpt-5.6-sol`、`gpt-5.6-terra` 和 `gpt-5.6-luna`。`gpt-6.1-sol` 的 `reasoning.effort` 支持 `low/medium/high/xhigh/max`，默认 `low`；其他型号优先按账号模型目录校验。目录不再列出插件不支持的上游型号。
+Codex 文本模型包括 `gpt-6.1-sol`、`gpt-6.1-terra`、`gpt-6-astra`、`gpt-6-sol`、`gpt-6-luna`、`gpt-5.6-sol`、`gpt-5.6-terra` 和 `gpt-5.6-luna`。`gpt-6.1-sol` 和 `gpt-6.1-terra` 的 `reasoning.effort` 支持 `low/medium/high/xhigh/max/ultra`，默认 `low`；其他型号优先按账号模型目录校验。目录不再列出插件不支持的上游型号。
 
-Codex 图片模型为 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`、`gpt-image-2`，`codex` 别名指向 `gpt-image-2.5-flare`。此前的 `gpt-image-1.5` 和日期后缀型号不再由 Codex 插件提供。模型 `capabilities.pricing` 同步源插件的参考价格，不表示当前账号的实际收费。
+Codex 图片模型为 `gpt-image-2.6-flare`、`gpt-image-2.6-sunburst`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`、`gpt-image-2`，`codex` 别名指向 `gpt-image-2.5-flare`。此前的 `gpt-image-1.5` 和日期后缀型号不再由 Codex 插件提供。模型 `capabilities.pricing` 同步源插件的参考价格，不表示当前账号的实际收费。
 
 Codex 文本请求的 `service_tier` 支持 `auto/default/priority/flex/scale/ultrafast`，兼容 `fast` 并转成 `priority`；其他值返回参数错误，账号是否具有对应服务等级仍由上游判定。
 
