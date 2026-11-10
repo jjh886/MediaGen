@@ -20,7 +20,7 @@ function context(platform, scripts, host = {}) {
 for (const platform of ['codex', 'chatgpt', 'grok', 'doubao-api', 'deepseek-api']) {
   test(`${platform} 所有声明流程可以独立编译`, () => {
     const manifest = JSON.parse(readFileSync(`plugins/${platform}/manifest.json`, 'utf8'))
-    const expected = platform === 'chatgpt' ? 3 : 0
+    const expected = ['chatgpt', 'doubao-api', 'deepseek-api'].includes(platform) ? 3 : 0
     const tier = Object.values(manifest.tiers).find((value) => value.is_default)
     assert.equal(tier.text_concurrency_limit ?? 0, expected)
     for (const [name, flow] of Object.entries(manifest.flows)) {
@@ -192,13 +192,15 @@ test('文本流的 UTF-8 内容与工具参数不被重复拼接', () => {
   )
 })
 
-test('请求会复用账号浏览器版本及服务端更新 Cookie', () => {
-  const ctx = context('chatgpt', ['auth.js', 'network_profile.js'])
+test('插件不拼装浏览器指纹，仍正确更新平台 Cookie', () => {
+  const ctx = context('chatgpt', ['auth.js', 'session_cookies.js'])
   const auth = {
     auth: { fingerprint: { user_agent: 'Chrome/146.0.0.0' } },
     cookies: [{ name: 'a', value: 'old' }],
   }
-  assert.equal(ctx.chatgptApiTlsProfile(auth), 'chrome_146')
+  const headers = ctx.chatgptApiBrowserHeaders(auth, 'same-origin')
+  for (const name of ['user-agent', 'accept-language', 'sec-ch-ua', 'sec-ch-ua-platform'])
+    assert.equal(headers[name], undefined)
   ctx.chatgptApiRememberCookies(auth, {
     headers: { 'set-cookie': 'a=new; Path=/\nb=2; Max-Age=300; Path=/' },
   })
@@ -207,7 +209,7 @@ test('请求会复用账号浏览器版本及服务端更新 Cookie', () => {
 })
 
 test('Cookie 更新保持路径隔离，删除后不再发送', () => {
-  const ctx = context('chatgpt', ['auth.js', 'network_profile.js'])
+  const ctx = context('chatgpt', ['auth.js', 'session_cookies.js'])
   const auth = {
     auth: {},
     cookies: [{ name: 'session', value: 'root', domain: '.chatgpt.com', path: '/', expires: -1 }],
@@ -226,20 +228,6 @@ test('Cookie 更新保持路径隔离，删除后不再发送', () => {
     headers: { 'set-cookie': 'session=external; Domain=example.org; Path=/' },
   })
   assert.equal(auth.cookies[0].value, 'root')
-})
-
-test('不支持的浏览器版本同时调整 UA、Client Hints 和 TLS', () => {
-  const ctx = context('chatgpt', ['auth.js', 'network_profile.js'])
-  const auth = {
-    auth: {
-      fingerprint: { user_agent: 'Mozilla/5.0 Chrome/150.0.0.0', device_id: 'stable-device' },
-    },
-  }
-  ctx.chatgptApiAlignFingerprint(auth)
-  assert.equal(ctx.chatgptApiTlsProfile(auth), 'chrome_149')
-  assert.match(auth.auth.fingerprint.user_agent, /Chrome\/149\./)
-  assert.equal(auth.auth.fingerprint.ua_full_version, '149.0.0.0')
-  assert.equal(auth.auth.fingerprint.device_id, 'stable-device')
 })
 
 test('指定不存在的 Codex 工具必须失败，不能静默变更选择', () => {
@@ -369,7 +357,7 @@ test('Codex 额度区分窗口并返回真实剩余百分比和恢复时间', ()
 })
 
 test('ChatGPT 保活更新令牌时保留账号的会话指纹', () => {
-  const ctx = context('chatgpt', ['auth.js'])
+  const ctx = context('chatgpt', ['auth.js', 'session_cookies.js'])
   const auth = { auth: { session_id: 'stable-session', access_token: 'old' } }
   ctx.chatgptApiApplySession(auth, { accessToken: 'new', account: { id: 'account' } })
   assert.equal(auth.auth.access_token, 'new')

@@ -43,3 +43,9 @@ uuid = { version = "1", features = ["v1", "v4"] }
 strip = true
 lto = "thin"
 codegen-units = 1
+
+# 固定 Chrome 150–154 画像所需的配套传输库版本。
+[patch.crates-io]
+wreq = { git = "https://github.com/0x676e67/wreq", rev = "cd76bcdf1307153de289d34e072528bdf0510a3b" }
+btls = { git = "https://github.com/0x676e67/btls", rev = "129887582a538b8f4dcf371d15c953335312ca37" }
+btls-sys = { git = "https://github.com/0x676e67/btls", rev = "129887582a538b8f4dcf371d15c953335312ca37" }

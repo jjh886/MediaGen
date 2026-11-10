@@ -78,7 +78,7 @@ test('ChatGPT 视频上传和最终附件引用与网页抓包一致', () => {
   for (const file of [
     'poll_retry.js',
     'auth.js',
-    'network_profile.js',
+    'session_cookies.js',
     'conversation.js',
     'text_conversation.js',
     'reference_upload.js',

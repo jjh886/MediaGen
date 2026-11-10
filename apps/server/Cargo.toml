@@ -29,6 +29,7 @@ tempfile = "3"
 tracing = "0.1"
 qrcode = { workspace = true }
 rand = { workspace = true }
+regex = "1"
 reqwest = { workspace = true }
 image = { workspace = true }
 rusqlite = { workspace = true }
@@ -39,8 +40,8 @@ tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 uuid = { workspace = true }
 
-wreq = { version = "=6.0.0-rc.31", features = ["json", "form", "multipart", "stream", "socks", "system-proxy", "gzip", "brotli", "deflate", "zstd"] }
-wreq-util = { version = "=3.0.0-rc.14", features = ["emulation-serde"] }
+wreq = { version = "=0.16.1", features = ["json", "form", "multipart", "stream", "socks", "system-proxy", "gzip", "brotli", "deflate", "zstd"] }
+wreq-util = { git = "https://github.com/0x676e67/wreq-util", rev = "917d2581d6761a94db66466caa6c2eb4d4cdbd43", features = ["emulation-serde", "emulation-chromium-pki"] }
 
 [dev-dependencies]
 actix-http = "3"

@@ -49,11 +49,57 @@ impl BrowserFingerprint {
         )
     }
 
+    pub fn chrome_major_version(&self) -> u16 {
+        self.chrome_major_version
+    }
+
+    pub fn runtime_profile(&self) -> Value {
+        let major = self.chrome_major_version.to_string();
+        let full = format!("{major}.0.0.0");
+        let brands = self.brands();
+        json!({
+            "user_agent":self.user_agent(), "platform":self.navigator_platform(),
+            "ua_platform":self.sec_ch_ua_platform(), "ua_mobile":false,
+            "ua_full_version":full, "ua_brands":brands.iter().map(|(brand,version)| json!({"brand":brand,"version":version})).collect::<Vec<_>>(),
+            "ua_full_version_list":brands.iter().map(|(brand, version)| json!({"brand":brand,"version":format!("{version}.0.0.0")})).collect::<Vec<_>>()
+        })
+    }
+
+    // 使用 Chromium 的版本种子规则，不能把 GREASE 品牌固定为 99。
+    fn brands(&self) -> Vec<(String, String)> {
+        let seed = usize::from(self.chrome_major_version);
+        let chars = [' ', '(', ':', '-', '.', '/', ')', ';', '=', '?', '_'];
+        let grease = format!(
+            "Not{}A{}Brand",
+            chars[seed % chars.len()],
+            chars[(seed + 1) % chars.len()]
+        );
+        let brands = [
+            (grease, ["8", "99", "24"][seed % 3].to_string()),
+            ("Chromium".into(), seed.to_string()),
+            ("Google Chrome".into(), seed.to_string()),
+        ];
+        let orders = [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ];
+        let mut ordered = brands.clone();
+        for (index, target) in orders[seed % 6].iter().enumerate() {
+            ordered[*target] = brands[index].clone();
+        }
+        ordered.to_vec()
+    }
+
     pub fn sec_ch_ua(&self) -> String {
-        format!(
-            "\"Chromium\";v=\"{}\", \"Google Chrome\";v=\"{}\", \"Not A(Brand\";v=\"99\"",
-            self.chrome_major_version, self.chrome_major_version
-        )
+        self.brands()
+            .iter()
+            .map(|(brand, version)| format!("\"{brand}\";v=\"{version}\""))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     pub fn sec_ch_ua_platform(&self) -> &'static str {
@@ -181,7 +227,7 @@ pub(crate) async fn apply_browser_fingerprint(
 
 fn parse_chrome_major_version(value: &str) -> Option<u16> {
     let major = value.trim().split('.').next()?.parse::<u16>().ok()?;
-    (100..=999).contains(&major).then_some(major)
+    (1..=999).contains(&major).then_some(major)
 }
 
 #[cfg(test)]
@@ -195,6 +241,20 @@ mod tests {
         assert!(profile.user_agent().contains("Windows NT 10.0; Win64; x64"));
         assert!(profile.user_agent().contains("Chrome/126.0.0.0"));
         assert_eq!(profile.sec_ch_ua_platform(), "Windows");
+    }
+
+    #[test]
+    fn modern_client_hints_match_chromium_version_seed() {
+        let fp = BrowserFingerprint::from_values("windows", "150").unwrap();
+        assert_eq!(
+            fp.sec_ch_ua(),
+            "\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\""
+        );
+        assert_eq!(fp.runtime_profile()["ua_brands"][0]["version"], "8");
+        assert_eq!(
+            fp.runtime_profile()["ua_full_version_list"][1]["version"],
+            "150.0.0.0"
+        );
     }
 
     #[test]
@@ -228,6 +288,6 @@ mod tests {
             json!("145")
         )]))
         .is_err());
-        assert!(BrowserFingerprint::from_values("macos", "1").is_none());
+        assert!(BrowserFingerprint::from_values("macos", "0").is_none());
     }
 }
