@@ -30,7 +30,7 @@ for (const legacy of [
     }
     const reopen = () => {
       const context = vm.createContext({ host })
-      for (const file of ['conversation.js', 'poll_retry.js'])
+      for (const file of ['auth.js', 'session_cookies.js', 'conversation.js', 'poll_retry.js'])
         vm.runInContext(readFileSync(join(scripts, file), 'utf8'), context)
       return context
     }
@@ -68,7 +68,7 @@ test('已受理会话限流保留原编号，新会话的拒绝允许宿主换�
       },
     },
   })
-  for (const file of ['conversation.js', 'poll_retry.js'])
+  for (const file of ['auth.js', 'session_cookies.js', 'conversation.js', 'poll_retry.js'])
     vm.runInContext(readFileSync(join(scripts, file), 'utf8'), context)
   context.chatgptApiRequireRetryableRead({ status: 429, coalesced: true })
   assert.equal(saved.conversation_id, 'original')
@@ -115,7 +115,7 @@ test('固定视频反推的真实429结束本轮，附件保留并在Retry-After
       },
     },
   })
-  for (const file of ['conversation.js', 'poll_retry.js'])
+  for (const file of ['auth.js', 'session_cookies.js', 'conversation.js', 'poll_retry.js'])
     vm.runInContext(readFileSync(join(scripts, file), 'utf8'), context)
   vm.runInContext('chatgptApiFixedVideoAnalysis = true', context)
   context.chatgptApiRequireRetryableRead({ status: 429, coalesced: true })

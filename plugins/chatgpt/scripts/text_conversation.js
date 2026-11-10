@@ -10,6 +10,7 @@ function chatgptApiTextOptions(init, request) {
   const model = aliases.includes(requestedModel.toLowerCase())
     ? String(init?.default_model_slug || 'auto')
     : requestedModel || String(init?.default_model_slug || 'auto')
+  chatgptApiAssertModelAvailable(init, model)
   return {
     model,
     system_hints: [],
@@ -286,7 +287,7 @@ function chatgptApiWaitForText(auth, conversationId, baselineParentId) {
       host.checkpoint({ ...host.checkpoint(), poll_retry_ms: delay, poll_next_at_ms: 0 })
     }
     const error = chatgptApiTextConversationError(conversation)
-    if (error) chatgptApiFailConversation('upstream_failed')
+    if (error) chatgptApiFailConversation(error)
     const result = chatgptApiFinalTextFromConversation(conversation, baselineParentId)
     if (result) return result
     host.call('time.sleep', { milliseconds: delay })
@@ -296,13 +297,16 @@ function chatgptApiWaitForText(auth, conversationId, baselineParentId) {
 }
 
 function chatgptApiTextConversationError(conversation) {
-  const status = String(conversation?.async_status || conversation?.status || '').toLowerCase()
-  if (['failed', 'error', 'cancelled', 'canceled'].includes(status)) return 'ChatGPT 原任务已失败'
+  const category = chatgptApiErrorCategory(conversation)
+  if (category) return category + ': ' + chatgptApiHttpSummary({ body: conversation })
   const detail = conversation?.detail || conversation?.error
   if (detail) {
     const message = typeof detail === 'string' ? detail : detail.message || JSON.stringify(detail)
-    return 'ChatGPT 文本生成失败：' + String(message).slice(0, 400)
+    return 'ChatGPT 文本生成失败：' + String(message)
   }
+  const status = String(conversation?.async_status || conversation?.status || '').toLowerCase()
+  if (['failed', 'error', 'cancelled', 'canceled'].includes(status))
+    return 'ChatGPT 原任务已失败: status=' + status
   return ''
 }
 

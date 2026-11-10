@@ -365,12 +365,14 @@ async fn synchronous_image_and_text_wait_for_busy_account_and_start_after_releas
                 .to_request(),
         );
         let release = async {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            assert!(state
+            while !state
                 .store
                 .list_tasks(None)
                 .iter()
-                .any(|task| task.id != "busy" && task.status == "queued"));
+                .any(|task| task.id != "busy" && task.status == "queued")
+            {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
             state.store.complete_task("busy", serde_json::json!({}));
             drop(busy);
         };

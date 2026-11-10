@@ -24,6 +24,22 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
     if message == "task_cancelled" {
         return (409, "task_cancelled", "请求已取消".into());
     }
+    if message.contains("model_quota_exhausted") {
+        let reset = message
+            .split(';')
+            .find_map(|part| part.trim().strip_prefix("resets_at="))
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok());
+        let detail = reset.map_or_else(
+            || "当前请求的模型额度暂不可用，请稍后重试".into(),
+            |time| {
+                format!(
+                    "当前请求的模型额度暂不可用，上游返回的恢复时间：{}，请稍后重试",
+                    time.to_rfc3339()
+                )
+            },
+        );
+        return (429, "rate_limit_exceeded", detail);
+    }
     if message.contains("account_model_unavailable") {
         return (
             409,
@@ -250,6 +266,20 @@ fn redact_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::public_failure;
+
+    #[test]
+    fn model_quota_failure_reports_only_validated_reset_time() {
+        let (status, code, public) = public_failure(
+            "account_model_unavailable: model_quota_exhausted; model=test; resets_at=2099-11-10T16:51:45.000Z; private-detail",
+        );
+        assert_eq!((status, code), (429, "rate_limit_exceeded"));
+        assert!(public.contains("2099-11-10T16:51:45+00:00"));
+        assert!(!public.contains("private-detail"));
+        let (_, _, public) = public_failure("model_quota_exhausted; resets_at=private-detail");
+        assert!(!public.contains("private-detail"));
+        assert!(public.contains("请稍后重试"));
+        assert!(!public.contains("其他可用账号"));
+    }
 
     #[test]
     fn explicit_content_refusal_stays_terminal_without_exposing_upstream_details() {

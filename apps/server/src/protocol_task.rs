@@ -335,7 +335,8 @@ pub(crate) async fn run_with_failover(
     key: &str,
 ) -> Result<Value, String> {
     let mut excluded = Vec::new();
-    for attempt in 0..3 {
+    let mut attempt = 0;
+    loop {
         let actual = crate::model_api::account_model(
             state,
             manifest,
@@ -381,10 +382,10 @@ pub(crate) async fn run_with_failover(
                 },
             );
         }
-        if attempt == 2 || !message.starts_with("SAFE_RETRY:") || decision.usage_consumed {
+        if !message.starts_with("SAFE_RETRY:") || decision.usage_consumed {
             return result;
         }
-        if decision.should_retry_same_account(attempt + 1) {
+        if attempt < 2 && decision.should_retry_same_account(attempt + 1) {
             let kind = if model.task_kind == TaskKind::Text {
                 "text"
             } else {
@@ -400,6 +401,7 @@ pub(crate) async fn run_with_failover(
                 return result;
             }
             tokio::time::sleep(std::time::Duration::from_millis(250 * (attempt + 1) as u64)).await;
+            attempt += 1;
             continue;
         }
         if request["options"]["platform_session"].is_object() || !decision.should_failover() {
@@ -450,9 +452,15 @@ pub(crate) async fn run_with_failover(
         let Some(next) = next else {
             return result;
         };
+        crate::media_execution::record_attempt_failure(
+            state,
+            &context,
+            &decision,
+            &format!("账号 {} 切换到 {}", account.id, next.id),
+        );
         *account = next;
+        attempt = 0;
     }
-    Err("重试次数已耗尽".into())
 }
 
 /// 用已保存的完整响应重放协议事件，不再次请求上游。

@@ -58,6 +58,143 @@ function evaluate(source, values = {}) {
 }
 
 describe('ChatGPT API 文本协议', () => {
+  it.each([
+    [200, { error: { code: 'image_quota_exhausted', message: '额度不足' } }, 'quota_exhausted:'],
+    [429, { error: { code: 'insufficient_quota' } }, 'quota_exhausted:'],
+    [403, { error: { code: 'token_revoked' } }, 'LOGIN_EXPIRED:'],
+    [403, { message: '临时拒绝' }, 'AUTH_INCONCLUSIVE:'],
+    [400, { error: { message: 'context limit exceeded' } }, 'invalid_input:'],
+    [400, { error: { code: 'insufficient_quota' } }, 'invalid_input:'],
+    [200, { error: { code: 'moderation_blocked' } }, 'content_policy_violation:'],
+    [429, { error: { code: 'file_upload_throttled' } }, 'rate_limit_exceeded:'],
+  ])('HTTP %s 按明确错误码及请求边界分类', (status, body, expected) => {
+    context.result = { ok: status === 200, status, body }
+    expect(() => vm.runInContext(`chatgptApiRequireOk(result, '测试')`, context)).toThrow(expected)
+  })
+
+  it('保留长错误末尾原因和结构化错误码，解析上游绝对恢复时间', () => {
+    const message = '详细原因'.repeat(150) + ' root-cause-at-end'
+    const resets_after = new Date(Date.now() + 3600000).toISOString()
+    const summary = evaluate('chatgptApiHttpSummary(result)', {
+      result: { status: 429, body: { error: { code: 'quota_exhausted', message, resets_after } } },
+    })
+    expect(summary).toContain('root-cause-at-end')
+    expect(summary).toContain('code=quota_exhausted')
+    expect(summary).toMatch(/retry after (3599|3600) seconds/)
+  })
+
+  it('会话检查仅凭明确凭据错误判定失效，普通 403 不注销账号', () => {
+    expect(() =>
+      vm.runInContext(
+        `chatgptApiValidateSession({status:403,body:{error:{code:'token_revoked',message:'revoked'}}})`,
+        context
+      )
+    ).toThrow('LOGIN_EXPIRED:')
+    expect(() =>
+      vm.runInContext(`chatgptApiValidateSession({status:403,body:{message:'forbidden'}})`, context)
+    ).toThrow('AUTH_INCONCLUSIVE:')
+  })
+
+  it('工具失败和内容拒绝即时识别，普通回复讨论错误码不会误报', () => {
+    expect(
+      evaluate(
+        `chatgptApiMessageError({author:{role:'assistant'},status:'finished_successfully',content:{parts:['解释 rate_limit_exceeded 和 quota_exhausted']}})`
+      )
+    ).toBe('')
+    expect(
+      evaluate(
+        `chatgptApiMessageError({author:{role:'user'},metadata:{error:{code:'token_revoked'}}})`
+      )
+    ).toBe('')
+    expect(
+      evaluate(
+        `chatgptApiMessageError({author:{role:'tool'},content:{content_type:'system_error',parts:['worker crashed: reason-123']},metadata:{is_error:true}})`
+      )
+    ).toContain('reason-123')
+    expect(
+      evaluate(
+        `chatgptApiMessageError({author:{role:'tool'},metadata:{error:{code:'image_quota_exhausted',message:'no credits'}}})`
+      )
+    ).toMatch(/^quota_exhausted:/)
+    expect(
+      evaluate(`chatgptApiMessageError({author:{role:'assistant'},metadata:{blocked:true}})`)
+    ).toMatch(/^content_policy_violation:/)
+    expect(() =>
+      vm.runInContext(`chatgptApiFailConversation('content_policy_violation: blocked')`, context)
+    ).toThrow('content_policy_violation: blocked')
+  })
+
+  it('图片选定的底层文本模型同样遵守 model_limits', () => {
+    expect(() =>
+      vm.runInContext(
+        `chatgptApiConversationOptions({model_limits:[{model_slug:'gpt-6-pro',resets_after:'2099-01-01T00:00:00Z'}]}, {model:'gpt-6-pro'})`,
+        context
+      )
+    ).toThrow('model_quota_exhausted')
+  })
+
+  it('账号模型目录只暴露 5.6 及更新的正式型号，过滤旧模型和无效条目', () => {
+    vm.runInContext(readFileSync(path.join(scriptDirectory, 'list_models.js'), 'utf8'), context)
+    context.chatgptApiReadAuth = () => ({})
+    context.chatgptApiRefreshSession = (auth) => auth
+    context.chatgptApiRequest = () => ({
+      ok: true,
+      body: {
+        models: [
+          ...[
+            'gpt-5-6',
+            'gpt-6-pro',
+            'gpt-6.1-sol',
+            'gpt-5-5',
+            'gpt-4o',
+            'research',
+            'gpt-6-wm',
+          ].map((slug) => ({ slug })),
+          null,
+          {},
+          { slug: 123 },
+        ],
+      },
+    })
+    expect(evaluate('main({})').models.map((model) => model.model_id)).toEqual([
+      'gpt-5-6',
+      'gpt-6-pro',
+      'gpt-6.1-sol',
+    ])
+  })
+  it('只按上游明确列出的模型限额阻止请求，不扩大 reason 提示的作用范围', () => {
+    const init = {
+      default_model_slug: 'gpt-6-thinking',
+      model_limits: [
+        {
+          model_slug: 'gpt-6-pro',
+          using_default_model_slug: 'gpt-6-pro',
+          resets_after: '2099-11-10T16:51:45Z',
+        },
+      ],
+      blocked_features: [{ name: 'reason', description: 'Capabilities reduced' }],
+    }
+    Object.assign(context, { init })
+    expect(() =>
+      vm.runInContext(`chatgptApiTextOptions(init, {model:'gpt-6-pro',reasoning:{}})`, context)
+    ).toThrow('resets_at=2099-11-10T16:51:45.000Z')
+    expect(
+      evaluate(`chatgptApiTextOptions(init, {model:'gpt-6-thinking',reasoning:{}})`)
+    ).toMatchObject({ model: 'gpt-6-thinking' })
+    init.model_limits[0].resets_after = '2000-01-01T00:00:00Z'
+    expect(evaluate(`chatgptApiTextOptions(init, {model:'gpt-6-pro',reasoning:{}})`)).toMatchObject(
+      { model: 'gpt-6-pro' }
+    )
+    init.model_limits[0].resets_after = 'unknown'
+    expect(() =>
+      vm.runInContext(`chatgptApiTextOptions(init, {model:'gpt-6-pro',reasoning:{}})`, context)
+    ).toThrow('model_quota_exhausted')
+    init.model_limits = null
+    expect(evaluate(`chatgptApiTextOptions(init, {model:'gpt-6-pro',reasoning:{}})`)).toMatchObject(
+      { model: 'gpt-6-pro' }
+    )
+  })
+
   it('网络检查失败保留账号状态，明确登录过期才标记过期', () => {
     expect(evaluate(`chatgptApiAccountCheckError(new Error('HTTP 错误: connect'))`)).toMatchObject({
       logged_in: null,

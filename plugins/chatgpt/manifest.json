@@ -642,21 +642,20 @@
   },
   "failure_policy": [
     {
-      "contains_any": ["rate_limit_exceeded", "HTTP 429", "生成过于频繁"],
-      "state": "cooldown",
-      "cooldown_from_message": true,
-      "cooldown_seconds": -1
-    },
-    {
       "contains_any": [
         "quota_exhausted",
         "image generations requests",
         "limit resets in",
         "usage limit",
-        "insufficient_quota",
-        "limit exceeded"
+        "insufficient_quota"
       ],
       "state": "daily_quota_exhausted",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1
+    },
+    {
+      "contains_any": ["rate_limit_exceeded", "HTTP 429", "生成过于频繁"],
+      "state": "cooldown",
       "cooldown_from_message": true,
       "cooldown_seconds": -1
     }
@@ -666,6 +665,12 @@
       "contains_any": ["account_model_unavailable"],
       "category": "account_model_unavailable",
       "retry_action": "failover",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["content_policy_violation"],
+      "category": "invalid_request",
+      "retry_action": "fail",
       "usage_consumed": false
     },
     {
@@ -696,26 +701,25 @@
       "usage_consumed": false
     },
     {
-      "contains_any": ["rate_limit_exceeded", "HTTP 429", "生成过于频繁"],
-      "category": "account_rate_limited",
-      "retry_action": "failover",
-      "account_state": "cooldown",
-      "cooldown_from_message": true,
-      "cooldown_seconds": -1,
-      "usage_consumed": false
-    },
-    {
       "contains_any": [
         "quota_exhausted",
         "image generations requests",
         "limit resets in",
         "usage limit",
-        "insufficient_quota",
-        "limit exceeded"
+        "insufficient_quota"
       ],
       "category": "quota_exhausted",
       "retry_action": "failover",
       "account_state": "daily_quota_exhausted",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["rate_limit_exceeded", "HTTP 429", "生成过于频繁"],
+      "category": "account_rate_limited",
+      "retry_action": "failover",
+      "account_state": "cooldown",
       "cooldown_from_message": true,
       "cooldown_seconds": -1,
       "usage_consumed": false

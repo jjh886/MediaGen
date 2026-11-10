@@ -58,7 +58,7 @@ printf '[部署] 自动安装缺少的系统依赖\n'
 if ! apt-cache show libnss3 >/dev/null 2>&1; then
   apt-get update -qq
 fi
-packages=(ca-certificates curl tar gzip unzip python3 rsync nodejs npm
+packages=(ca-certificates curl tar gzip unzip python3 rsync nodejs npm git
   build-essential pkg-config libssl-dev cmake clang libclang-dev perl
   ffmpeg libnss3 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1
   libdrm2 fonts-noto-cjk fonts-wqy-microhei)
@@ -197,7 +197,8 @@ try:
     for name in ('mediagen.sqlite', 'admin.sqlite'):
         db = data / name
         if db.exists():
-            with sqlite3.connect(f'file:{db}?mode=ro', uri=True) as origin, sqlite3.connect(release / name) as backup:
+            # 停机后的热日志需由 SQLite 回滚，再生成一致备份；rw 仍要求数据库已存在。
+            with sqlite3.connect(f'file:{db}?mode=rw', uri=True) as origin, sqlite3.connect(release / name) as backup:
                 origin.backup(backup)
             (release / name).chmod(0o600)
     for name in ('bin', 'console', 'plugins'):

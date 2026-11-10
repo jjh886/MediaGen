@@ -65,8 +65,10 @@ function chatgptApiGenerateConversation(
 }
 
 function chatgptApiConversationOptions(init, generationConfig) {
+  const model = chatgptApiImageModelSlug(generationConfig?.model)
+  chatgptApiAssertModelAvailable(init, model)
   return {
-    model: chatgptApiImageModelSlug(generationConfig?.model),
+    model,
     thinking_effort: chatgptApiThinkingEffort(generationConfig?.thinking_effort),
   }
 }
@@ -360,7 +362,7 @@ function chatgptApiUnique(values) {
 
 // 不把 Codex 的 high/xhigh 等档位降档映射为 ChatGPT 的固定值。
 function chatgptApiResolveReasoning(model, requested, models, fallback) {
-  const metadata = Array.isArray(models) ? models.find((item) => item.slug === model) : null
+  const metadata = Array.isArray(models) ? models.find((item) => item?.slug === model) : null
   let capability = fallback
   if (metadata?.configurable_thinking_effort === false) capability = { efforts: [] }
   else if (Array.isArray(metadata?.thinking_efforts)) {
@@ -424,7 +426,7 @@ function chatgptApiModelSelection(model, requested, models, fallback) {
       capability = { efforts: [] }
     }
   }
-  if (Array.isArray(models) && !models.some((item) => item.slug === model)) {
+  if (Array.isArray(models) && !models.some((item) => item?.slug === model)) {
     throw new Error('account_model_unavailable: 当前 ChatGPT 账号不支持所选模型或思考模式')
   }
   return {
@@ -444,8 +446,8 @@ function chatgptApiDiscoveredReasoning(item, models) {
       efforts: item.configurable_thinking_effort === false ? [] : levels(item),
       default_effort: item.default_thinking_effort,
     }
-  const instant = models.find((model) => model.slug === family.instant)
-  const thinking = models.find((model) => model.slug === family.thinking)
+  const instant = models.find((model) => model?.slug === family.instant)
+  const thinking = models.find((model) => model?.slug === family.thinking)
   const efforts = [
     ...(instant ? ['none'] : []),
     ...(thinking ? (family.fixed ? ['standard'] : levels(thinking)) : []),

@@ -99,8 +99,8 @@ function chatgptApiHtmlAttribute(html, name) {
 function chatgptApiValidateSession(result) {
   chatgptApiRequireNoChallenge(result, '检查 ChatGPT 登录会话')
   const status = Number(result.status)
-  if (status === 401) {
-    throw new Error('LOGIN_EXPIRED: ChatGPT 登录已失效，请重新登录。')
+  if (status === 401 || chatgptApiErrorCategory(result.body) === 'LOGIN_EXPIRED') {
+    throw new Error('LOGIN_EXPIRED: ChatGPT 登录已失效：' + chatgptApiHttpSummary(result))
   }
   // 403 也可能来自设备校验或边缘风控，不能据此把真实登录账号永久标成过期。
   if (status === 403) {
@@ -224,17 +224,28 @@ function chatgptApiRequest(auth, method, path, options) {
 
 function chatgptApiRequireOk(result, operation) {
   chatgptApiRequireNoChallenge(result, operation)
-  if (result?.ok) return result
+  const category = chatgptApiErrorCategory(result?.body)
+  if (result?.ok && !result.body?.error && !category) return result
   const status = Number(result?.status || 0)
+  const summary = chatgptApiHttpSummary(result)
+  if (status === 400 || category === 'content_policy_violation') {
+    throw new Error(
+      (category === 'content_policy_violation' ? category : 'invalid_input') +
+        ': ' +
+        operation +
+        ' 失败：' +
+        summary
+    )
+  }
+  if (category) throw new Error(category + ': ' + operation + ' 失败：' + summary)
   if (status === 401) {
-    throw new Error('LOGIN_EXPIRED: ' + operation + ' 返回 HTTP ' + status)
+    throw new Error('LOGIN_EXPIRED: ' + operation + ' 失败：' + summary)
   }
   if (status === 403) {
     throw new Error(
       'AUTH_INCONCLUSIVE: ' + operation + ' 暂时被拒绝：' + chatgptApiHttpSummary(result)
     )
   }
-  const summary = chatgptApiHttpSummary(result)
   if (chatgptApiQuotaLikeResult(result, summary)) {
     throw new Error('quota_exhausted: ' + operation + ' 失败：' + summary)
   }
@@ -242,6 +253,51 @@ function chatgptApiRequireOk(result, operation) {
     throw new Error('rate_limit_exceeded: ' + operation + ' 失败：' + summary)
   }
   throw new Error(operation + ' 失败：' + summary)
+}
+
+function chatgptApiErrorCodes(value, depth = 0) {
+  if (!value || typeof value !== 'object' || depth > 8) return []
+  if (Array.isArray(value)) return value.flatMap((item) => chatgptApiErrorCodes(item, depth + 1))
+  return [
+    ...['code', 'error_code', 'error_type', 'type']
+      .map((key) => value[key])
+      .filter((code) => typeof code === 'string'),
+    ...['error', 'detail'].flatMap((key) => chatgptApiErrorCodes(value[key], depth + 1)),
+  ].map((code) => code.toLowerCase())
+}
+
+function chatgptApiErrorCategory(value) {
+  if (value?.type === 'moderation' && value.moderation_response?.blocked === true)
+    return 'content_policy_violation'
+  const codes = chatgptApiErrorCodes(value)
+  for (const [category, known] of [
+    [
+      'LOGIN_EXPIRED',
+      [
+        'invalid_access_token',
+        'token_invalid',
+        'token_invalidated',
+        'token_revoked',
+        'auth_invalid',
+      ],
+    ],
+    [
+      'content_policy_violation',
+      ['content_policy_violation', 'moderation_blocked', 'safety_blocked'],
+    ],
+    ['quota_exhausted', ['insufficient_quota', 'quota_exhausted', 'image_quota_exhausted']],
+    [
+      'rate_limit_exceeded',
+      ['rate_limit_exceeded', 'rate_limited', 'upstream_rate_limited', 'file_upload_throttled'],
+    ],
+    [
+      'account_model_unavailable',
+      ['model_not_found', 'unsupported_model', 'unsupported_image_model'],
+    ],
+  ]) {
+    if (known.some((code) => codes.includes(code))) return category
+  }
+  return ''
 }
 
 function chatgptApiHttpSummary(result) {
@@ -266,7 +322,10 @@ function chatgptApiHttpSummary(result) {
   const cooldownSeconds = chatgptApiCooldownSeconds(result)
   return (
     (status ? 'HTTP ' + status + ' ' : '') +
-    String(message || '请求失败').slice(0, 400) +
+    (chatgptApiErrorCodes(body).length
+      ? 'code=' + chatgptApiErrorCodes(body).join(',') + '; '
+      : '') +
+    String(message || '请求失败') +
     (cooldownSeconds ? '; retry after ' + cooldownSeconds + ' seconds' : '')
   )
 }
@@ -279,7 +338,7 @@ function chatgptApiQuotaLikeResult(result, summary) {
     (body && typeof body === 'object'
       ? JSON.stringify(body)
       : String(result?.body_text || body || ''))
-  return /quota|insufficient[_\s-]?quota|usage limit|free plan limit|limit resets in|image generations requests|session\s*budget|sessionbudgetexceeded|limit exceeded/i.test(
+  return /insufficient[_\s-]?quota|quota[_\s-]?exhausted|usage limit|free plan limit|limit resets in|image generations requests|session\s*budget|sessionbudgetexceeded/i.test(
     text
   )
 }
@@ -312,7 +371,14 @@ function chatgptApiCooldownSecondsFromValue(value) {
       if (value) seconds.push(value)
     }
     if (
-      ['reset_at', 'resets_at', 'rate_limit_reset_at', 'cooldown_until'].includes(normalizedKey)
+      [
+        'reset_at',
+        'resets_at',
+        'resets_after',
+        'reset_after',
+        'rate_limit_reset_at',
+        'cooldown_until',
+      ].includes(normalizedKey)
     ) {
       const value = chatgptApiSecondsUntil(item)
       if (value) seconds.push(value)

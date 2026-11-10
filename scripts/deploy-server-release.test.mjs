@@ -178,6 +178,11 @@ test('健康检查失败自动恢复旧程序，数据库和密钥完整保留',
       '    with sqlite3.connect(data / name) as c:',
       "        c.execute('create table evidence (value text)')",
       "        c.execute('insert into evidence values (?)', ('keep accounts',))",
+      'writer = ' +
+        JSON.stringify(
+          "import sqlite3,sys,os; c=sqlite3.connect(sys.argv[1]); c.execute('pragma cache_size=1'); c.execute('begin immediate'); c.execute('insert into evidence values (zeroblob(1048576))'); os._exit(0)"
+        ),
+      "subprocess.run([sys.executable, '-c', writer, str(data / 'mediagen.sqlite')], check=True)",
       'calls = []',
       'def command(args, **kwargs):',
       '    calls.append(args)',

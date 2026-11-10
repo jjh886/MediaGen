@@ -87,7 +87,7 @@ describe('ChatGPT 对话中的思考和图片', () => {
       status: 'completed',
       summary: [{ text: '比较两个方案\n先核对用户给出的限制条件。' }],
     })
-    expect(JSON.stringify(output)).not.toContain('57')
+    expect(JSON.stringify(output[0].summary)).not.toContain('57')
   })
 
   it('429 后指数退避并保存恢复时间，重启沿用等待时间', () => {

@@ -197,3 +197,26 @@ test('ChatGPT 视频上传和最终附件引用与网页抓包一致', () => {
     ],
   })
 })
+
+test('ChatGPT 具体错误优先于 HTTP 状态，参数和内容拒绝不惩罚账号', () => {
+  const manifest = JSON.parse(readFileSync(join(plugins, 'chatgpt/manifest.json'), 'utf8'))
+  for (const [message, category, state, retry] of [
+    [
+      'quota_exhausted: HTTP 429 code=insufficient_quota',
+      'quota_exhausted',
+      'daily_quota_exhausted',
+      'failover',
+    ],
+    ['rate_limit_exceeded: HTTP 429', 'account_rate_limited', 'cooldown', 'failover'],
+    ['invalid_input: HTTP 400 context limit exceeded', 'invalid_request', undefined, 'fail'],
+    ['content_policy_violation: HTTP 200 moderation_blocked', 'invalid_request', undefined, 'fail'],
+    ['LOGIN_EXPIRED: HTTP 403 code=token_revoked', 'login_expired', 'login_expired', 'failover'],
+  ]) {
+    const rule = manifest.failure_strategy.find((rule) =>
+      rule.contains_any.some((needle) => message.toLowerCase().includes(needle.toLowerCase()))
+    )
+    assert.equal(rule.category, category)
+    assert.equal(rule.account_state, state)
+    assert.equal(rule.retry_action, retry)
+  }
+})

@@ -39,6 +39,13 @@ function chatgptApiStreamWithResume(auth, request, onEvent) {
     let handoff = false
     let completed = false
     result = host.stream('http.sse_request', next, (event) => {
+      if (event?.error || event?.type === 'error' || chatgptApiErrorCategory(event)) {
+        const saved = chatgptApiCheckpoint()
+        const id = event.conversation_id || saved.conversation_id
+        if (id) chatgptApiCheckpoint({ ...saved, phase: 'accepted', conversation_id: id })
+        else if (chatgptApiErrorCategory(event)) chatgptApiCheckpoint({ ...saved, phase: 'ready' })
+        chatgptApiRequireOk({ ok: false, status: 200, body: event }, '接收 ChatGPT 生成事件')
+      }
       if (event?.type === 'resume_conversation_token') {
         token = typeof event.token === 'string' ? event.token : ''
         conversationId = String(event.conversation_id || '')
@@ -46,6 +53,8 @@ function chatgptApiStreamWithResume(auth, request, onEvent) {
       if (event?.type === 'stream_handoff') handoff = true
       if (event?.type === 'message_stream_complete') completed = true
       onEvent(event)
+      const failure = chatgptApiMessageError(event?.message || event?.v?.message)
+      if (failure) throw new Error(failure)
       if (event?.type === 'resume_conversation_token' && token && conversationId) {
         chatgptApiCheckpoint({
           ...chatgptApiCheckpoint(),
@@ -129,6 +138,12 @@ function chatgptApiRetryCheckpoint(reason, delayMs = CHATGPT_API_FALLBACK_POLL_M
 }
 
 function chatgptApiFailConversation(reason, delayMs) {
+  if (
+    /^(LOGIN_EXPIRED|content_policy_violation|quota_exhausted|rate_limit_exceeded|account_model_unavailable):/.test(
+      reason
+    )
+  )
+    throw new Error(reason)
   const saved = chatgptApiRetryCheckpoint(reason, delayMs)
   throw new Error(
     'temporary_unavailable: 原任务已失败，' +
@@ -190,5 +205,5 @@ function chatgptApiRequireRetryableRead(response, conversationId) {
   }
   if (conversationId || saved.conversation_id || saved.continuation_id) return
   chatgptApiCheckpoint({ ...saved, phase: 'ready' })
-  throw new Error('rate_limit_exceeded: HTTP 429 新会话未被受理，允许换号重试')
+  chatgptApiRequireOk({ ...response, ok: false }, '新会话未被受理')
 }

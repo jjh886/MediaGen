@@ -14,6 +14,13 @@ function main(ctx) {
   const auth = chatgptApiRefreshSession(chatgptApiReadAuth(ctx))
   const bootstrap =
     !saved.conversation_id && saved.phase !== 'submitting' ? chatgptApiBootstrap(auth, false) : null
+  let initialized
+  if (!saved.conversation_id && saved.phase !== 'submitting') {
+    chatgptApiTextReasoning(ctx, auth, request, bootstrap['/backend-api/models'])
+    initialized = chatgptApiInitializeConversation(auth)
+    // 限额检查必须先于上传和提交，才能安全切换账号且不重复消耗上传额度。
+    chatgptApiTextOptions(initialized, request)
+  }
   if (
     !saved.conversation_id &&
     saved.phase !== 'submitting' &&
@@ -36,9 +43,7 @@ function main(ctx) {
       session_attachments_rebuilt: !!(saved.reset_session && request.session),
     })
   }
-  if (!saved.conversation_id && saved.phase !== 'submitting')
-    chatgptApiTextReasoning(ctx, auth, request, bootstrap['/backend-api/models'])
-  const response = chatgptApiGenerateTextConversation(auth, request)
+  const response = chatgptApiGenerateTextConversation(auth, request, initialized)
   return {
     success: true,
     status: 'done',
@@ -48,7 +53,7 @@ function main(ctx) {
 }
 
 // 提交前失败可换号；已获得会话编号后只能恢复原会话，不能重新发送。
-function chatgptApiGenerateTextConversation(auth, request) {
+function chatgptApiGenerateTextConversation(auth, request, initialized) {
   const saved = chatgptApiCheckpoint()
   if (saved.phase === 'completed' && saved.result?.response) return saved.result.response
   if (saved.phase === 'submitting' && !saved.conversation_id) {
@@ -95,7 +100,7 @@ function chatgptApiGenerateTextConversation(auth, request) {
         conversation_id: continued?.conversation_id || '',
         parent_message_id: parentId,
       }
-      const init = chatgptApiInitializeConversation(auth)
+      const init = initialized || chatgptApiInitializeConversation(auth)
       const options = chatgptApiTextOptions(init, request)
       writer.request.model = options.model
       const sentinelHeaders = chatgptApiSentinelHeaders(auth)
@@ -145,7 +150,7 @@ function chatgptApiGenerateTextConversation(auth, request) {
         const retry = { ...chatgptApiCheckpoint(), phase: 'ready' }
         delete retry.conversation_id
         chatgptApiCheckpoint(retry)
-        throw new Error('rate_limit_exceeded: HTTP 429 当前消息未被受理，请重试')
+        chatgptApiRequireOk({ ...result, ok: false }, '当前消息未被受理')
       }
       if (!(state.finished && chatgptApiIsFinalText(state) && state.text.trim())) {
         chatgptApiRequireRetryableRead(result)

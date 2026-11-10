@@ -13,6 +13,8 @@ function chatgptApiConsumeRichTextEvent(state, writer, event) {
       chatgptApiPatchRichMessage(state.rich_message, operation)
   }
   const message = state.rich_message
+  const failure = chatgptApiMessageError(message)
+  if (failure) throw new Error(failure)
   if (
     !message ||
     message.author?.role === 'user' ||
@@ -195,7 +197,7 @@ function chatgptApiWaitForRichText(auth, conversationId, parentId, state, writer
         const conversation = chatgptApiRequireOk(response, '读取 ChatGPT 对话结果').body || {}
         freshHistoryRead = true
         const error = chatgptApiTextConversationError(conversation)
-        if (error) chatgptApiFailConversation('upstream_failed')
+        if (error) chatgptApiFailConversation(error)
         const messages = chatgptApiCurrentTurnMessages(conversation, userId, parentId)
         for (const message of messages)
           chatgptApiConsumeTextStreamEvent(state, writer, {

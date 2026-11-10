@@ -15,14 +15,14 @@ function chatgptApiWaitForImage(auth, conversationId) {
     chatgptApiRequireRetryableRead(response, conversationId)
     waitingForReadSlot = chatgptApiPollRateLimited(response) && response.coalesced === true
     if (response.ok) {
-      const error = chatgptApiConversationError(response.body)
-      if (error) throw new Error(error)
       const result = chatgptApiResolveImageCandidate(
         auth,
         conversationId,
         chatgptApiGeneratedImageCandidate(response.body)
       )
       if (result) return result
+      const error = chatgptApiConversationError(response.body)
+      if (error) throw new Error(error)
       pollDelayMs = CHATGPT_API_FALLBACK_POLL_MS
     } else if (chatgptApiPollRateLimited(response)) {
       pollDelayMs = chatgptApiPollRetryDelayMs(response, pollDelayMs)
@@ -102,24 +102,53 @@ function chatgptApiNonUserMessages(value) {
 }
 
 function chatgptApiConversationError(conversation) {
-  // 只检查平台回复，不能因为用户提示词里出现“rate limit”等字样而误报失败。
-  const messages = Object.values(conversation?.mapping || {})
-    .map((node) => node?.message)
-    .filter((message) => message && message?.author?.role !== 'user')
-  const joined = JSON.stringify({
-    messages,
-    detail: conversation?.detail || '',
-    error: conversation?.error || '',
-  })
-  const cooldownSeconds = chatgptApiCooldownSecondsFromValue(conversation)
-  const cooldownSuffix = cooldownSeconds ? '; retry after ' + cooldownSeconds + ' seconds' : ''
-  if (/rate_limit_exceeded|generating images too quickly/i.test(joined)) {
-    return 'rate_limit_exceeded: ' + joined.slice(0, 300) + cooldownSuffix
-  }
-  if (/image generations requests|limit resets in/i.test(joined)) {
-    return 'quota_exhausted: ' + joined.slice(0, 300) + cooldownSuffix
+  const category = chatgptApiErrorCategory(conversation)
+  if (category || conversation?.error || conversation?.detail)
+    return (category || 'upstream_error') + ': ' + chatgptApiHttpSummary({ body: conversation })
+  for (const message of chatgptApiNonUserMessages(conversation)) {
+    const error = chatgptApiMessageError(message)
+    if (error) return error
   }
   return ''
+}
+
+function chatgptApiMessageError(message) {
+  if (!message || message.author?.role === 'user') return ''
+  const metadata = message.metadata || {}
+  let category = chatgptApiErrorCategory(message) || chatgptApiErrorCategory(metadata)
+  if (message.blocked === true || metadata.blocked === true) category = 'content_policy_violation'
+  const parts = Array.isArray(message.content?.parts) ? message.content.parts : []
+  const text =
+    parts.filter((part) => typeof part === 'string').join('\n') ||
+    (typeof message.content?.text === 'string' ? message.content.text : '')
+  if (
+    !category &&
+    /^(?:you['’]ve hit the .*limit for image generations requests|you['’]re out of image generation messages)/i.test(
+      text.trim()
+    )
+  )
+    category = 'quota_exhausted'
+  const failed =
+    message.is_error ||
+    metadata.is_error ||
+    message.error ||
+    metadata.error ||
+    [message.status, metadata.status].some((status) =>
+      ['failed', 'error', 'cancelled', 'canceled'].includes(status)
+    ) ||
+    message.content?.content_type === 'system_error'
+  if (!category && !failed) return ''
+  // 普通回复中讨论错误码不是失败，正文仅补充已确认的错误原因。
+  const detail = message.error ||
+    metadata.error || {
+      code: message.error_code || metadata.error_code || message.status,
+      message: text,
+    }
+  return (
+    (category || 'upstream_error') +
+    ': ' +
+    chatgptApiHttpSummary({ body: { error: detail, resets_after: metadata.resets_after } })
+  )
 }
 
 function chatgptApiDownloadResult(auth, conversationId, fileId) {
@@ -239,4 +268,22 @@ function chatgptApiUuid() {
     const value = Math.floor(Math.random() * 16)
     return (char === 'x' ? value : (value & 3) | 8).toString(16)
   })
+}
+
+function chatgptApiAssertModelAvailable(init, model) {
+  const limits = Array.isArray(init?.model_limits) ? init.model_limits : []
+  const limit = limits.find((item) => {
+    if (item?.model_slug !== model) return false
+    const reset = Date.parse(item.resets_after)
+    return !Number.isFinite(reset) || reset > Date.now()
+  })
+  if (!limit) return
+  const reset = Date.parse(limit.resets_after)
+  throw new Error(
+    'account_model_unavailable: model_quota_exhausted; model=' +
+      model +
+      (Number.isFinite(reset) ? '; resets_at=' + new Date(reset).toISOString() : '') +
+      '; 当前账号所选模型已达上游限额' +
+      (typeof limit.description === 'string' ? '; ' + limit.description : '')
+  )
 }

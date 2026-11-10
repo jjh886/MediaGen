@@ -84,6 +84,61 @@ const run = () =>
   vm.runInContext(`main({ request: { input: '提取资产', model: 'gpt-5-6-instant' } })`, context)
 
 describe('ChatGPT 文本提交与恢复', () => {
+  it('新提交的 HTTP 429 保留具体额度原因和 Retry-After，不覆盖成通用限流', () => {
+    stream.mockReturnValue({
+      ok: false,
+      status: 429,
+      headers: { 'Retry-After': '120' },
+      body: { error: { code: 'insufficient_quota', message: 'remaining=0' } },
+    })
+    expect(run).toThrow('quota_exhausted:')
+    expect(run).toThrow('retry after 120 seconds')
+    expect(checkpoint.phase).toBe('ready')
+    expect(checkpoint.conversation_id).toBeUndefined()
+  })
+
+  it('所选模型受限时在上传前停止，保留安全换号边界和上游恢复时间', () => {
+    context.host.emit = vi.fn()
+    context.chatgptApiUploadTextAttachments = vi.fn()
+    context.chatgptApiInitializeConversation.mockReturnValue({
+      default_model_slug: 'gpt-6-thinking',
+      model_limits: [{ model_slug: 'gpt-5-6-instant', resets_after: '2099-11-10T16:51:45Z' }],
+    })
+    expect(() =>
+      vm.runInContext(
+        `main({request:{model:'gpt-5-6-instant',input:[{role:'user',content:[
+          {type:'input_text',text:'还原剧本'},
+          {type:'input_file',file_data:'data:video/mp4;base64,AAAA',filename:'scene.mp4'}
+        ]}]}})`,
+        context
+      )
+    ).toThrow('account_model_unavailable: model_quota_exhausted')
+    expect(run).toThrow('resets_at=2099-11-10T16:51:45.000Z')
+    expect(checkpoint.phase).toBe('ready')
+    expect(checkpoint.conversation_id).toBeUndefined()
+    expect(context.chatgptApiUploadTextAttachments).not.toHaveBeenCalled()
+    expect(stream).not.toHaveBeenCalled()
+    expect(context.host.emit).not.toHaveBeenCalled()
+  })
+
+  it('模型受限的续聊保留原会话，不提交新消息或改用默认模型', () => {
+    context.chatgptApiInitializeConversation.mockReturnValue({
+      default_model_slug: 'gpt-6-thinking',
+      model_limits: [{ model_slug: 'gpt-5-6-instant' }],
+    })
+    expect(() =>
+      vm.runInContext(
+        `main({request:{model:'gpt-5-6-instant',input:'继续',options:{
+          platform_session:{conversation_id:'original',parent_message_id:'parent'}
+        }}})`,
+        context
+      )
+    ).toThrow('model_quota_exhausted')
+    expect(checkpoint.continuation_id).toBe('original')
+    expect(checkpoint.reset_session).toBe(false)
+    expect(stream).not.toHaveBeenCalled()
+  })
+
   it('新会话被 429 拒绝时保留安全换号边界，不提前输出响应事件', () => {
     context.host.emit = vi.fn()
     stream.mockReturnValue({ ok: false, status: 429 })

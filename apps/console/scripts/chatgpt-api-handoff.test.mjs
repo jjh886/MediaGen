@@ -7,12 +7,44 @@ import { expect, it, vi } from 'vitest'
 const source = [
   '../../../plugins/chatgpt/scripts/auth.js',
   '../../../plugins/chatgpt/scripts/session_cookies.js',
+  '../../../plugins/chatgpt/scripts/conversation_results.js',
   '../../../plugins/chatgpt/scripts/poll_retry.js',
 ]
   .map((file) =>
     readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), file), 'utf8')
   )
   .join('\n')
+
+it.each(['', 'accepted-conversation'])('HTTP 200 的限额错误事件保留正确提交边界：%s', (id) => {
+  let saved = { phase: 'submitting' }
+  const receive = vi.fn()
+  const context = vm.createContext({
+    chatgptApiCheckpoint(value) {
+      if (value) saved = value
+      return saved
+    },
+    receive,
+    host: {
+      stream: (_action, _request, callback) => {
+        callback({
+          error: { code: 'rate_limit_exceeded', message: 'too many requests' },
+          ...(id ? { conversation_id: id } : {}),
+        })
+        return { ok: true, status: 200 }
+      },
+    },
+  })
+  vm.runInContext(source, context)
+  expect(() =>
+    vm.runInContext(
+      `chatgptApiStreamWithResume({}, {url:'https://chatgpt.com/backend-api/f/conversation'}, receive)`,
+      context
+    )
+  ).toThrow('rate_limit_exceeded:')
+  expect(saved.phase).toBe(id ? 'accepted' : 'ready')
+  expect(saved.conversation_id).toBe(id || undefined)
+  expect(receive).not.toHaveBeenCalled()
+})
 
 it('接续 Conduit 原会话并立即保存恢复凭据，不重复提交用户消息', () => {
   let saved = { phase: 'submitting', model: 'gpt-6-astra-wm' }
