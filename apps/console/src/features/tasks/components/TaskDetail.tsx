@@ -1,3 +1,4 @@
+import { formatDateTime } from '@/shared/utils/date-time'
 import { useEffect, useState } from 'react'
 import { fetchTaskResult } from '../services/task-service'
 import { KtBadge, KtButton } from '@/shared/ui'
@@ -207,14 +208,14 @@ export default function TaskDetail({
 
       <div style={rowStyle}>
         <span style={labelStyle}>创建</span>
-        <span style={valueStyle}>{new Date(task.created_at).toLocaleString('zh-CN')}</span>
+        <span style={valueStyle}>{formatDateTime(task.created_at)}</span>
       </div>
 
       {task.completed_at && (
         <div style={rowStyle}>
           <span style={labelStyle}>完成</span>
           <span style={valueStyle}>
-            {new Date(task.completed_at).toLocaleString('zh-CN')}（耗时 {formatDuration(task)}）
+            {formatDateTime(task.completed_at)}（耗时 {formatDuration(task)}）
           </span>
         </div>
       )}

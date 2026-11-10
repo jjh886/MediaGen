@@ -1,3 +1,4 @@
+import { formatDateTime } from '@/shared/utils/date-time'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, RefreshCw, X } from 'lucide-react'
 import { InfiniteScrollTrigger, KtBadge, KtButton, KtModal, KtTable, KtTabs } from '@/shared/ui'
@@ -6,15 +7,6 @@ import { useGenerationQueueStore } from '../hooks/useGenerationQueueStore'
 import type { GenerationQueueItem } from '../types/generation-queue'
 
 const POLL_INTERVAL_MS = 3000
-
-function formatTime(value: string): string {
-  return new Date(value).toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
 
 export default function GenerationQueueList() {
   const {
@@ -139,7 +131,7 @@ export default function GenerationQueueList() {
         title: '排队时间',
         width: 150,
         minWidth: 130,
-        render: (item) => formatTime(item.queuedAt),
+        render: (item) => formatDateTime(item.queuedAt, true),
       },
       {
         key: 'actions',

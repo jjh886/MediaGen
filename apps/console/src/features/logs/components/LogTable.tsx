@@ -1,3 +1,4 @@
+import { formatDateTime } from '@/shared/utils/date-time'
 import { InfiniteScrollTrigger, KtBadge, KtTable } from '@/shared/ui'
 import type { Column } from '@/shared/ui'
 import type { LogEntry } from '../services/log-service'
@@ -11,7 +12,14 @@ const LEVEL_VARIANT: Record<string, 'disabled' | 'info' | 'warning' | 'error'> =
 }
 
 const columns: Column<LogEntry>[] = [
-  { key: 'timestamp', title: '时间', width: 230, minWidth: 180, maxWidth: 320 },
+  {
+    key: 'timestamp',
+    title: '时间',
+    width: 230,
+    minWidth: 180,
+    maxWidth: 320,
+    render: (log) => formatDateTime(log.timestamp),
+  },
   { key: 'module', title: '模块', width: 140, minWidth: 100, maxWidth: 260 },
   {
     key: 'level',

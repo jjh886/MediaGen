@@ -1,3 +1,4 @@
+import { formatDateTime } from '@/shared/utils/date-time'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Plus, RefreshCw } from 'lucide-react'
 import { KtButton } from '@/shared/ui'
@@ -145,7 +146,7 @@ function ApiKeyList(props: {
     <AdminEntityList
       {...props}
       emptyText="还没有 API Key。新增后，外部客户端才能调用 OpenAI 兼容接口。"
-      columns={(item) => [item.name, item.masked_key, item.created_at]}
+      columns={(item) => [item.name, item.masked_key, formatDateTime(item.created_at)]}
       deleteTitle="删除 API Key"
       deleteMessage={(item) => `确定删除「${item.name}」吗？删除后使用它的外部请求会立刻失败。`}
     />

@@ -1,3 +1,4 @@
+import { formatDateTime } from '@/shared/utils/date-time'
 import { useCallback, useEffect, useState } from 'react'
 import { KtButton, KtInput, KtModal, KtConfirmDialog, KtBadge } from '@/shared/ui'
 import { getAuthStatus } from '@/shared/services/auth-service'
@@ -101,10 +102,8 @@ export default function AdminUsersPage() {
                     {user.enabled ? '启用' : '停用'}
                   </KtBadge>
                 </td>
-                <td>
-                  {user.last_login_at ? new Date(user.last_login_at).toLocaleString() : '从未登录'}
-                </td>
-                <td>{new Date(user.created_at).toLocaleString()}</td>
+                <td>{user.last_login_at ? formatDateTime(user.last_login_at) : '从未登录'}</td>
+                <td>{formatDateTime(user.created_at)}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 8, padding: 12 }}>
                     <KtButton

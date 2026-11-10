@@ -1,3 +1,4 @@
+import { formatDateTime as formatDisplayDateTime } from '@/shared/utils/date-time'
 import type { CSSProperties, ReactNode } from 'react'
 
 export const pageStyle: CSSProperties = {
@@ -112,13 +113,7 @@ export function StatusPill({ status }: { status: string }) {
 }
 
 export function formatDateTime(value?: string | null): string {
-  if (!value) return '暂无'
-  return new Date(value).toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return value ? formatDisplayDateTime(value, true) : '暂无'
 }
 
 function statusLabel(status: string): string {

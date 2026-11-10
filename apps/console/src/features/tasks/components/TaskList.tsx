@@ -1,3 +1,4 @@
+import { formatDateTime } from '@/shared/utils/date-time'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   InfiniteScrollTrigger,
@@ -33,11 +34,6 @@ function formatDuration(task: Task): string {
   const ms = new Date(task.completed_at).getTime() - new Date(task.created_at).getTime()
   const sec = Math.round(ms / 1000)
   return sec >= 60 ? `${Math.floor(sec / 60)}分${sec % 60}秒` : `${sec}秒`
-}
-
-function formatTime(iso: string): string {
-  const d = new Date(iso)
-  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 function cancelErrorMessage(error: unknown): string {
@@ -252,7 +248,7 @@ export default function TaskList({
       title: '时间',
       width: 140,
       minWidth: 120,
-      render: (r) => formatTime(r.created_at),
+      render: (r) => formatDateTime(r.created_at, true),
     },
     {
       key: 'actions',

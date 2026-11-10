@@ -1,3 +1,4 @@
+import { formatDateTime } from '@/shared/utils/date-time'
 import type { Account, LoginState } from '../types/account'
 
 export const accountStateVariant: Record<LoginState, 'success' | 'warning' | 'error' | 'disabled'> =
@@ -26,14 +27,5 @@ export function accountResetText(account: Pick<Account, 'login_state' | 'cooldow
   if (!['cooldown', 'daily_quota_exhausted'].includes(account.login_state)) return ''
   const date = new Date(account.cooldown_until)
   if (Number.isNaN(date.getTime())) return ''
-  return `额度恢复时间 ${formatAccountDate(date)}`
-}
-
-function formatAccountDate(date: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
+  return `额度恢复时间 ${formatDateTime(account.cooldown_until, true)}`
 }

@@ -1,3 +1,4 @@
+import { formatDateTime } from '@/shared/utils/date-time'
 import type { Account } from '../types/account'
 
 export default function AccountQuotaSummary({
@@ -18,9 +19,7 @@ export default function AccountQuotaSummary({
       {holds.map(([kind, hold]) => (
         <div key={kind} style={{ fontSize: 11, color: 'var(--color-warning)' }}>
           {kind === 'text' ? '文本' : '图片 / 媒体'}额度已用完
-          <div>
-            {hold.until ? `恢复：${new Date(hold.until).toLocaleString()}` : '等待平台额度恢复'}
-          </div>
+          <div>{hold.until ? `恢复：${formatDateTime(hold.until)}` : '等待平台额度恢复'}</div>
         </div>
       ))}
       {windows.map((window, index) => (
@@ -65,17 +64,10 @@ export default function AccountQuotaSummary({
           {window.reset_at && (
             <div
               style={{ fontSize: 11, color: 'var(--text-secondary)' }}
-              title={`恢复：${new Date(window.reset_at).toLocaleString()}`}
+              title={`恢复：${formatDateTime(window.reset_at)}`}
             >
               恢复：
-              {compact
-                ? new Date(window.reset_at).toLocaleString(undefined, {
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
-                : new Date(window.reset_at).toLocaleString()}
+              {formatDateTime(window.reset_at, compact)}
             </div>
           )}
         </div>

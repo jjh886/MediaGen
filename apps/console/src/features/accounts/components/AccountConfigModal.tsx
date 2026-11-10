@@ -1,3 +1,4 @@
+import { formatDateTime } from '@/shared/utils/date-time'
 import { useState, useEffect, useRef } from 'react'
 import AccountQuotaSummary from './AccountQuotaSummary'
 import { KtModal, KtButton, KtInput, KtSelect } from '@/shared/ui'
@@ -197,7 +198,7 @@ export default function AccountConfigModal({
           <span style={labelStyle}>{platformStatusText}</span>
           <span style={labelStyle}>
             最近检查：
-            {account?.last_check_at ? new Date(account.last_check_at).toLocaleString() : '尚未检查'}
+            {account?.last_check_at ? formatDateTime(account.last_check_at) : '尚未检查'}
           </span>
         </div>
         <div role="tablist" aria-label="账号配置分类" style={{ display: 'flex', gap: 8 }}>

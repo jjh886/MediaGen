@@ -51,9 +51,7 @@ describe('紧凑账号列表', () => {
     expect(cells[3]).toHaveTextContent('今日2/5累计9/不限')
     expect(cells[4]).toHaveTextContent('今日3/10累计20/100')
     expect(screen.getByRole('progressbar', { name: '每周剩余额度' })).toHaveAttribute('value', '51')
-    expect(
-      screen.getByTitle(`恢复：${new Date(account.quota_windows![0].reset_at!).toLocaleString()}`)
-    ).toBeInTheDocument()
+    expect(screen.getByTitle('恢复：2026/09/27 10:23:36')).toBeInTheDocument()
     for (const [label, callback] of [
       ['配置', handlers.onConfigure],
       ['重新登录', handlers.onRelogin],
