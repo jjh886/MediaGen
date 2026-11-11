@@ -915,7 +915,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "1.7.3",
+  "version": "1.7.4",
   "schema_version": 1,
   "task_recovery": {
     "media_types": ["text", "image"],

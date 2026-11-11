@@ -108,6 +108,7 @@ pub(crate) async fn execute(
         return error(400, "invalid_request", &message);
     }
     let model_id = body["model"].as_str().unwrap_or_default().to_string();
+    crate::model_api::refresh_before_dispatch(&state, &model_id, &key).await;
     let Some((manifest, model, _)) = crate::model_api::resolve(&state, &model_id, &key) else {
         return error(404, "model_not_found", "模型不存在，请先获取模型目录");
     };

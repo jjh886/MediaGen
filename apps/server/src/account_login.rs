@@ -110,6 +110,12 @@ async fn run_login_plugin_script(
             .plugin_loader
             .get_plugin(&session.platform)
             .ok_or("插件不存在")?,
+    )
+    .with_http_profile(
+        state
+            .plugin_loader
+            .get_plugin(&session.platform)
+            .ok_or("插件不存在")?,
     );
     let result = run_js_step(script, context, host).await?;
     Ok(profile_from_value(&result))
@@ -171,21 +177,32 @@ pub fn profile_from_value(value: &Value) -> AccountLoginProfile {
         .and_then(Value::as_array)
         .cloned();
     let quota_scope = value["quota_task_kind"].as_str().map(ToOwned::to_owned);
+    let status = value["status"].as_str().unwrap_or("");
+    let explicit = value
+        .get("logged_in")
+        .or_else(|| value.get("loggedIn"))
+        .and_then(Value::as_bool);
     let value = if let Some(account) = value.get("account") {
         account.clone()
     } else {
         value.clone()
     };
-    let mut profile = serde_json::from_value::<AccountLoginProfile>(value)
+    let mut profile = serde_json::from_value::<AccountLoginProfile>(value.clone())
         .unwrap_or_else(|_| AccountLoginProfile::default());
     profile.quota_task_kind = quota_scope.or(profile.quota_task_kind);
     profile.quota_windows = quota_windows.or(profile.quota_windows);
-    if !profile.username.trim().is_empty()
-        || !profile.email.trim().is_empty()
-        || !profile.user_id.trim().is_empty()
-    {
-        profile.logged_in = true;
-    }
+    let explicit = explicit.or_else(|| {
+        value
+            .get("logged_in")
+            .or_else(|| value.get("loggedIn"))
+            .and_then(Value::as_bool)
+    });
+    profile.logged_in = (status.is_empty() || status == "available")
+        && explicit.unwrap_or_else(|| {
+            !profile.username.trim().is_empty()
+                || !profile.email.trim().is_empty()
+                || !profile.user_id.trim().is_empty()
+        });
     profile
 }
 
@@ -206,7 +223,14 @@ async fn run_login_script(
     await_promise: bool,
 ) -> Result<AccountLoginProfile, String> {
     let result = run_login_script_value(state, session, script_files, await_promise).await?;
-    Ok(profile_from_value(&result))
+    let profile = profile_from_value(&result);
+    if !profile.logged_in {
+        return Err(result["reason"]
+            .as_str()
+            .unwrap_or("还没有检测到有效登录")
+            .to_string());
+    }
+    Ok(profile)
 }
 
 pub(crate) async fn run_login_script_value(
@@ -258,16 +282,16 @@ async fn run_login_script_with_retry(
     script_files: &[String],
     await_promise: bool,
 ) -> Result<AccountLoginProfile, String> {
-    let mut last = AccountLoginProfile::default();
+    let mut last = Err("还没有检测到有效登录".to_string());
     for _ in 0..6 {
         match run_login_script(state, session, script_files, await_promise).await {
             Ok(profile) if profile.logged_in => return Ok(profile),
-            Ok(profile) => last = profile,
-            Err(_) => {}
+            Ok(profile) => last = Ok(profile),
+            Err(error) => last = Err(error),
         }
         sleep(Duration::from_millis(800)).await;
     }
-    Ok(last)
+    last
 }
 
 fn read_plugin_scripts(
@@ -351,6 +375,22 @@ mod tests {
     use super::*;
     use mediagen_browser_gateway::BrowserSessionCreateRequest;
     use mediagen_plugin_runtime::PluginLoader;
+
+    #[test]
+    fn explicit_login_failure_cannot_be_overridden_by_cached_identity() {
+        for value in [
+            json!({"loggedIn":false,"email":"cached@example.test"}),
+            json!({"status":"login_expired","account":{"email":"cached@example.test","loggedIn":true}}),
+            json!({"logged_in":false,"account":{"email":"cached@example.test"}}),
+        ] {
+            assert!(!profile_from_value(&value).logged_in);
+        }
+        assert!(profile_from_value(&json!({"email":"legacy@example.test"})).logged_in);
+        assert!(
+            profile_from_value(&json!({"loggedIn":true,"account":{"email":"ok@example.test"}}))
+                .logged_in
+        );
+    }
 
     #[tokio::test]
     async fn plugin_login_composes_scripts_and_passes_browser_identity() {

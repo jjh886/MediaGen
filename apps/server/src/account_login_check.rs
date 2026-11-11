@@ -4,7 +4,6 @@ use mediagen_browser_gateway::{
 use mediagen_core::PluginManifest;
 use mediagen_plugin_runtime::run_js_step;
 use serde_json::{json, Value};
-use std::path::Path;
 use tokio::time::{sleep, Duration};
 
 use crate::account_browser_profile::browser_metadata_from_account;
@@ -329,22 +328,7 @@ fn read_plugin_scripts(
         .plugin_loader
         .get_plugin_dir(platform)
         .ok_or_else(|| format!("插件目录未找到: {platform}"))?;
-    let mut combined = String::new();
-    for script_file in script_files {
-        if !safe_script_file(script_file) {
-            return Err(format!("账号检查脚本路径不安全: {script_file}"));
-        }
-        append_script(&mut combined, &plugin_dir.join("scripts").join(script_file))?;
-    }
-    Ok(combined)
-}
-
-fn append_script(combined: &mut String, path: &Path) -> Result<(), String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|error| format!("读取账号检查脚本失败 {}: {error}", path.display()))?;
-    combined.push_str(&content);
-    combined.push_str("\n;\n");
-    Ok(())
+    crate::plugin_scripts::read_plugin_scripts(&plugin_dir, script_files)
 }
 
 fn save_flow_result(step: &Value, context: &mut Value, result: &Value) {
@@ -353,16 +337,33 @@ fn save_flow_result(step: &Value, context: &mut Value, result: &Value) {
     }
 }
 
-fn safe_script_file(value: &str) -> bool {
-    !value.trim().is_empty()
-        && !value.contains('/')
-        && !value.contains('\\')
-        && !value.contains("..")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn account_check_executes_shared_helpers_and_rejects_traversal() {
+        let root = tempfile::tempdir().unwrap();
+        let plugins = root.path().join("plugins");
+        std::fs::create_dir_all(plugins.join("test/scripts")).unwrap();
+        std::fs::create_dir_all(plugins.join("_shared")).unwrap();
+        std::fs::write(plugins.join("_shared/identity.js"), "function identity(){return {status:'login_expired',logged_in:false,reason:'real rejection'}}").unwrap();
+        std::fs::write(
+            plugins.join("test/scripts/check.js"),
+            "function main(){return identity()}",
+        )
+        .unwrap();
+        std::fs::write(plugins.join("test/manifest.json"),json!({"platform_id":"test","display_name":"Test","adapter_mode":"api","flows":{"check_account":{"steps":[{"action":"plugin.run_js","script_files":["@shared/identity.js","check.js"]}]}}}).to_string()).unwrap();
+        let state = crate::test_fixtures::server_state(
+            root.path().into(),
+            mediagen_plugin_runtime::PluginLoader::load_from(&plugins).unwrap(),
+        );
+        let account = crate::test_fixtures::account_record("account", "test", "Test", "");
+        assert!(
+            matches!(check_saved_account_login(&state,&account).await,AccountLoginCheckOutcome::Expired(reason) if reason == "real rejection")
+        );
+        assert!(read_plugin_scripts(&state, "test", &["@shared/../secret.js".into()]).is_err());
+    }
 
     #[test]
     fn explicit_expired_and_inconclusive_results_are_distinct() {

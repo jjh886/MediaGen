@@ -352,3 +352,86 @@ describe('豆包新版登录协议采集', () => {
     expect(auth.user.user_id).toBe('test-user')
   })
 })
+
+describe('ChatGPT 真实授权验证', () => {
+  it('HTTP 200 续期失败不能通过会话检查，也不能覆盖原凭据', () => {
+    const run = scripts(['chatgpt/scripts/auth.js', 'chatgpt/scripts/session_cookies.js'])
+    expect(() =>
+      run(`chatgptApiValidateSession({ok:true,status:200,body:{
+      accessToken:'stale',account:{id:'account'},expires:'2099-01-01',error:'RefreshAccessTokenError'
+    }})`)
+    ).toThrow('LOGIN_EXPIRED:')
+    run(`chatgptApiNavigateHome=()=>{};chatgptApiCookieHeader=()=> 'cookie';
+      chatgptApiFetchSession=()=>({ok:true,status:200,body:{accessToken:'new',account:{id:'account'}}});
+      chatgptApiRememberCookies=()=>{};chatgptApiRequest=()=>({ok:false,status:401,body:{error:{code:'invalid_jwt'}}})`)
+    let written = false
+    const stored = { auth: { access_token: 'old' }, cookies: [] }
+    run(`host.call=(action)=>{if(action==='file.write_json')write();return stored}`, {
+      stored,
+      write: () => {
+        written = true
+      },
+    })
+    expect(() =>
+      run(`chatgptApiRefreshSession({auth:{},cookies:[],storage_path:'/auth'})`)
+    ).toThrow('LOGIN_EXPIRED:')
+    expect(written).toBe(false)
+  })
+
+  it.each([
+    ['RefreshAccessTokenError', 200],
+    ['', 401],
+    ['', 403],
+    ['', 200],
+  ])('浏览器登录要验证后端身份：%s / %s', async (sessionError, backendStatus) => {
+    const run = scripts([])
+    const calls = []
+    const window = {}
+    const source = readFileSync(
+      path.resolve(scriptDirectory, '../../../plugins/_shared/chatgpt_auth_ui.js'),
+      'utf8'
+    )
+    const session = {
+      accessToken: 'token',
+      account: { id: 'account' },
+      user: { email: 'user@example.test' },
+      ...(sessionError ? { error: sessionError } : {}),
+    }
+    const fetch = async (url) => {
+      calls.push(url)
+      return {
+        ok: url.includes('/session') || backendStatus === 200,
+        status: url.includes('/session') ? 200 : backendStatus,
+        json: async () =>
+          url.includes('/session') ? session : { id: 'user', email: 'user@example.test' },
+      }
+    }
+    run(source, { window, fetch })
+    const verified = run('window.__mediagenChatGptVerifiedSession()')
+    if (sessionError || backendStatus === 401)
+      await expect(verified).rejects.toThrow('LOGIN_EXPIRED:')
+    else if (backendStatus === 403) await expect(verified).rejects.toThrow('AUTH_INCONCLUSIVE:')
+    else await expect(verified).resolves.toEqual(session)
+    expect(calls).toEqual(
+      sessionError ? ['/api/auth/session'] : ['/api/auth/session', '/backend-api/me']
+    )
+  })
+
+  it('Codex 换令牌成功但实际接口拒绝时不保存登录成功', () => {
+    let writes = 0
+    const run = scripts(['codex/scripts/auth.js', 'codex/scripts/finish_oauth_login.js'], {
+      call: (action) => {
+        if (action === 'file.write_json') writes++
+        return { ok: true, body: { access_token: 'token' } }
+      },
+      tryCall: () => ({
+        success: true,
+        data: { ok: false, status: 401, body: { error: { code: 'invalid_token' } } },
+      }),
+    })
+    expect(() => run(`main({profile_dir:'/profile',oauth:{code:'code'}})`)).toThrow(
+      'LOGIN_EXPIRED:'
+    )
+    expect(writes).toBe(0)
+  })
+})

@@ -90,6 +90,7 @@ describe('ChatGPT 聊天音频转写', () => {
       chatgptApiCheckpoint=()=>({phase:'ready',attachments:[]});
       chatgptApiReadAuth=()=>({});chatgptApiRefreshSession=auth=>auth;
       chatgptApiBootstrap=()=>({});chatgptApiTextReasoning=()=>{};chatgptApiRequireOk=result=>result;
+      chatgptApiInitializeConversation=()=>({});chatgptApiTextOptions=()=>{};
       chatgptApiRequest=()=>({body:{text:'427'}});
       chatgptApiGenerateTextConversation=(_auth,request)=>({text:request.input[0].text});
       chatgptApiUploadTextAttachments=()=>{throw new Error('不应重复上传文件')}`)

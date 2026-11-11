@@ -64,10 +64,93 @@ impl Catalog {
     }
 }
 
+/// 调度前补齐账号真实目录；没有目录不能把插件总目录当作账号权限。
+pub(crate) async fn refresh_before_dispatch(state: &crate::ServerState, model: &str, key: &str) {
+    let platform = state
+        .plugin_loader
+        .resolve_model(model)
+        .map(|(manifest, _)| manifest.platform_id.clone())
+        .or_else(|| super::resolve(state, model, key).map(|(manifest, _, _)| manifest.platform_id));
+    let Some(platform) = platform else { return };
+    let Some(manifest) = state.plugin_loader.get_plugin(&platform) else {
+        return;
+    };
+    if !manifest.flows.contains_key("list_models") {
+        return;
+    }
+    for account in super::visible_accounts(state, key)
+        .into_iter()
+        .filter(|account| {
+            account.platform == platform
+                && !matches!(account.login_state.as_str(), "disabled" | "login_expired")
+        })
+    {
+        let stale = state
+            .model_catalog
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&account.id)
+            .is_none_or(|entry| chrono::Utc::now().timestamp() - entry.refreshed_at > 3600);
+        if stale {
+            let _ = super::refresh_account(state, account).await;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[actix_web::test]
+    async fn dispatch_discovers_missing_catalog_and_excludes_accounts_without_model() {
+        let state = crate::test_fixtures::protocol_state(true);
+        let manifest = state.plugin_loader.get_plugin("test").unwrap();
+        let mut other = crate::test_fixtures::account_record("plus", "test", "Plus", "");
+        other.tier = "plus".into();
+        state.store.insert_account(other);
+        let scripts = state
+            .plugin_loader
+            .get_plugin_dir("test")
+            .unwrap()
+            .join("scripts");
+        std::fs::write(scripts.join("models.js"), "function main(ctx){return {models:ctx.account_id==='account'?[{model_id:'text-model',display_name:'Pro',task_kind:'text'}]:[]}}").unwrap();
+        assert!(super::super::account_model(&state, manifest, "text-model", "account").is_none());
+        refresh_before_dispatch(&state, "text-model", "key-a").await;
+        assert!(super::super::account_model(&state, manifest, "text-model", "account").is_some());
+        assert!(super::super::account_model(&state, manifest, "text-model", "plus").is_none());
+        let (account, _lease) = crate::protocol_task::reserve(
+            &state,
+            manifest,
+            "text-model",
+            "text",
+            "key-a",
+            "eligible",
+            None,
+        )
+        .unwrap();
+        assert_eq!(account.id, "account");
+        // 有效期内不重复请求目录；目录刷新认证失败时不能继续显示可用。
+        std::fs::write(
+            scripts.join("models.js"),
+            "function main(){throw new Error('LOGIN_EXPIRED: stale token')}",
+        )
+        .unwrap();
+        refresh_before_dispatch(&state, "text-model", "key-a").await;
+        assert_eq!(
+            state.store.account_by_id("account").unwrap().login_state,
+            "available"
+        );
+        let result =
+            super::super::refresh_account(&state, state.store.account_by_id("account").unwrap())
+                .await;
+        assert!(result.is_err());
+        assert_eq!(
+            state.store.account_by_id("account").unwrap().login_state,
+            "login_expired"
+        );
+    }
 
     #[test]
     fn startup_discards_old_and_unversioned_catalogs_but_keeps_current_accounts() {

@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 #[path = "model_catalog_cache.rs"]
 mod cache;
-pub(crate) use cache::Catalog;
 use cache::{merge_capabilities, CachedModels};
+pub(crate) use cache::{refresh_before_dispatch, Catalog};
 
 #[derive(Deserialize)]
 pub(crate) struct Query {
@@ -103,6 +103,13 @@ pub(crate) fn account_model(
         return Some(model.clone());
     }
     let declared = declared?;
+    if manifest.flows.contains_key("list_models")
+        && !cache.contains_key(account_id)
+        && (declared.task_kind == mediagen_core::TaskKind::Text
+            || declared.extra.contains_key("account_model"))
+    {
+        return None;
+    }
     if cache
         .get(account_id)
         .is_some_and(|entry| !entry.supports_declared(declared))
@@ -155,7 +162,7 @@ pub(crate) async fn list(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(&account.id)
-            .is_some_and(|entry| chrono::Utc::now().timestamp() - entry.refreshed_at > 3600);
+            .is_none_or(|entry| chrono::Utc::now().timestamp() - entry.refreshed_at > 3600);
         if !query.refresh && !stale {
             continue;
         }
@@ -194,7 +201,14 @@ pub(crate) async fn refresh_account(
         Value::Null,
     )
     .await
-    .map_err(|_| "model_discovery_failed")?;
+    .map_err(|message| {
+        if message.contains("LOGIN_EXPIRED:") {
+            state
+                .store
+                .mark_login_check_result(&account.id, "login_expired", None);
+        }
+        "model_discovery_failed"
+    })?;
     let models: Vec<ModelDef> =
         serde_json::from_value(result["models"].clone()).map_err(|_| "invalid_model_catalog")?;
     if models.len() > 2048

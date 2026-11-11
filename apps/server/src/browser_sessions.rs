@@ -282,7 +282,12 @@ pub async fn complete_browser_session(
                     .upsert_from_browser_session_with_profile(&response.session, manifest, profile),
                 _ => state.store.upsert_from_browser_session(&response.session),
             };
-            let public_account = account.map(public_account);
+            if let Some(account) = &account {
+                let _ = crate::model_api::refresh_account(&state, account.clone()).await;
+            }
+            let public_account = account
+                .and_then(|account| state.store.account_by_id(&account.id))
+                .map(public_account);
             HttpResponse::Ok().json(serde_json::json!({
                 "ok": true,
                 "session": public_browser_session(response.session),

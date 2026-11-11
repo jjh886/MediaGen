@@ -192,7 +192,11 @@ async fn refresh_one_account(
     };
     let outcome =
         crate::account_login_check::check_saved_account_login(state, &runtime_account).await;
+    let available = matches!(outcome, AccountLoginCheckOutcome::Available(_));
     apply_refresh_outcome(state, &account.id, outcome, summary);
+    if available {
+        let _ = crate::model_api::refresh_account(state, runtime_account).await;
+    }
 }
 
 fn apply_refresh_outcome(
@@ -237,7 +241,19 @@ fn apply_refresh_outcome(
                 summary.limited += 1;
             }
         }
-        AccountLoginCheckOutcome::Inconclusive(_reason) => summary.inconclusive += 1,
+        AccountLoginCheckOutcome::Inconclusive(reason) => {
+            summary.inconclusive += 1;
+            state.store.add_audit_log(
+                "account",
+                "warn",
+                "账号检查暂时无法确认".into(),
+                format!(
+                    "account_id={account_id}; {}",
+                    crate::protocol_error::sanitize_error(&reason)
+                ),
+                None,
+            );
+        }
     }
 }
 

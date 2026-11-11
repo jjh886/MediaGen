@@ -21,7 +21,18 @@ function main(ctx) {
   if (!response.ok || !response.body?.access_token)
     throw new Error('LOGIN_EXPIRED: Codex 授权换取令牌失败，请重新登录。')
   const auth = codexBuildAuthFile(response.body, {})
+  const checked = codexFetchAccountProfile(auth, ctx)
+  const health = codexHealthFromHttpResult(checked, auth)
+  if (health.status !== 'available')
+    throw new Error(
+      (health.status === 'login_expired' ? 'LOGIN_EXPIRED: ' : 'AUTH_INCONCLUSIVE: ') +
+        'Codex 授权后实际接口验证失败'
+    )
   host.call('file.write_json', { path: ctx.profile_dir + '/auth.json', value: auth })
-  const account = { ...codexAccountPatch(auth, {}), account_id: codexAccountId(auth) }
-  return { loggedIn: true, tier: 'free', account: { ...account, loggedIn: true } }
+  const claims = codexDecodeJwtPayload(codexAccessToken(auth))
+  const tier = claims?.['https://api.openai.com/auth']?.chatgpt_plan_type || ''
+  return {
+    loggedIn: true,
+    account: { ...health.account, account_id: codexAccountId(auth), tier, loggedIn: true },
+  }
 }

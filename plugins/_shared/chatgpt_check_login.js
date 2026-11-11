@@ -21,13 +21,7 @@
     if (window.__mediagenChatGptHasBlockingLoginUi()) {
       return failed('login_expired', 'ChatGPT 页面仍在等待登录或身份验证')
     }
-    const response = await fetch('/api/auth/session', {
-      credentials: 'include',
-      cache: 'no-store',
-      headers: { accept: 'application/json' },
-    })
-    if (!response.ok) return failed('inconclusive', `登录检查 HTTP ${response.status}`)
-    const session = await response.json()
+    const session = await window.__mediagenChatGptVerifiedSession()
     const user = session?.user || {}
     const account = session?.account || {}
     if (!session?.accessToken || !account?.id || !user?.email) {
@@ -45,7 +39,11 @@
         tier: account.planType || 'free',
       })
     )
-  } catch (_) {
-    return failed('inconclusive', '暂时无法检查 ChatGPT 登录状态')
+  } catch (error) {
+    const message = String(error?.message || '')
+    return failed(
+      message.startsWith('LOGIN_EXPIRED:') ? 'login_expired' : 'inconclusive',
+      message || '暂时无法检查 ChatGPT 登录状态'
+    )
   }
 })()

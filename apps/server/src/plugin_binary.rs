@@ -27,6 +27,7 @@ pub(super) fn crypto(action: &str, params: &Value) -> Result<Value, String> {
         "crypto.digest_bytes" => match params["algorithm"].as_str() {
             Some("md5") => md5::Md5::digest(&data).to_vec(),
             Some("sha256") => Sha256::digest(&data).to_vec(),
+            Some("sha1") => sha1::Sha1::digest(&data).to_vec(),
             Some("crc32") => crc32fast::hash(&data).to_be_bytes().to_vec(),
             _ => return Err("摘要算法不支持".into()),
         },
@@ -149,6 +150,12 @@ mod tests {
     }
     #[test]
     fn checksum_vectors_and_limits() {
+        let sha1 = crypto(
+            "crypto.digest_bytes",
+            &json!({"algorithm":"sha1", "data_base64":"YWJj"}),
+        )
+        .unwrap();
+        assert_eq!(sha1["value"], "qZk+NkcGgWq6PiVxeFDCbJzQ2J0=");
         let crc = crypto(
             "crypto.digest_bytes",
             &json!({"algorithm":"crc32","data_base64":BASE64_STANDARD.encode(b"123456789")}),

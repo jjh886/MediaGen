@@ -1,44 +1,10 @@
-use crate::{
-    test_fixtures::{account_record, server_state},
-    ServerState,
-};
+use crate::{test_fixtures::account_record, ServerState};
 use actix_web::{test as actix_test, web, App};
 use mediagen_plugin_runtime::PluginLoader;
 use serde_json::{json, Value};
 
 pub(crate) fn state() -> web::Data<ServerState> {
-    let root = std::env::temp_dir().join(format!("protocol-test-{}", uuid::Uuid::new_v4()));
-    let dir = root.join("plugins/test/scripts");
-    std::fs::create_dir_all(&dir).unwrap();
-    let script = r#"function main(ctx) {
-        const response={id:'resp_'+ctx.request_id,object:'response',created_at:1,status:'completed',model:ctx.request.model,output:[{id:'msg_a',type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:'你好',annotations:[]}]}],usage:{input_tokens:2,output_tokens:3,total_tokens:5}};
-        host.emit({type:'response.created',sequence_number:0,response:{...response,status:'in_progress',output:[]}});
-        host.emit({type:'response.output_text.delta',sequence_number:1,item_id:'msg_a',output_index:0,content_index:0,delta:'你好'});
-        host.emit({type:'response.completed',sequence_number:2,response});
-        return {response};
-    }"#;
-    std::fs::write(dir.join("text.js"), script).unwrap();
-    std::fs::write(dir.join("models.js"),"function main(){return {models:[{model_id:'new-model',display_name:'New',task_kind:'text',capabilities:{input_modalities:['text']}}]}}").unwrap();
-    std::fs::write(
-        dir.join("speech.js"),
-        "function main(){return {audio_base64:'SUQz',mime_type:'audio/mpeg'}}",
-    )
-    .unwrap();
-    std::fs::write(root.join("plugins/test/manifest.json"),json!({"platform_id":"test","display_name":"Test","adapter_mode":"api","models":[{"model_id":"text-model","display_name":"Text","task_kind":"text","capabilities":{"input_modalities":["text"],"streaming":true}},{"model_id":"speech-model","display_name":"Speech","task_kind":"audio_speech"}],"flows":{"generate_text":{"steps":[{"action":"plugin.run_js","script_file":"text.js"}]},"generate_audio":{"steps":[{"action":"plugin.run_js","script_file":"speech.js"}]},"list_models":{"steps":[{"action":"plugin.run_js","script_file":"models.js"}]}}}).to_string()).unwrap();
-    let loader = PluginLoader::load_from(&root.join("plugins")).unwrap();
-    let state = server_state(root, loader);
-    state.store.update_settings(crate::store::SettingsUpdate {
-        api_keys: Some("key-a\nkey-b".into()),
-        ..Default::default()
-    });
-    let mut account = account_record("account", "test", "Account", "");
-    account.profile_dir = state
-        .file_root
-        .join("test-profile")
-        .to_string_lossy()
-        .into_owned();
-    state.store.insert_account(account);
-    web::Data::new(state)
+    crate::test_fixtures::protocol_state(false)
 }
 
 #[actix_web::test]
@@ -138,7 +104,7 @@ async fn chat_stream_has_usage_then_done_and_releases_account() {
 
 #[actix_web::test]
 async fn discovery_models_are_callable_and_speech_returns_binary() {
-    let state = state();
+    let state = crate::test_fixtures::protocol_state(true);
     let app = actix_test::init_service(
         App::new()
             .app_data(state.clone())
@@ -251,7 +217,7 @@ fn chat_conversion_preserves_images_calls_and_tool_outputs() {
 
 #[actix_web::test]
 async fn dynamic_model_reservation_uses_other_free_accounts() {
-    let state = state();
+    let state = crate::test_fixtures::protocol_state(true);
     state.store.update_account(
         "account",
         crate::store::AccountUpdate {
@@ -331,7 +297,7 @@ async fn dynamic_model_reservation_uses_other_free_accounts() {
 
 #[actix_web::test]
 async fn discovery_failure_preserves_other_accounts_and_reports_partial_success() {
-    let state = state();
+    let state = crate::test_fixtures::protocol_state(true);
     let mut broken = account_record("broken", "test", "Broken", "");
     broken.proxy_id = "deleted-proxy".into();
     state.store.insert_account(broken);

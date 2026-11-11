@@ -55,6 +55,8 @@ mod model_api;
 mod net_client;
 mod oauth_login;
 mod pagination;
+#[cfg(test)]
+mod plugin_live_tests;
 mod plugin_locks;
 mod plugin_login_prepare;
 mod plugin_process;

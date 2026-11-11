@@ -33,6 +33,7 @@ function chatgptApiAccountIdentity(auth) {
     username: displayName,
     email: chatgptApiFirstText([user.email]),
     name: displayName,
+    tier: chatgptApiFirstText([account.planType, account.plan_type]),
   }
 }
 

@@ -4,16 +4,7 @@
   if (window.__mediagenChatGptHasBlockingLoginUi()) {
     throw new Error('ChatGPT 页面仍在等待登录或身份验证')
   }
-  const response = await fetch('/api/auth/session', {
-    credentials: 'include',
-    cache: 'no-store',
-    headers: { accept: 'application/json' },
-  })
-  if (!response.ok) throw new Error(`ChatGPT session HTTP ${response.status}`)
-  const session = await response.json()
-  if (!session?.accessToken || !session?.account?.id) {
-    throw new Error('ChatGPT session 缺少 accessToken 或 account.id')
-  }
+  const session = await window.__mediagenChatGptVerifiedSession()
 
   const scripts = Array.from(document.scripts || [])
     .map((item) => item?.src || '')

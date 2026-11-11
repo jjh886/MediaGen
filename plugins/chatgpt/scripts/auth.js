@@ -34,11 +34,12 @@ function chatgptApiRefreshSession(auth) {
     if (!chatgptApiCookieHeader(auth))
       throw new Error('LOGIN_EXPIRED: 登录 Cookie 已过期，请重新登录 ChatGPT。')
     auth.runtime_started_at = Date.now()
-    chatgptApiNavigateHome(auth, chatgptApiCookieHeader(auth))
     const result = chatgptApiFetchSession(auth, chatgptApiCookieHeader(auth, '/api/auth/session'))
     chatgptApiValidateSession(result)
     chatgptApiRememberCookies(auth, result, '/api/auth/session')
     chatgptApiApplySession(auth, result.body)
+    chatgptApiRequireOk(chatgptApiRequest(auth, 'GET', '/backend-api/me'), '验证 ChatGPT 登录令牌')
+    chatgptApiNavigateHome(auth, chatgptApiCookieHeader(auth))
     chatgptApiSaveAuth(auth)
     return auth
   } finally {
@@ -99,6 +100,10 @@ function chatgptApiHtmlAttribute(html, name) {
 function chatgptApiValidateSession(result) {
   chatgptApiRequireNoChallenge(result, '检查 ChatGPT 登录会话')
   const status = Number(result.status)
+  if (result.body?.error === 'RefreshAccessTokenError')
+    throw new Error(
+      'LOGIN_EXPIRED: 网页会话续期失败，请在远程浏览器退出 ChatGPT 后重新登录；删除 MediaGen 账号不会清除旧网页会话。'
+    )
   if (status === 401 || chatgptApiErrorCategory(result.body) === 'LOGIN_EXPIRED') {
     throw new Error('LOGIN_EXPIRED: ChatGPT 登录已失效：' + chatgptApiHttpSummary(result))
   }
@@ -106,7 +111,7 @@ function chatgptApiValidateSession(result) {
   if (status === 403) {
     throw new Error('AUTH_INCONCLUSIVE: ChatGPT 暂时拒绝会话检查：' + chatgptApiHttpSummary(result))
   }
-  if (!result.ok || !result.body?.accessToken || !result.body?.account?.id) {
+  if (!result.ok || result.body?.error || !result.body?.accessToken || !result.body?.account?.id) {
     throw new Error(
       'AUTH_INCONCLUSIVE: 刷新 ChatGPT session 失败：' + chatgptApiHttpSummary(result)
     )
@@ -275,6 +280,7 @@ function chatgptApiErrorCategory(value) {
       'LOGIN_EXPIRED',
       [
         'invalid_access_token',
+        'invalid_jwt',
         'token_invalid',
         'token_invalidated',
         'token_revoked',
