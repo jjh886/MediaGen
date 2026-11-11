@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { HttpApiError } from '@/shared/services/http-api-client'
 import AccountAddDialog from '../AccountAddDialog'
 import AccountBrowserProfileFields from '../AccountBrowserProfileFields'
 
@@ -286,7 +287,7 @@ describe('AccountAddDialog', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('登录检测未通过时保留窗口并显示继续登录提示', async () => {
+  it('登录身份未就绪时静默等待，检测通过后仍自动完成', async () => {
     mocks.startAccountLoginSession.mockResolvedValue({
       id: 'session-login',
       platform: 'chatgpt',
@@ -294,18 +295,29 @@ describe('AccountAddDialog', () => {
       viewport: { width: 1365, height: 768 },
     })
     mocks.completeBrowserSession.mockRejectedValue(
-      new Error('还没有检测到登录成功，请继续在页面里完成登录。')
+      new HttpApiError('尚未检测到完整的 Google 登录身份', 409)
     )
 
-    render(<AccountAddDialog open platform="chatgpt" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    const onSuccess = vi.fn()
+    render(<AccountAddDialog open platform="chatgpt" onClose={vi.fn()} onSuccess={onSuccess} />)
     await screen.findByText('Chrome 154 · 推荐版本')
-    fireEvent.click(screen.getByText('打开登录页'))
-
-    expect(await screen.findByText('远程浏览器画面')).toBeInTheDocument()
-    expect(
-      await screen.findByText('还没有检测到登录成功，请继续在页面里完成登录。', undefined, {
-        timeout: 4500,
-      })
-    ).toBeInTheDocument()
+    vi.useFakeTimers()
+    try {
+      await act(async () => fireEvent.click(screen.getByText('打开登录页')))
+      expect(screen.getByText('远程浏览器画面')).toBeInTheDocument()
+      await act(async () => vi.advanceTimersByTimeAsync(3000))
+      expect(mocks.completeBrowserSession).toHaveBeenCalledOnce()
+      expect(screen.queryByText('尚未检测到完整的 Google 登录身份')).not.toBeInTheDocument()
+      expect(onSuccess).not.toHaveBeenCalled()
+      mocks.completeBrowserSession.mockRejectedValueOnce(new HttpApiError('浏览器连接失败', 502))
+      await act(async () => vi.advanceTimersByTimeAsync(3000))
+      expect(screen.queryByText('浏览器连接失败')).not.toBeInTheDocument()
+      expect(screen.getByText('远程浏览器画面')).toBeInTheDocument()
+      mocks.completeBrowserSession.mockResolvedValue({ id: 'session-login' })
+      await act(async () => vi.advanceTimersByTimeAsync(3000))
+      expect(onSuccess).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

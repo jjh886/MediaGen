@@ -187,7 +187,6 @@ export default function AccountAddDialog({
         onSuccess()
         handleCancel(false)
       } catch (error) {
-        // 登录窗口不能只“看起来有账号”就自动关闭，把服务端检测结果直接提示给用户。
         setErrorText(loginErrorMessage(error))
         completingRef.current = false
       }
@@ -253,24 +252,6 @@ export default function AccountAddDialog({
                 }}
               >
                 {browserSession.metadata.login_instructions}
-              </div>
-            )}
-            {errorText && (
-              <div
-                style={{
-                  position: 'absolute',
-                  left: 24,
-                  right: 24,
-                  bottom: 80,
-                  color: 'var(--color-error)',
-                  fontSize: 13,
-                  background: 'rgba(20,20,20,0.92)',
-                  border: '1px solid var(--color-error)',
-                  borderRadius: 8,
-                  padding: '10px 12px',
-                }}
-              >
-                {errorText}
               </div>
             )}
           </>
