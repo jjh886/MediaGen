@@ -100,7 +100,7 @@ function geminiRequireOk(response) {
 }
 
 function geminiPageField(html, key) {
-  const match = html.match(new RegExp('"' + key + '":("(?:[^"\\\\]|\\\\.)*")'))
+  const match = html.match(new RegExp('"' + key + '"\\s*:\\s*("(?:[^"\\\\]|\\\\.)*"|true|false)'))
   if (!match) return ''
   try {
     return JSON.parse(match[1])
@@ -121,6 +121,17 @@ function geminiInitialize(session) {
     })
   }
   const html = response.body_text || ''
+  const identity = geminiIdentity(
+    Object.fromEntries(
+      ['Lz8rbb', 'oPEP7c', 'S06Grb'].map((key) => [key, geminiPageField(html, key)])
+    )
+  )
+  if (!identity) {
+    if (geminiPageField(html, 'Lz8rbb') === false)
+      throw new Error('LOGIN_EXPIRED: Gemini 返回未登录页面')
+    throw new Error('AUTH_INCONCLUSIVE: Gemini 页面未返回完整账号身份')
+  }
+  Object.assign(session.auth, identity)
   const tokens = {
     at: geminiPageField(html, 'SNlM0e'),
     bl: geminiPageField(html, 'cfb2h'),

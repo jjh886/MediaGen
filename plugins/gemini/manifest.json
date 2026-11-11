@@ -92,7 +92,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "1.1.1",
+  "version": "1.1.2",
   "platform_id": "gemini",
   "display_name": "Gemini",
   "sort_order": 25,
@@ -388,11 +388,11 @@
   },
   "login_detection": {
     "method": "js_script",
-    "script_file": "check_login.js",
-    "await_promise": true
+    "await_promise": true,
+    "script_files": ["account.js", "check_login.js"]
   },
   "login_credential_capture": {
-    "script_files": ["@shared/api_login_fingerprint.js", "capture_auth.js"],
+    "script_files": ["account.js", "@shared/api_login_fingerprint.js", "capture_auth.js"],
     "await_promise": true,
     "file_name": "auth.json",
     "cookie_urls": ["https://gemini.google.com/", "https://accounts.google.com/"]
@@ -407,6 +407,7 @@
             "@shared/api_text_attachments.js",
             "@shared/api_text_responses.js",
             "@shared/api_text_media.js",
+            "account.js",
             "auth.js",
             "protocol.js",
             "wire.js",
@@ -430,6 +431,7 @@
             "@shared/api_text_attachments.js",
             "@shared/api_text_responses.js",
             "@shared/api_text_media.js",
+            "account.js",
             "auth.js",
             "protocol.js",
             "wire.js",
@@ -453,6 +455,7 @@
             "@shared/api_text_attachments.js",
             "@shared/api_text_responses.js",
             "@shared/api_text_media.js",
+            "account.js",
             "auth.js",
             "protocol.js",
             "wire.js",
@@ -476,6 +479,7 @@
             "@shared/api_text_attachments.js",
             "@shared/api_text_responses.js",
             "@shared/api_text_media.js",
+            "account.js",
             "auth.js",
             "protocol.js",
             "check_account.js"
@@ -494,6 +498,7 @@
             "@shared/api_text_attachments.js",
             "@shared/api_text_responses.js",
             "@shared/api_text_media.js",
+            "account.js",
             "auth.js",
             "protocol.js",
             "list_models.js"

@@ -34,6 +34,7 @@ function geminiFrames(raw) {
 
 function geminiCatalog(session) {
   const data = geminiRpc(session, 'otAQ7b', [])
+  session.user_status = data
   const status = Number(data?.[14] || 1000)
   if (status !== 1000) {
     const category =
