@@ -12,6 +12,7 @@ import {
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
+import { gunzipSync } from 'node:zlib'
 
 const source = readFileSync(new URL('./deploy-server-release.sh', import.meta.url), 'utf8')
 
@@ -91,6 +92,15 @@ function fixture() {
 test('默认密钥部署只上传源码，包含未提交文件，忽略旧环境选项和敏感文件', () => {
   const f = fixture()
   try {
+    if (process.platform === 'darwin') {
+      const xattr = spawnSync('xattr', [
+        '-w',
+        'com.apple.metadata:mediagen-deploy-test',
+        'deployment-xattr-marker',
+        path.join(f.root, 'apps/changed.rs'),
+      ])
+      assert.equal(xattr.status, 0, xattr.stderr?.toString())
+    }
     const result = f.run([], {
       MEDIAGEN_DEPLOY_HOST: 'retired.example',
       MEDIAGEN_DEPLOY_PORT: '22',
@@ -107,6 +117,8 @@ test('默认密钥部署只上传源码，包含未提交文件，忽略旧环�
       assert.ok(call.includes('PasswordAuthentication=no'))
     }
     assert.equal(existsSync(path.join(f.root, 'env-executed')), false)
+    const contents = gunzipSync(readFileSync(path.join(f.root, 'uploaded.tar.gz'))).toString()
+    assert.doesNotMatch(contents, /LIBARCHIVE\.xattr\.|SCHILY\.xattr\.|deployment-xattr-marker/)
     const archive = spawnSync('tar', ['-tzf', path.join(f.root, 'uploaded.tar.gz')], {
       encoding: 'utf8',
     })

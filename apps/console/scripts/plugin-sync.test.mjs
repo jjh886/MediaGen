@@ -66,6 +66,7 @@ describe('新版插件装配与协议', () => {
     const writes = []
     let accepted = true
     const run = scripts(['codex/scripts/auth.js', 'codex/scripts/finish_oauth_login.js'], {
+      tryCall: () => ({ success: true, data: { ok: true, body: {} } }),
       call: (action, params) => {
         if (action === 'http.request') {
           expect(params.headers.originator).toBe('codex-tui')

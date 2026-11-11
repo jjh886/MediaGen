@@ -32,7 +32,7 @@ printf '\n[部署] %s:%s，检查 SSH 密钥登录\n' "$SERVER" "$PORT"
   exit 1
 }
 printf '[部署] 打包并上传源码（包含未提交修改）\n'
-COPYFILE_DISABLE=1 tar -C "$ROOT_DIR" -czf "$TEMP_DIR/source.tar.gz" \
+COPYFILE_DISABLE=1 tar --no-xattrs -C "$ROOT_DIR" -czf "$TEMP_DIR/source.tar.gz" \
   --exclude=node_modules --exclude=target --exclude=dist --exclude=coverage \
   --exclude=.git --exclude='.env*' --exclude='*.pem' --exclude='*.key' \
   --exclude='*.p12' --exclude='*.log' --exclude=.DS_Store \

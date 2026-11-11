@@ -1,0 +1,512 @@
+{
+  "schema_version": 1,
+  "adapter_mode": "api",
+  "failure_strategy": [
+    {
+      "contains_any": ["account_model_unavailable"],
+      "category": "account_model_unavailable",
+      "retry_action": "failover",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["content_policy_violation", "media_generation_refused"],
+      "category": "invalid_request",
+      "retry_action": "fail",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["verification_required", "needs_verification"],
+      "category": "verification_required",
+      "retry_action": "failover",
+      "account_state": "verification_required",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": [
+        "missing_input",
+        "invalid_input",
+        "unsupported_speed",
+        "unsupported_instructions",
+        "unsupported_voice",
+        "unsupported_format"
+      ],
+      "category": "invalid_request",
+      "retry_action": "fail",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["LOGIN_EXPIRED", "HTTP 401"],
+      "category": "login_expired",
+      "retry_action": "failover",
+      "account_state": "login_expired",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["rate_limit_exceeded", "HTTP 429", "生成过于频繁"],
+      "category": "account_rate_limited",
+      "retry_action": "failover",
+      "account_state": "cooldown",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["quota_exhausted"],
+      "category": "quota_exhausted",
+      "retry_action": "failover",
+      "account_state": "daily_quota_exhausted",
+      "cooldown_from_message": true,
+      "cooldown_seconds": -1,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": [
+        "AUTH_INCONCLUSIVE",
+        "generation_timeout",
+        "temporary_unavailable",
+        "timeout",
+        "connection reset",
+        "HTTP 500",
+        "HTTP 502",
+        "HTTP 503",
+        "HTTP 504"
+      ],
+      "category": "transient_network",
+      "retry_action": "same_account_retry",
+      "same_error_threshold": 3,
+      "threshold_cooldown_seconds": 600,
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["upstream_client_outdated"],
+      "category": "invalid_request",
+      "retry_action": "fail",
+      "usage_consumed": false
+    }
+  ],
+  "verification": {
+    "trigger_contains_any": [],
+    "ignore_contains_any": [],
+    "captcha_selectors": []
+  },
+  "registration": {
+    "enabled": false
+  },
+  "version": "1.1.1",
+  "platform_id": "gemini",
+  "display_name": "Gemini",
+  "sort_order": 25,
+  "login_url": "https://gemini.google.com/app",
+  "workspace_url": "https://gemini.google.com/app",
+  "capabilities": {
+    "actions": [
+      "browser.run_script",
+      "file.read_json",
+      "file.write_json",
+      "file.read_base64",
+      "file.write_base64",
+      "http.request",
+      "time.sleep",
+      "crypto.digest_bytes",
+      "crypto.base64_encode_utf8",
+      "crypto.base64_encode_latin1",
+      "crypto.base64_decode_latin1",
+      "http.sse_request",
+      "crypto.base64url_decode_utf8"
+    ],
+    "network_hosts": ["google.com", "googleapis.com", "googleusercontent.com"],
+    "context_fields": [
+      "profile_dir",
+      "workspace_dir",
+      "request",
+      "model_id",
+      "model_capabilities",
+      "reasoning_effort",
+      "prompt",
+      "platform_config",
+      "image_aspect_ratio",
+      "video_aspect_ratio",
+      "generation_options",
+      "ref_image_dataurls",
+      "ref_image_locals",
+      "ref_video_locals",
+      "ref_audio_locals",
+      "video_duration",
+      "max_images",
+      "seconds",
+      "size",
+      "quality"
+    ]
+  },
+  "models": [
+    {
+      "model_id": "gemini-3.5-flash-lite",
+      "display_name": "Gemini 3.5 Flash-Lite",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "video", "audio", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "tool_calling": false,
+        "streaming": true,
+        "reasoning": {
+          "efforts": ["low", "medium", "high"],
+          "default_effort": "low"
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "max_output_tokens",
+          "stop",
+          "seed",
+          "tools",
+          "text"
+        ],
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "model_id": "gemini-3.8-flash",
+      "display_name": "Gemini 3.8 Flash",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "video", "audio", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "tool_calling": false,
+        "streaming": true,
+        "reasoning": {
+          "efforts": ["low", "medium", "high"],
+          "default_effort": "low"
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "max_output_tokens",
+          "stop",
+          "seed",
+          "tools",
+          "text"
+        ],
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "model_id": "gemini-3.1-pro",
+      "display_name": "Gemini 3.1 Pro",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "video", "audio", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "tool_calling": false,
+        "streaming": true,
+        "reasoning": {
+          "efforts": ["low", "medium", "high"],
+          "default_effort": "low"
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "max_output_tokens",
+          "stop",
+          "seed",
+          "tools",
+          "text"
+        ],
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "model_id": "gemini-4-argon",
+      "display_name": "Gemini 4 Argon",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "video", "audio", "file"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "tool_calling": false,
+        "streaming": true,
+        "reasoning": {
+          "efforts": ["low", "medium", "high"],
+          "default_effort": "low"
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "max_output_tokens",
+          "stop",
+          "seed",
+          "tools",
+          "text"
+        ],
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "model_id": "gemini-image",
+      "display_name": "Gemini 图片",
+      "task_kind": "image",
+      "capabilities": {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["image"],
+        "endpoints": ["/v1/images/generations", "/v1/images/edits"]
+      }
+    },
+    {
+      "model_id": "gemini-video",
+      "display_name": "Gemini 视频",
+      "task_kind": "video",
+      "capabilities": {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["video"],
+        "endpoints": ["/v1/videos", "/v1/videos/{video_id}", "/v1/videos/{video_id}/content"]
+      }
+    }
+  ],
+  "tiers": {
+    "free": {
+      "display_name": "Google 账号",
+      "is_default": true,
+      "concurrency_limit": 1,
+      "daily_limit": 0,
+      "total_limit": 0,
+      "text_concurrency_limit": 1,
+      "text_daily_limit": 0,
+      "text_total_limit": 0,
+      "cooldown_seconds": 30,
+      "task_interval_seconds": 0
+    }
+  },
+  "login_detection": {
+    "method": "js_script",
+    "script_file": "check_login.js",
+    "await_promise": true
+  },
+  "login_credential_capture": {
+    "script_files": ["@shared/api_login_fingerprint.js", "capture_auth.js"],
+    "await_promise": true,
+    "file_name": "auth.json",
+    "cookie_urls": ["https://gemini.google.com/", "https://accounts.google.com/"]
+  },
+  "flows": {
+    "generate_text": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "@shared/api_text_media.js",
+            "auth.js",
+            "protocol.js",
+            "wire.js",
+            "channel.js",
+            "attachments.js",
+            "history.js",
+            "generation.js",
+            "generate_text.js"
+          ],
+          "timeout_ms": 3600000,
+          "save_as": "result"
+        }
+      ]
+    },
+    "generate_image": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "@shared/api_text_media.js",
+            "auth.js",
+            "protocol.js",
+            "wire.js",
+            "channel.js",
+            "attachments.js",
+            "history.js",
+            "generation.js",
+            "generate_media.js"
+          ],
+          "timeout_ms": 3600000,
+          "save_as": "result"
+        }
+      ]
+    },
+    "generate_video": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "@shared/api_text_media.js",
+            "auth.js",
+            "protocol.js",
+            "wire.js",
+            "channel.js",
+            "attachments.js",
+            "history.js",
+            "generation.js",
+            "generate_media.js"
+          ],
+          "timeout_ms": 3600000,
+          "save_as": "result"
+        }
+      ]
+    },
+    "check_account": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "@shared/api_text_media.js",
+            "auth.js",
+            "protocol.js",
+            "check_account.js"
+          ],
+          "timeout_ms": 120000,
+          "save_as": "health"
+        }
+      ]
+    },
+    "list_models": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "@shared/api_text_media.js",
+            "auth.js",
+            "protocol.js",
+            "list_models.js"
+          ],
+          "timeout_ms": 120000,
+          "save_as": "result"
+        }
+      ]
+    }
+  },
+  "task_recovery": {
+    "media_types": ["text", "image", "video"],
+    "checkpoint_field": "conversation_id"
+  },
+  "protected_json_files": ["auth.json"]
+}
