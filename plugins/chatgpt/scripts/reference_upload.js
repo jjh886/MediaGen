@@ -6,7 +6,7 @@ function chatgptApiReadReferenceFiles(ctx) {
   return paths.map((path, index) => {
     const dimensions = host.call('file.inspect_image', {
       path,
-      max_bytes: 50 * 1024 * 1024,
+      max_bytes: 20 * 1024 * 1024,
     })
     const extension = chatgptApiImageExtension(dimensions.mime)
     return {
@@ -46,6 +46,9 @@ function chatgptApiReserveUpload(auth) {
 }
 
 function chatgptApiUploadReference(auth, reference) {
+  const limit = reference.mime_type.startsWith('image/') ? 20 * 1024 * 1024 : 512 * 1024 * 1024
+  if (reference.size > limit)
+    throw new Error('invalid_input: ChatGPT 附件超过上游单文件大小限制（图片20MB，其他文件512MB）')
   const fingerprint = chatgptApiFingerprint(auth)
   const useCase = reference.use_case || 'multimodal'
   const created = chatgptApiRequireOk(
@@ -187,11 +190,14 @@ function chatgptApiTranscribeAttachments(auth, input, ctx) {
         retained.push(attachment)
         continue
       }
+      if (attachment.size > 512 * 1024 * 1024)
+        throw new Error('invalid_input: ChatGPT 音频超过上游512MB限制')
       // 普通文件上传不会把音频交给听觉模型；复用平台已有的语音转写入口。
       // 历史消息与本轮可能引用同一音轨；同一请求内按真实字节复用，避免重复转写产生相互矛盾的版本。
       let cache = transcriptions.get(attachment.mime_type)
       if (!cache) transcriptions.set(attachment.mime_type, (cache = new Map()))
-      let text = cache.get(attachment.base64)
+      const identity = attachment.path || attachment.base64
+      let text = cache.get(identity)
       if (text === undefined) {
         const file = apiTextMaterializeAttachment(ctx, attachment, audioIndex++)
         const response = chatgptApiRequireOk(
@@ -209,7 +215,7 @@ function chatgptApiTranscribeAttachments(auth, input, ctx) {
         text = typeof response.body === 'string' ? response.body : response.body?.text
         if (typeof text !== 'string' || !text.trim())
           throw new Error('invalid_response: ChatGPT 音频附件未返回有效转写')
-        cache.set(attachment.base64, text)
+        cache.set(identity, text)
       }
       item.text =
         (item.text || '') +

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { scripts } from './platform-api-test-helper.mjs'
 
 const shared = ['_shared/api_text_attachments.js', '_shared/api_text_responses.js']
@@ -159,6 +160,151 @@ describe('ChatGPT 聊天音频转写', () => {
 })
 
 describe('API 插件共同附件协议', () => {
+  it.each(['gemini', 'chatgpt'])('%s 静态和新发现模型声明一致且可解析的附件格式', (platform) => {
+    const manifest = JSON.parse(readFileSync(`../../plugins/${platform}/manifest.json`, 'utf8'))
+    const models = manifest.models.filter((model) =>
+      model.capabilities?.input_modalities?.includes('file')
+    )
+    const extensions = models[0].capabilities.file_extensions
+    expect(extensions.length).toBeGreaterThan(0)
+    expect(new Set(extensions).size).toBe(extensions.length)
+    expect(extensions).not.toContain('gdoc')
+    const run = scripts([...shared, `${platform}/scripts/list_models.js`])
+    run(`apiSessionRead=()=>({});geminiInitialize=x=>x;
+      geminiCatalog=()=>[{id:'new-model',name:'New',efforts:['low']}];
+      chatgptApiReadAuth=()=>({});chatgptApiRefreshSession=x=>x;
+      chatgptApiRequest=()=>({body:{models:[{slug:'gpt-99-new'}]}});
+      chatgptApiRequireOk=x=>x;chatgptApiDiscoveredReasoning=()=>({})`)
+    expect(run('main({}).models[0].capabilities.file_extensions')).toEqual(extensions)
+    expect(run('main({}).models[0].capabilities.attachment_transport')).toBe('workspace')
+    expect(run('main({}).models[0].capabilities.attachment_limits')).toEqual(
+      models[0].capabilities.attachment_limits
+    )
+    for (const model of models) expect(model.capabilities.file_extensions).toEqual(extensions)
+    for (const extension of extensions) {
+      const name = '资料【完整】？.' + extension
+      const [file] = run('apiTextResponsesMedia([part])', {
+        part: { type: 'input_file', filename: name, file_data: 'YWJj' },
+      })
+      expect(file).toMatchObject({ name, base64: 'YWJj', size: 3 })
+      expect(file.mime_type).toContain('/')
+    }
+  })
+
+  it('保留中文标点文件名、点文件和 EML 的 MIME', () => {
+    const run = scripts(shared)
+    for (const name of ['在？遇到困难了？来买个外挂？(3).txt', '.gitignore']) {
+      expect(
+        run('apiTextResponsesMedia([part])', {
+          part: { type: 'input_file', filename: name, file_data: 'YWJj' },
+        })[0]
+      ).toMatchObject({ name, mime_type: 'text/plain', base64: 'YWJj' })
+    }
+    expect(
+      run(`apiTextResponsesMedia([{type:'input_file',filename:'邮件.eml',
+      file_data:'data:message/rfc822;base64,YWJj'}])`)[0].mime_type
+    ).toBe('message/rfc822')
+  })
+
+  it('大附件仅携带授权工作区引用，保持文件名和 MIME 且不读写 Base64', () => {
+    const run = scripts(shared, {
+      call: () => {
+        throw new Error('不得读写 Base64')
+      },
+    })
+    const part = {
+      type: 'input_file',
+      file_path: '/workspace/attachment.bin',
+      filename: '剧本？.txt',
+      mime_type: 'text/plain',
+      size: 512 * 1024 ** 2,
+    }
+    expect(
+      run(
+        'apiTextMaterializeAttachment({workspace_dir:"/workspace"},apiTextResponsesMedia([part])[0],0)',
+        { part }
+      )
+    ).toEqual({
+      path: part.file_path,
+      name: part.filename,
+      mime_type: 'text/plain',
+      size: part.size,
+    })
+    for (const path of ['/private/secret', '/workspace-other/file', '/workspace/../secret']) {
+      expect(() =>
+        run(
+          'apiTextMaterializeAttachment({workspace_dir:"/workspace"},apiTextResponsesMedia([part])[0],0)',
+          {
+            part: { ...part, file_path: path },
+          }
+        )
+      ).toThrow('invalid_input')
+    }
+  })
+
+  it('Gemini 文档100MB、视频2GB通过文件流上传，超额在请求前拒绝', () => {
+    const run = scripts([...shared, 'gemini/scripts/attachments.js'])
+    run(`calls=[];geminiRequest=(_s,_u,options)=>{calls.push(options);
+      return options.headers['x-goog-upload-command']==='start'
+      ? {headers:{'x-goog-upload-url':'https://content-push.googleapis.com/upload?session=x'}}
+      : {body_text:'/uploaded'} };
+      session={auth:{},tokens:{push_id:'push'}}`)
+    for (const [mime, size] of [
+      ['text/plain', 100 * 1024 ** 2],
+      ['video/mp4', 2 * 1024 ** 3],
+    ]) {
+      const file = { path: '/workspace/file', name: '资料.txt', mime_type: mime, size }
+      run('geminiUpload(session,file)', { file })
+      expect(run('calls.at(-1)')).toMatchObject({
+        body_format: 'file',
+        body_file: file.path,
+        body_file_size: size,
+      })
+      expect(run('calls.at(-1).body')).toBeUndefined()
+      const count = run('calls.length')
+      expect(() =>
+        run('geminiUpload(session,file)', { file: { ...file, size: size + 1 } })
+      ).toThrow('上游单文件')
+      expect(run('calls.length')).toBe(count)
+    }
+    expect(() =>
+      run(
+        'geminiReferences({workspace_dir:"/workspace"},session,{input:[{attachments:Array(11).fill({})}]})'
+      )
+    ).toThrow('最多10个')
+  })
+
+  it('ChatGPT 文件路径音频分别转写，复用同一路径只转写一次', () => {
+    const run = scripts([...shared, 'chatgpt/scripts/reference_upload.js'])
+    run(`calls=[];chatgptApiRequireOk=x=>x;chatgptApiRequest=(_a,_m,_u,p)=>{
+      calls.push(p);return {body:{text:p.body_file}}};
+      one={path:'/workspace/one.wav',name:'one.wav',mime_type:'audio/wav',size:100*1024**2};
+      two={...one,path:'/workspace/two.wav',name:'two.wav'};
+      input=[{attachments:[one,two,one]}];
+      chatgptApiTranscribeAttachments({},input,{workspace_dir:'/workspace'})`)
+    expect(run('calls.map(p=>p.body_file)')).toEqual(['/workspace/one.wav', '/workspace/two.wav'])
+    expect(run('input[0].text')).toContain('/workspace/two.wav')
+  })
+
+  it('ChatGPT 使用公开图片20MB与文档512MB边界，不再统一限制50MB', () => {
+    const run = scripts(['chatgpt/scripts/reference_upload.js'])
+    run(`calls=0;chatgptApiFingerprint=()=>({});chatgptApiRequireOk=x=>x;
+      chatgptApiRequest=()=>{calls++;return {body:{file_id:'file',upload_url:'https://upload.test'}}};
+      chatgptApiUploadSignedBlob=()=>{};chatgptApiProcessReference=()=>({});chatgptApiVerifyReference=()=>{}`)
+    for (const [mime, size] of [
+      ['image/png', 20 * 1024 ** 2],
+      ['application/pdf', 512 * 1024 ** 2],
+    ]) {
+      const file = { path: '/workspace/file', name: 'source', mime_type: mime, size }
+      expect(run('chatgptApiUploadReference({},file)', { file }).size).toBe(size)
+      const count = run('calls')
+      expect(() =>
+        run('chatgptApiUploadReference({},file)', { file: { ...file, size: size + 1 } })
+      ).toThrow('上游单文件')
+      expect(run('calls')).toBe(count)
+    }
+  })
+
   it('自定义后缀保留文件名，使用宿主提供的 MIME 类型', () => {
     const run = scripts(shared)
     expect(
@@ -201,6 +347,9 @@ describe('API 插件共同附件协议', () => {
 
   it.each([
     { type: 'input_file', filename: '../credential.txt', file_data: 'YWJj' },
+    { type: 'input_file', filename: 'folder\\secret.txt', file_data: 'YWJj' },
+    { type: 'input_file', filename: 'line\nbreak.txt', file_data: 'YWJj' },
+    { type: 'input_file', filename: 'line\u2028break.txt', file_data: 'YWJj' },
     { type: 'input_file', filename: 'a.txt', file_data: 'YWJj=' },
     { type: 'input_image', image_url: 'data:text/plain;base64,YWJj' },
     { type: 'input_file', filename: 'a.txt', file_id: 'foreign-file' },

@@ -1,4 +1,7 @@
 function geminiUpload(session, attachment) {
+  const limit = attachment.mime_type.startsWith('video/') ? 2 * 1024 ** 3 : 100 * 1024 ** 2
+  if (attachment.size > limit)
+    throw new Error('invalid_input: Gemini 附件超过上游单文件大小限制（视频2GB，其他文件100MB）')
   if (!session.tokens.push_id) throw new Error('upstream_client_outdated: Gemini 页面缺少上传参数')
   const headers = {
     'x-tenant-id': 'bard-storage',
@@ -31,8 +34,10 @@ function geminiUpload(session, attachment) {
       'x-goog-upload-command': 'upload, finalize',
       'x-goog-upload-offset': '0',
     },
-    body_format: 'base64',
-    body: attachment.base64,
+    ...(attachment.path
+      ? { body_format: 'file', body_file: attachment.path, body_file_size: attachment.size }
+      : { body_format: 'base64', body: attachment.base64 }),
+    timeout_ms: 900000,
   })
   const reference = String(result.body_text || '').trim()
   if (!/^\/[^\s\r\n]+$/.test(reference)) throw new Error('upload_failed: Gemini 未返回文件引用')
@@ -67,17 +72,26 @@ function geminiReferences(ctx, session, request) {
       [ctx.ref_audio_locals || [], 'audio/mpeg'],
     ]) {
       for (const path of paths) {
-        const file = host.call('file.read_base64', { path })
+        const file = host.call(
+          type.startsWith('image/') ? 'file.inspect_image' : 'file.inspect_media',
+          { path, max_bytes: type.startsWith('video/') ? 2 * 1024 ** 3 : 100 * 1024 ** 2 }
+        )
         const name = path.split(/[\\/]/).pop()
         const extension = name.split('.').pop().toLowerCase()
         attachments.push({
           name,
-          base64: file.base64,
+          path,
           size: file.size,
           mime_type: API_TEXT_FILE_TYPES[extension] || type,
         })
       }
     }
   }
-  return attachments.map((attachment) => geminiUpload(session, attachment))
+  if (attachments.length > 10) throw new Error('invalid_input: Gemini 同一提示最多10个附件')
+  return attachments.map((attachment, index) =>
+    geminiUpload(
+      session,
+      request ? apiTextMaterializeAttachment(ctx, attachment, index) : attachment
+    )
+  )
 }

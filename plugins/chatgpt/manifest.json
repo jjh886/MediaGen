@@ -120,8 +120,19 @@
           "yaml",
           "yml",
           "toml",
-          "log"
-        ]
+          "log",
+          "tsv",
+          "rtf",
+          "odt",
+          "eml",
+          "ods",
+          "odp"
+        ],
+        "attachment_transport": "workspace",
+        "attachment_limits": {
+          "file_bytes": 536870912,
+          "image_bytes": 20971520
+        }
       }
     },
     {
@@ -230,8 +241,19 @@
           "yaml",
           "yml",
           "toml",
-          "log"
-        ]
+          "log",
+          "tsv",
+          "rtf",
+          "odt",
+          "eml",
+          "ods",
+          "odp"
+        ],
+        "attachment_transport": "workspace",
+        "attachment_limits": {
+          "file_bytes": 536870912,
+          "image_bytes": 20971520
+        }
       }
     },
     {
@@ -340,8 +362,19 @@
           "yaml",
           "yml",
           "toml",
-          "log"
-        ]
+          "log",
+          "tsv",
+          "rtf",
+          "odt",
+          "eml",
+          "ods",
+          "odp"
+        ],
+        "attachment_transport": "workspace",
+        "attachment_limits": {
+          "file_bytes": 536870912,
+          "image_bytes": 20971520
+        }
       }
     },
     {
@@ -450,8 +483,19 @@
           "yaml",
           "yml",
           "toml",
-          "log"
-        ]
+          "log",
+          "tsv",
+          "rtf",
+          "odt",
+          "eml",
+          "ods",
+          "odp"
+        ],
+        "attachment_transport": "workspace",
+        "attachment_limits": {
+          "file_bytes": 536870912,
+          "image_bytes": 20971520
+        }
       }
     },
     {
@@ -915,7 +959,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "1.7.4",
+  "version": "1.7.5",
   "schema_version": 1,
   "task_recovery": {
     "media_types": ["text", "image"],

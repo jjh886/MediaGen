@@ -5,6 +5,20 @@ const API_TEXT_FILE_TYPES = {
   webp: 'image/webp',
   gif: 'image/gif',
   pdf: 'application/pdf',
+  tsv: 'text/tab-separated-values',
+  rtf: 'application/rtf',
+  odt: 'application/vnd.oasis.opendocument.text',
+  ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  odp: 'application/vnd.oasis.opendocument.presentation',
+  eml: 'message/rfc822',
+  dot: 'application/msword',
+  dotx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+  hwp: 'application/x-hwp',
+  hwpx: 'application/hwp+zip',
+  ipynb: 'application/x-ipynb+json',
+  json5: 'application/json5',
+  zip: 'application/zip',
+  markdown: 'text/markdown',
   txt: 'text/plain',
   md: 'text/markdown',
   csv: 'text/csv',
@@ -23,29 +37,170 @@ const API_TEXT_FILE_TYPES = {
   m4a: 'audio/mp4',
 }
 for (const extension of [
-  'py',
+  '3dm',
+  '3dml',
+  'appcache',
+  'ascii',
+  'asm',
+  'asset',
+  'bib',
+  'boo',
+  'brf',
+  'c',
+  'c++',
+  'cc',
+  'ccc',
+  'clang-format',
+  'class',
+  'cls',
+  'cnd',
+  'coffee',
+  'conf',
+  'config',
+  'copyright',
+  'cpp',
+  'cql',
+  'cs',
+  'csh',
+  'css',
+  'csvs',
+  'cu',
+  'cuh',
+  'curl',
+  'cxx',
+  'd',
+  'dart',
+  'diff',
+  'dms',
+  'dsc',
+  'el',
+  'erl',
+  'es',
+  'ets',
+  'etx',
+  'flake8',
+  'flt',
+  'flx',
+  'fly',
+  'gcd',
+  'ged',
+  'gitignore',
+  'go',
+  'gv',
+  'h',
+  'h++',
+  'hans',
+  'hgl',
+  'hh',
+  'hpp',
+  'hrl',
+  'hs',
+  'htc',
+  'htm',
+  'html',
+  'hxx',
+  'ics',
+  'ifb',
+  'in',
+  'ini',
+  'jad',
+  'java',
   'js',
   'jsx',
+  'jtd',
+  'kt',
+  'ktm',
+  'lhs',
+  'local',
+  'log',
+  'lsp',
+  'ltx',
+  'lua',
+  'm',
+  'manifest',
+  'map',
+  'mc2',
+  'meta',
+  'metal',
+  'miz',
+  'mjs',
+  'mm',
+  'mo',
+  'mpf',
+  'n3',
+  'p',
+  'pas',
+  'patch',
+  'php',
+  'pie',
+  'pl',
+  'pm',
+  'po',
+  'pot',
+  'properties',
+  'provn',
+  'ps1',
+  'py',
+  'r',
+  'rb',
+  'rmd',
+  'roff',
+  'rs',
+  'rst',
+  's',
+  'sample',
+  'sass',
+  'sc',
+  'scala',
+  'scm',
+  'scss',
+  'sfv',
+  'sgm',
+  'sgml',
+  'sh',
+  'shaclc',
+  'shex',
+  'shtml',
+  'si',
+  'sl',
+  'soa',
+  'sos',
+  'spdx',
+  'spo',
+  'sql',
+  'srt',
+  'sty',
+  'swift',
+  'symbols',
+  't',
+  'tag',
+  'tcl',
+  'tex',
+  'text',
+  'tk',
+  'tm',
+  'toml',
+  'tr',
   'ts',
   'tsx',
-  'go',
-  'rs',
-  'java',
-  'c',
-  'cpp',
-  'h',
-  'cs',
-  'php',
-  'rb',
-  'sh',
-  'sql',
-  'html',
-  'css',
+  'ttl',
+  'types',
+  'uri',
+  'uris',
+  'vcard',
+  'vcf',
+  'vcs',
+  'vfk',
+  'vtt',
+  'vue',
+  'wgsl',
+  'wml',
+  'wmls',
   'xml',
   'yaml',
   'yml',
-  'toml',
-  'log',
+  'zone',
+  'zsh',
 ]) {
   API_TEXT_FILE_TYPES[extension] = 'text/plain'
 }
@@ -54,6 +209,29 @@ function apiTextResponsesMedia(content) {
   if (!Array.isArray(content)) return []
   return content.flatMap((part, index) => {
     if (!part || typeof part !== 'object') return []
+    if (part.file_path !== undefined) {
+      if (
+        !['input_file', 'input_image'].includes(part.type) ||
+        typeof part.file_path !== 'string' ||
+        !/^(?:\/|[A-Za-z]:[\\/])/.test(part.file_path) ||
+        /(?:^|[\\/])\.\.(?:[\\/]|$)|[\p{Cc}]/u.test(part.file_path) ||
+        !Number.isSafeInteger(part.size) ||
+        part.size <= 0
+      )
+        throw new Error('invalid_input: 附件文件引用无效')
+      const name = apiTextAttachmentName(part.filename)
+      const extension = name.split('.').pop().toLowerCase()
+      const mime =
+        part.mime_type && part.mime_type !== 'application/octet-stream'
+          ? part.mime_type
+          : API_TEXT_FILE_TYPES[extension] || 'application/octet-stream'
+      if (
+        !/^(?:image|video|audio|application|text|message)\/[a-z0-9.+-]+$/i.test(mime) ||
+        (part.type === 'input_image' && !mime.startsWith('image/'))
+      )
+        throw new Error('invalid_input: 附件 MIME 类型无效')
+      return [{ path: part.file_path, name, mime_type: mime, size: part.size }]
+    }
     let source = ''
     if (part.type === 'input_file') {
       if (typeof part.file_data !== 'string') throw new Error('invalid_input: 附件须传入 file_data')
@@ -76,32 +254,59 @@ function apiTextResponsesMedia(content) {
         'data:' + API_TEXT_FILE_TYPES[format] + ';base64,' + String(part.input_audio?.data || '')
     } else return []
     const match = String(source || '').match(
-      /^data:((?:image|video|audio|application|text)\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i
+      /^data:((?:image|video|audio|application|text|message)\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i
     )
     if (!match)
       throw new Error('invalid_input: 附件须为有效 Base64 data URL；远程文件须先由宿主下载')
-    const mime = match[1].toLowerCase()
+    const declaredMime = match[1].toLowerCase()
+    const fileExtension = String(part.filename || '')
+      .split('.')
+      .pop()
+      .toLowerCase()
+    const mime =
+      declaredMime === 'application/octet-stream'
+        ? API_TEXT_FILE_TYPES[fileExtension] || declaredMime
+        : declaredMime
     const base64 = match[2]
     const size =
       (base64.length / 4) * 3 - (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0)
-    if (size <= 0 || size > 50 * 1024 * 1024 || base64.length % 4 !== 0) {
-      throw new Error('invalid_input: 附件为空、编码无效或超过 50 MiB')
+    if (!Number.isSafeInteger(size) || size <= 0 || base64.length % 4 !== 0) {
+      throw new Error('invalid_input: 附件为空或编码无效')
     }
     if (part.type === 'input_image' && !mime.startsWith('image/'))
       throw new Error('invalid_input: input_image 必须是图片')
     const extension =
       Object.keys(API_TEXT_FILE_TYPES).find((key) => API_TEXT_FILE_TYPES[key] === mime) || 'bin'
-    const name = String(part.filename || 'attachment-' + (index + 1) + '.' + extension)
-    if (!/^[\p{L}\p{N} _()+.-]{1,160}$/u.test(name) || name === '.' || name === '..') {
-      throw new Error('invalid_input: 附件文件名无效')
-    }
+    const name = apiTextAttachmentName(
+      part.filename || 'attachment-' + (index + 1) + '.' + extension
+    )
     return [{ name, mime_type: mime, base64, size }]
   })
+}
+
+function apiTextAttachmentName(value) {
+  const name = String(value || '')
+  if (
+    !name.trim() ||
+    name.length > 240 ||
+    /[/\\\p{Cc}\p{Zl}\p{Zp}]/u.test(name) ||
+    name === '.' ||
+    name === '..'
+  )
+    throw new Error('invalid_input: 附件文件名无效')
+  return name
 }
 
 function apiTextMaterializeAttachment(ctx, attachment, index) {
   if (typeof ctx.workspace_dir !== 'string' || !ctx.workspace_dir)
     throw new Error('invalid_input: 附件工作目录缺失')
+  if (attachment.path) {
+    const root = ctx.workspace_dir.replace(/\\/g, '/').replace(/\/$/, '') + '/'
+    const path = attachment.path.replace(/\\/g, '/')
+    if (!path.startsWith(root) || /(?:^|\/)\.\.(?:\/|$)/.test(path))
+      throw new Error('invalid_input: 附件不在当前任务工作目录')
+    return attachment
+  }
   const extension =
     attachment.name
       .split('.')
