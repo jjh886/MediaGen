@@ -72,7 +72,11 @@ async fn read_and_dispatch(
                 "{}",
                 json!({"event":"request_body_rejected", "request_id":crate::request_identity::id(&request), "path":request.path(), "status":413, "code":"body_too_large", "received_at_least_bytes":bytes.len().saturating_add(chunk.len()), "limit_bytes":crate::MAX_REQUEST_BODY_BYTES})
             );
-            return error(413, "body_too_large", "请求体超过 50 MiB 限制");
+            return error(
+                413,
+                "body_too_large",
+                "内联 JSON 超过 50 MiB；大附件请先上传 /v1/files，再通过 file_id 引用",
+            );
         }
         bytes.extend_from_slice(&chunk);
     }
@@ -224,7 +228,9 @@ pub(crate) async fn execute(
     } else {
         None
     };
-    if let Err(message) = crate::protocol_files::resolve(&state, &key, &mut payload).await {
+    if let Err(message) =
+        crate::protocol_files::resolve(&state, &key, &mut payload, &capabilities).await
+    {
         return error(400, "invalid_file_id", &message);
     }
     if let Err(message) =

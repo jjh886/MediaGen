@@ -181,7 +181,7 @@ pub fn profile_from_value(value: &Value) -> AccountLoginProfile {
     let explicit = value
         .get("logged_in")
         .or_else(|| value.get("loggedIn"))
-        .and_then(Value::as_bool);
+        .map(|value| value.as_bool().unwrap_or(false));
     let value = if let Some(account) = value.get("account") {
         account.clone()
     } else {
@@ -195,7 +195,7 @@ pub fn profile_from_value(value: &Value) -> AccountLoginProfile {
         value
             .get("logged_in")
             .or_else(|| value.get("loggedIn"))
-            .and_then(Value::as_bool)
+            .map(|value| value.as_bool().unwrap_or(false))
     });
     profile.logged_in = (status.is_empty() || status == "available")
         && explicit.unwrap_or_else(|| {
@@ -382,6 +382,9 @@ mod tests {
             json!({"loggedIn":false,"email":"cached@example.test"}),
             json!({"status":"login_expired","account":{"email":"cached@example.test","loggedIn":true}}),
             json!({"logged_in":false,"account":{"email":"cached@example.test"}}),
+            json!({"logged_in":null,"account":{"email":"cached@example.test"}}),
+            json!({"logged_in":"true","account":{"email":"cached@example.test"}}),
+            json!({"logged_in":null,"account":{"logged_in":true,"email":"cached@example.test"}}),
         ] {
             assert!(!profile_from_value(&value).logged_in);
         }

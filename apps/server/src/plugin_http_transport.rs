@@ -34,30 +34,6 @@ impl ServerPluginHost {
     }
 
     async fn send_http_inner(&self, params: &Value) -> Result<TransportResponse, String> {
-        let mut prepared = params.clone();
-        if let Some(path) = params["body_file"].as_str() {
-            let file = self.read_base64(&json!({"path":path})).await?;
-            if params["body_file_size"]
-                .as_u64()
-                .is_some_and(|n| file["size"].as_u64() != Some(n))
-            {
-                return Err("上传文件大小不一致".into());
-            }
-            if params["body_format"] == "multipart_file" {
-                let field = params["body_file_field"].as_str().unwrap_or("file");
-                prepared["body_format"] = json!("multipart");
-                prepared["body"] = params["body"]
-                    .as_object()
-                    .cloned()
-                    .map(Value::Object)
-                    .unwrap_or(json!({}));
-                prepared["body"][field] = json!({"base64":file["base64"],"filename":params["body_file_name"].as_str().unwrap_or("upload"),"mime_type":params["body_file_mime"].as_str().unwrap_or("application/octet-stream")});
-            } else {
-                prepared["body_format"] = json!("base64");
-                prepared["body"] = file["base64"].clone();
-            }
-        }
-        let params = &prepared;
         let mutating = matches!(
             params["method"]
                 .as_str()
@@ -67,10 +43,6 @@ impl ServerPluginHost {
             "POST" | "PUT" | "PATCH" | "DELETE"
         );
         let previous = self.submitted.load(std::sync::atomic::Ordering::Relaxed);
-        if mutating {
-            self.submitted
-                .store(true, std::sync::atomic::Ordering::Relaxed);
-        }
         let headers = self.request_headers(params)?;
         let configured = params["tls_profile"].as_str().unwrap_or(&self.http_profile);
         let profile = if self.http_profile == "browser" || configured == "browser" {
@@ -97,9 +69,12 @@ impl ServerPluginHost {
             _ => wreq_util::Platform::MacOS,
         };
         if profile.is_empty() || profile == "native" {
-            let response = self
-                .build_request(params)
-                .await?
+            let request = self.build_request(params).await?;
+            if mutating {
+                self.submitted
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            let response = request
                 .send()
                 .await
                 .map_err(|error| crate::protocol_error::error_chain(&error.without_url()))?;
@@ -193,8 +168,44 @@ impl ServerPluginHost {
             .timeout(Duration::from_millis(
                 params["timeout_ms"].as_u64().unwrap_or(30_000),
             ));
-        if let Some(body) = params.get("body").filter(|body| !body.is_null()) {
+        if params["body_file"].is_string() {
+            let (stream, size) = super::http_body::file_body(params).await?;
+            let body = wreq::Body::wrap_stream(stream);
+            request = if params["body_format"] == "multipart_file" {
+                let part = wreq::multipart::Part::stream_with_length(body, size)
+                    .file_name(
+                        params["body_file_name"]
+                            .as_str()
+                            .unwrap_or("upload")
+                            .to_string(),
+                    )
+                    .mime_str(
+                        params["body_file_mime"]
+                            .as_str()
+                            .unwrap_or("application/octet-stream"),
+                    )
+                    .map_err(|_| "文件 MIME 类型无效")?;
+                let mut fields = params["body"].as_object().cloned().unwrap_or_default();
+                fields.remove(params["body_file_field"].as_str().unwrap_or("file"));
+                let form = profile_multipart(&Value::Object(fields))?;
+                request.multipart(
+                    form.part(
+                        params["body_file_field"]
+                            .as_str()
+                            .unwrap_or("file")
+                            .to_string(),
+                        part,
+                    ),
+                )
+            } else {
+                request.header("content-length", size).body(body)
+            };
+        } else if let Some(body) = params.get("body").filter(|body| !body.is_null()) {
             request = profile_body(request, params, body)?;
+        }
+        if mutating {
+            self.submitted
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
         let response = request
             .send()
@@ -227,31 +238,7 @@ fn profile_body(
     body: &Value,
 ) -> Result<wreq::RequestBuilder, String> {
     match params["body_format"].as_str().unwrap_or("json") {
-        "multipart" => {
-            let mut form = wreq::multipart::Form::new();
-            for (name, value) in body.as_object().ok_or("multipart body 必须是对象")? {
-                if let Some(encoded) = value["base64"].as_str() {
-                    let bytes = BASE64_STANDARD
-                        .decode(encoded)
-                        .map_err(|_| "上传文件编码无效")?;
-                    if bytes.len() > MAX_FILE_BYTES as usize {
-                        return Err("上传文件过大".into());
-                    }
-                    let part = wreq::multipart::Part::bytes(bytes)
-                        .file_name(value["filename"].as_str().unwrap_or("upload").to_string())
-                        .mime_str(
-                            value["mime_type"]
-                                .as_str()
-                                .unwrap_or("application/octet-stream"),
-                        )
-                        .map_err(|_| "文件 MIME 类型无效")?;
-                    form = form.part(name.clone(), part);
-                } else {
-                    form = form.text(name.clone(), value_to_string(value));
-                }
-            }
-            Ok(request.multipart(form))
-        }
+        "multipart" => Ok(request.multipart(profile_multipart(body)?)),
         "form" | "x-www-form-urlencoded" => {
             let pairs = body
                 .as_object()
@@ -269,6 +256,32 @@ fn profile_body(
         "text" | "raw" => Ok(request.body(value_to_string(body))),
         _ => Ok(request.json(body)),
     }
+}
+
+fn profile_multipart(body: &Value) -> Result<wreq::multipart::Form, String> {
+    let mut form = wreq::multipart::Form::new();
+    for (name, value) in body.as_object().ok_or("multipart body 必须是对象")? {
+        if let Some(encoded) = value["base64"].as_str() {
+            let bytes = BASE64_STANDARD
+                .decode(encoded)
+                .map_err(|_| "上传文件编码无效")?;
+            if bytes.len() > MAX_FILE_BYTES as usize {
+                return Err("上传文件过大".into());
+            }
+            let part = wreq::multipart::Part::bytes(bytes)
+                .file_name(value["filename"].as_str().unwrap_or("upload").to_string())
+                .mime_str(
+                    value["mime_type"]
+                        .as_str()
+                        .unwrap_or("application/octet-stream"),
+                )
+                .map_err(|_| "文件 MIME 类型无效")?;
+            form = form.part(name.clone(), part);
+        } else {
+            form = form.text(name.clone(), value_to_string(value));
+        }
+    }
+    Ok(form)
 }
 
 #[cfg(test)]

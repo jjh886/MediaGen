@@ -212,6 +212,35 @@ pub(crate) fn validate_request(body: &Value, endpoint: &str) -> Result<(), Strin
         }
         _ => {}
     }
+    reject_local_files(body)?;
+    Ok(())
+}
+
+fn reject_local_files(value: &Value) -> Result<(), String> {
+    match value {
+        Value::Object(object) => {
+            if matches!(
+                value["type"].as_str(),
+                Some("input_file" | "input_image" | "file")
+            ) {
+                let file = value.get("file").unwrap_or(value);
+                if file.get("file_path").is_some() || file.get("path").is_some() {
+                    return Err(
+                        "公共接口不接受本地文件路径，请先上传 /v1/files 并使用 file_id".into(),
+                    );
+                }
+            }
+            for value in object.values() {
+                reject_local_files(value)?;
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                reject_local_files(item)?;
+            }
+        }
+        _ => {}
+    }
     Ok(())
 }
 

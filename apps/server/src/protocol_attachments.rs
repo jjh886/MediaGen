@@ -94,6 +94,41 @@ pub(crate) async fn prepare(
         };
         let mut result = Vec::new();
         for part in parts.iter() {
+            if part.get("file_path").is_some() {
+                let mime = part["mime_type"].as_str().ok_or("附件缺少 MIME 类型")?;
+                let kind = if mime.starts_with("image/") {
+                    "image"
+                } else if mime.starts_with("video/") {
+                    "video"
+                } else if mime.starts_with("audio/") {
+                    "audio"
+                } else {
+                    "file"
+                };
+                if !supports(caps, kind) {
+                    return Err(format!("当前模型不支持 {kind} 附件输入"));
+                }
+                let limits = &caps["attachment_limits"];
+                if let Some(limit) = limits[format!("{kind}_bytes")]
+                    .as_u64()
+                    .or_else(|| limits["file_bytes"].as_u64())
+                {
+                    if part["size"].as_u64().is_none_or(|size| size > limit) {
+                        return Err(format!(
+                            "附件超过当前模型声明的上游单文件容量 {limit} bytes"
+                        ));
+                    }
+                }
+                if kind == "file" {
+                    validate_extension(caps, part)?;
+                }
+                let mut part = part.clone();
+                if kind == "image" {
+                    part["type"] = json!("input_image");
+                }
+                result.push(part);
+                continue;
+            }
             let Some((mime, bytes)) = decode(part)? else {
                 result.push(part.clone());
                 continue;
@@ -150,16 +185,7 @@ async fn prepare_one(
         if !supports(caps, "file") {
             return Err("当前模型不支持文件输入".into());
         }
-        if let Some(extensions) = caps["file_extensions"].as_array() {
-            let name = part["filename"].as_str().unwrap_or("").to_lowercase();
-            if !extensions
-                .iter()
-                .filter_map(Value::as_str)
-                .any(|ext| !ext.is_empty() && name.ends_with(&format!(".{ext}")))
-            {
-                return Err("文件后缀不在模型允许范围内".into());
-            }
-        }
+        validate_extension(caps, part)?;
         return Ok(vec![part.clone()]);
     }
     let work = tempfile::tempdir().map_err(|_| "创建媒体临时目录失败")?;
@@ -391,4 +417,18 @@ mod tests {
         assert!(frame_times(f64::NAN).is_err());
         assert!(frame_times(3601.).is_err());
     }
+}
+
+fn validate_extension(caps: &Value, part: &Value) -> Result<(), String> {
+    if let Some(extensions) = caps["file_extensions"].as_array() {
+        let name = part["filename"].as_str().unwrap_or("").to_lowercase();
+        if !extensions
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|ext| !ext.is_empty() && name.ends_with(&format!(".{ext}")))
+        {
+            return Err("文件后缀不在模型允许范围内".into());
+        }
+    }
+    Ok(())
 }

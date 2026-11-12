@@ -71,8 +71,8 @@ impl ServerPluginHost {
         let metadata = tokio::fs::metadata(&path)
             .await
             .map_err(|_| "媒体文件不可读")?;
-        if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES {
-            return Err("媒体附件必须是不超过 50 MiB 的本地文件".into());
+        if !metadata.is_file() {
+            return Err("媒体附件必须是本地普通文件".into());
         }
         let binary = mediagen_core::resolve_ffprobe_binary();
         let mut child = tokio::process::Command::new(binary)

@@ -279,6 +279,9 @@ fn browser_session_upsert_creates_and_relogs_accounts() {
                 username: "Bob".to_string(),
                 email: "bob@example.test".to_string(),
                 tier: String::new(),
+                quota_windows: Some(vec![serde_json::json!({
+                    "name": "上游图片额度", "remaining_percent": 35, "task_kind": "image"
+                })]),
                 ..AccountLoginProfile::default()
             },
         )
@@ -288,6 +291,16 @@ fn browser_session_upsert_creates_and_relogs_accounts() {
     assert_eq!(created.name, "Bob");
     assert_eq!(created.email, "bob@example.test");
     assert_eq!(created.tier, "pro");
+    assert_eq!(created.policy.quota_windows.len(), 1);
+    assert_eq!(created.policy.quota_windows[0]["remaining_percent"], 35);
+    assert_eq!(
+        store
+            .account_by_id(&created.id)
+            .unwrap()
+            .policy
+            .quota_windows,
+        created.policy.quota_windows
+    );
     assert_eq!(created.proxy_url, "socks5://127.0.0.1:1080");
     assert_eq!(created.proxy_id, "proxy-1");
     assert_eq!(created.browser_os, "windows");
@@ -311,6 +324,7 @@ fn browser_session_upsert_creates_and_relogs_accounts() {
 
     assert_eq!(relogged.name, "Bobby");
     assert_eq!(relogged.tier, "enterprise");
+    assert_eq!(relogged.policy.quota_windows, created.policy.quota_windows);
     assert!(store
         .upsert_from_browser_session(&session(BrowserSessionPurpose::DebugPreview, None))
         .is_none());

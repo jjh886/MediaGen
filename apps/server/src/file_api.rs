@@ -1,9 +1,8 @@
 use std::cmp::Reverse;
 use std::path::{Path, PathBuf};
 
-use actix_multipart::{Field, Multipart};
+use actix_multipart::Multipart;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
-use bytes::BytesMut;
 use chrono::Utc;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -26,6 +25,8 @@ pub(crate) struct FileRecord {
     pub filename: String,
     pub purpose: String,
     #[serde(default)]
+    pub mime_type: String,
+    #[serde(default)]
     pub owner_hash: String,
 }
 
@@ -38,7 +39,21 @@ pub async fn upload_file(
         return file_error(401, "authentication_error", "invalid api key");
     }
     let owner_hash = owner_hash_from_request(&request);
-    match parse_upload(payload, request).await {
+    let max_bytes = state
+        .plugin_loader
+        .plugins()
+        .values()
+        .flat_map(|plugin| &plugin.models)
+        .filter_map(|model| model.extra.get("capabilities"))
+        .filter_map(|caps| caps["attachment_limits"].as_object())
+        .flat_map(|limits| {
+            ["file_bytes", "image_bytes", "video_bytes"]
+                .into_iter()
+                .filter_map(|key| limits.get(key).and_then(serde_json::Value::as_u64))
+        })
+        .max()
+        .unwrap_or(MAX_FILE_BYTES as u64);
+    match parse_upload(payload, request, &state.file_root, max_bytes).await {
         Ok(upload) => save_upload(&state.file_root, upload, owner_hash).await,
         Err((status, message)) => file_error(status, "invalid_request_error", &message),
     }
@@ -131,9 +146,9 @@ pub async fn retrieve_file_content(
     if let Err(message) = read_record_for_owner(&state.file_root, &id, &owner_hash).await {
         return file_error(404, "not_found", &message);
     }
-    match tokio::fs::read(content_path(&state.file_root, &id)).await {
-        Ok(bytes) => HttpResponse::Ok().body(bytes),
-        Err(err) => file_error(404, "not_found", &err.to_string()),
+    match actix_files::NamedFile::open_async(content_path(&state.file_root, &id)).await {
+        Ok(file) => file.into_response(&request),
+        Err(_) => file_error(404, "not_found", "文件不存在"),
     }
 }
 
@@ -167,10 +182,17 @@ pub(crate) async fn read_file_as_data_url(
     owner_hash: &str,
 ) -> Result<String, String> {
     let record = read_record_for_owner(root, id, owner_hash).await?;
+    if record.bytes > MAX_FILE_BYTES as u64 {
+        return Err("当前插件未声明文件流式传输，无法内联读取此文件".into());
+    }
     let bytes = tokio::fs::read(content_path(root, id))
         .await
         .map_err(|err| err.to_string())?;
-    let mime = mime_from_filename(&record.filename);
+    let mime = if record.mime_type.is_empty() {
+        mime_from_filename(&record.filename)
+    } else {
+        &record.mime_type
+    };
     Ok(format!(
         "data:{mime};base64,{}",
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes)
@@ -180,55 +202,114 @@ pub(crate) async fn read_file_as_data_url(
 struct UploadInput {
     filename: String,
     purpose: String,
-    bytes: bytes::Bytes,
+    mime_type: String,
+    size: u64,
+    path: tempfile::TempPath,
 }
 
 async fn parse_upload(
     payload: web::Payload,
     request: HttpRequest,
+    root: &Path,
+    max_bytes: u64,
 ) -> Result<UploadInput, (u16, String)> {
+    use tokio::io::AsyncWriteExt;
+    tokio::fs::create_dir_all(root)
+        .await
+        .map_err(|_| (500, "无法创建文件目录".into()))?;
     let mut multipart = Multipart::new(request.headers(), payload);
     let mut purpose = "assistants".to_string();
-    let mut file = None;
-    let mut total = 0usize;
+    let mut upload = None;
     while let Some(item) = multipart.next().await {
-        let mut field = item.map_err(|err| (400, err.to_string()))?;
-        let name = field_name(&field);
-        let filename = field_filename(&field);
-        let bytes = read_field(&mut field, &mut total).await?;
-        if name == "purpose" {
-            purpose = String::from_utf8_lossy(&bytes).trim().to_string();
-        } else if name == "file" {
-            file = Some(UploadInput {
-                filename: sanitize_filename(filename.as_deref().unwrap_or("file.bin")),
-                purpose: purpose.clone(),
-                bytes,
-            });
+        let mut field = item.map_err(|_| (400, "上传表单无效".into()))?;
+        match field_name(&field).as_str() {
+            "purpose" => {
+                let mut bytes = Vec::new();
+                while let Some(chunk) = field.next().await {
+                    let chunk = chunk.map_err(|_| (400, "上传表单中断".into()))?;
+                    if bytes.len() + chunk.len() > 1024 {
+                        return Err((400, "purpose 字段过长".into()));
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                purpose = String::from_utf8(bytes)
+                    .map_err(|_| (400, "purpose 编码无效".into()))?
+                    .trim()
+                    .to_string();
+            }
+            "file" => {
+                if upload.is_some() {
+                    return Err((400, "每次只能上传一个 file".into()));
+                }
+                let filename =
+                    sanitize_filename(field_filename(&field).as_deref().unwrap_or("file.bin"));
+                let inferred = mime_from_filename(&filename);
+                let mime_type = if inferred != "application/octet-stream" {
+                    inferred.to_string()
+                } else {
+                    field
+                        .content_type()
+                        .map(|mime| mime.essence_str().to_string())
+                        .unwrap_or_else(|| inferred.into())
+                };
+                let (file, path) = tempfile::NamedTempFile::new_in(root)
+                    .map_err(|_| (500, "无法创建上传文件".into()))?
+                    .into_parts();
+                let mut file = tokio::fs::File::from_std(file);
+                let mut size = 0u64;
+                while let Some(chunk) = field.next().await {
+                    let chunk = chunk.map_err(|_| (400, "文件上传中断".into()))?;
+                    size = size
+                        .checked_add(chunk.len() as u64)
+                        .ok_or((413, "文件过大".into()))?;
+                    if size > max_bytes {
+                        return Err((
+                            413,
+                            format!("文件超过已安装平台支持的最大单文件容量 {max_bytes} bytes"),
+                        ));
+                    }
+                    file.write_all(&chunk)
+                        .await
+                        .map_err(|_| (500, "文件写入失败".into()))?;
+                }
+                file.flush()
+                    .await
+                    .map_err(|_| (500, "文件写入失败".into()))?;
+                drop(file);
+                upload = Some(UploadInput {
+                    filename,
+                    purpose: String::new(),
+                    mime_type,
+                    size,
+                    path,
+                });
+            }
+            _ => return Err((400, "不支持的上传表单字段".into())),
         }
     }
-    let mut upload = file.ok_or_else(|| (400, "缺少 file 字段".to_string()))?;
+    let mut upload = upload.ok_or_else(|| (400, "缺少 file 字段".to_string()))?;
     upload.purpose = purpose;
     Ok(upload)
 }
 
 async fn save_upload(root: &Path, upload: UploadInput, owner_hash: String) -> HttpResponse {
-    if let Err(err) = tokio::fs::create_dir_all(root).await {
-        return file_error(500, "server_error", &err.to_string());
-    }
     let id = format!("file-{}", Uuid::new_v4());
     let record = FileRecord {
         id: id.clone(),
-        object: "file".to_string(),
-        bytes: upload.bytes.len() as u64,
+        object: "file".into(),
+        bytes: upload.size,
         created_at: Utc::now().timestamp(),
         filename: upload.filename,
         purpose: upload.purpose,
+        mime_type: upload.mime_type,
         owner_hash,
     };
-    if let Err(err) = tokio::fs::write(content_path(root, &id), upload.bytes).await {
-        return file_error(500, "server_error", &err.to_string());
+    let target = content_path(root, &id);
+    if tokio::fs::rename(&upload.path, &target).await.is_err() {
+        return file_error(500, "server_error", "文件保存失败");
     }
     if let Err(err) = write_record(root, &record).await {
+        let _ = tokio::fs::remove_file(target).await;
         return file_error(500, "server_error", &err);
     }
     HttpResponse::Ok().json(public_record(record))
@@ -288,20 +369,7 @@ async fn write_record(root: &Path, record: &FileRecord) -> Result<(), String> {
     .map_err(|err| err.to_string())
 }
 
-async fn read_field(field: &mut Field, total: &mut usize) -> Result<bytes::Bytes, (u16, String)> {
-    let mut body = BytesMut::new();
-    while let Some(chunk) = field.next().await {
-        let chunk = chunk.map_err(|err| (400, err.to_string()))?;
-        *total += chunk.len();
-        if *total > MAX_FILE_BYTES {
-            return Err((413, "文件不能超过 50MB".to_string()));
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body.freeze())
-}
-
-fn content_path(root: &Path, id: &str) -> PathBuf {
+pub(crate) fn content_path(root: &Path, id: &str) -> PathBuf {
     root.join(format!("{id}.bin"))
 }
 

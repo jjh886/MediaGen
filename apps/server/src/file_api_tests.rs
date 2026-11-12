@@ -199,3 +199,126 @@ async fn file_list_pagination_filters_and_errors_follow_openai_shape() {
     let error: serde_json::Value = actix_test::read_body_json(response).await;
     assert!(error["error"].get("param").is_some());
 }
+
+#[actix_web::test]
+async fn large_upload_is_streamed_and_owned_file_id_becomes_an_isolated_workspace_file() {
+    use serde_json::{json, Value};
+    let mut state = test_state("large-workspace-file");
+    let plugins = state.file_root.parent().unwrap().join("plugins/stream");
+    std::fs::create_dir_all(&plugins).unwrap();
+    let caps = json!({"attachment_transport":"workspace","attachment_limits":{"file_bytes":52*1024*1024},"input_modalities":["file"],"file_extensions":["txt"]});
+    std::fs::write(plugins.join("manifest.json"),json!({"platform_id":"stream","display_name":"Stream","models":[{"model_id":"stream","display_name":"Stream","task_kind":"text","capabilities":caps}]}).to_string()).unwrap();
+    state.plugin_loader = PluginLoader::load_from(plugins.parent().unwrap())
+        .unwrap()
+        .into();
+    state.store.update_settings(SettingsUpdate {
+        api_keys: Some("file-key=default\nother-key=default".into()),
+        ..Default::default()
+    });
+    let state = web::Data::new(state);
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(state.clone())
+            .configure(crate::configure_routes),
+    )
+    .await;
+    let size = 51 * 1024 * 1024;
+    let prefix = "--large\r\nContent-Disposition: form-data; name=\"file\"; filename=\"完整剧本？.txt\"\r\nContent-Type: text/plain\r\n\r\n";
+    let mut body = prefix.as_bytes().to_vec();
+    body.resize(body.len() + size, b'x');
+    body.extend_from_slice(b"\r\n--large\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nuser_data\r\n--large--\r\n");
+    let response = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::post()
+            .uri("/v1/files")
+            .insert_header(("authorization", "Bearer file-key"))
+            .insert_header(("content-type", "multipart/form-data; boundary=large"))
+            .set_payload(body)
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let uploaded: Value = actix_test::read_body_json(response).await;
+    assert_eq!(uploaded["bytes"], size);
+    assert_eq!(uploaded["purpose"], "user_data");
+    let original = json!({"model":"stream","input":[{"role":"user","content":[{"type":"input_file","file_id":uploaded["id"],"filename":"forged.txt","size":1}]}]});
+    assert!(
+        crate::protocol_files::resolve(&state, "other-key", &mut original.clone(), &caps)
+            .await
+            .is_err()
+    );
+    let mut request = original;
+    crate::protocol_files::resolve(&state, "file-key", &mut request, &caps)
+        .await
+        .unwrap();
+    let mut smaller_caps = caps.clone();
+    smaller_caps["attachment_limits"]["file_bytes"] = json!(size - 1);
+    assert!(crate::protocol_attachments::prepare(
+        &state,
+        "file-key",
+        &mut request.clone(),
+        &smaller_caps
+    )
+    .await
+    .is_err());
+    crate::protocol_attachments::prepare(&state, "file-key", &mut request, &caps)
+        .await
+        .unwrap();
+    assert!(request.to_string().len() < 1024);
+    let part = &request["input"][0]["content"][0];
+    assert_eq!(part["filename"], "完整剧本？.txt");
+    assert_eq!(part["size"], size);
+    assert!(part.get("file_data").is_none());
+    assert!(crate::protocol_request::validate_request(&request, "responses").is_err());
+    let source = std::path::PathBuf::from(part["file_path"].as_str().unwrap());
+    let work = tempfile::tempdir().unwrap();
+    crate::protocol_files::materialize(&state, &mut request, work.path())
+        .await
+        .unwrap();
+    let target = std::path::PathBuf::from(
+        request["input"][0]["content"][0]["file_path"]
+            .as_str()
+            .unwrap(),
+    );
+    assert!(target.starts_with(work.path()));
+    assert_eq!(std::fs::metadata(&target).unwrap().len(), size as u64);
+    std::fs::write(&target, b"changed").unwrap();
+    assert_eq!(std::fs::metadata(&source).unwrap().len(), size as u64);
+    let mut forged = json!({"model":"stream","input":[{"content":[{"type":"input_file","file_path":source,"size":size}]}]});
+    assert!(crate::protocol_request::validate_request(&forged, "responses").is_err());
+    forged["input"][0]["content"][0]["file_path"] = json!(target);
+    assert!(
+        crate::protocol_files::materialize(&state, &mut forged, work.path())
+            .await
+            .is_err()
+    );
+    let before = std::fs::read_dir(&state.file_root).unwrap().count();
+    let incomplete = "--broken\r\nContent-Disposition: form-data; name=\"file\"; filename=\"broken.txt\"\r\n\r\nunfinished";
+    let failed = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::post()
+            .uri("/v1/files")
+            .insert_header(("authorization", "Bearer file-key"))
+            .insert_header(("content-type", "multipart/form-data; boundary=broken"))
+            .set_payload(incomplete)
+            .to_request(),
+    )
+    .await;
+    assert_eq!(failed.status(), 400);
+    assert_eq!(std::fs::read_dir(&state.file_root).unwrap().count(), before);
+    let mut too_large = prefix.as_bytes().to_vec();
+    too_large.resize(too_large.len() + 52 * 1024 * 1024 + 1, b'x');
+    too_large.extend_from_slice(b"\r\n--large--\r\n");
+    let rejected = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::post()
+            .uri("/v1/files")
+            .insert_header(("authorization", "Bearer file-key"))
+            .insert_header(("content-type", "multipart/form-data; boundary=large"))
+            .set_payload(too_large)
+            .to_request(),
+    )
+    .await;
+    assert_eq!(rejected.status(), 413);
+    assert_eq!(std::fs::read_dir(&state.file_root).unwrap().count(), before);
+}

@@ -19,7 +19,39 @@ impl ServerPluginHost {
             .timeout(Duration::from_millis(
                 params["timeout_ms"].as_u64().unwrap_or(30_000),
             ));
-        if let Some(body) = params.get("body").filter(|value| !value.is_null()) {
+        if params["body_file"].is_string() {
+            let (stream, size) = super::http_body::file_body(params).await?;
+            let body = reqwest::Body::wrap_stream(stream);
+            request = if params["body_format"] == "multipart_file" {
+                let part = reqwest::multipart::Part::stream_with_length(body, size)
+                    .file_name(
+                        params["body_file_name"]
+                            .as_str()
+                            .unwrap_or("upload")
+                            .to_string(),
+                    )
+                    .mime_str(
+                        params["body_file_mime"]
+                            .as_str()
+                            .unwrap_or("application/octet-stream"),
+                    )
+                    .map_err(|_| "文件 MIME 类型无效")?;
+                let mut fields = params["body"].as_object().cloned().unwrap_or_default();
+                fields.remove(params["body_file_field"].as_str().unwrap_or("file"));
+                let form = super::http_body::multipart_form(&Value::Object(fields))?;
+                request.multipart(
+                    form.part(
+                        params["body_file_field"]
+                            .as_str()
+                            .unwrap_or("file")
+                            .to_string(),
+                        part,
+                    ),
+                )
+            } else {
+                request.header("content-length", size).body(body)
+            };
+        } else if let Some(body) = params.get("body").filter(|value| !value.is_null()) {
             request = apply_body(request, params, body)?;
         }
         Ok(request)
@@ -273,6 +305,65 @@ fn http_client_builder(params: &Value) -> reqwest::ClientBuilder {
 mod sync_tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn native_and_browser_file_uploads_stream_large_bodies_with_exact_lengths() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("large.bin");
+        let size = 51 * 1024 * 1024;
+        std::fs::File::create(&path).unwrap().set_len(size).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}/upload", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            for multipart in [false, true, false, true] {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut headers = Vec::new();
+                while !headers.ends_with(b"\r\n\r\n") {
+                    headers.push(socket.read_u8().await.unwrap());
+                    assert!(headers.len() < 16384);
+                }
+                let headers = String::from_utf8(headers).unwrap().to_lowercase();
+                let length: u64 = headers
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .unwrap()
+                    .trim()
+                    .parse()
+                    .unwrap();
+                if multipart {
+                    assert!(length > size);
+                    assert!(headers.contains("multipart/form-data"));
+                } else {
+                    assert_eq!(length, size);
+                }
+                let mut received = 0;
+                let mut buffer = [0u8; 65536];
+                while received < length {
+                    let take = buffer.len().min((length - received) as usize);
+                    let count = socket.read(&mut buffer[..take]).await.unwrap();
+                    assert!(count > 0);
+                    if !multipart {
+                        assert!(buffer[..count].iter().all(|b| *b == 0));
+                    }
+                    received += count as u64;
+                }
+                socket
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                    )
+                    .await
+                    .unwrap();
+            }
+        });
+        let host = ServerPluginHost::new_with_metadata(String::new(), &HashMap::new());
+        for profile in ["native", "chrome_140"] {
+            for format in ["file", "multipart_file"] {
+                let result = host.execute("http.request", &json!({"method":"POST","url":origin,"proxy":"direct","tls_profile":profile,"body_format":format,"body_file":path,"body_file_size":size,"body_file_name":"large.bin","body_file_mime":"application/octet-stream","timeout_ms":30000})).await.unwrap();
+                assert_eq!(result["status"], 200);
+            }
+        }
+        server.await.unwrap();
+    }
 
     #[tokio::test]
     async fn multipart_file_upload_preserves_bytes_and_final_url_is_opt_in() {

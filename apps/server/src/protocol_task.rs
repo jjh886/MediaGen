@@ -253,6 +253,11 @@ pub(crate) async fn run_plugin(
     } else {
         crate::server_plugin_host::recovery_workspace(&account.profile_dir, request_id)?
     };
+    if flow_name == "generate_text"
+        && context["model_capabilities"]["attachment_transport"] == "workspace"
+    {
+        crate::protocol_files::materialize(state, &mut context["request"], &workspace).await?;
+    }
     context["workspace_dir"] = json!(workspace);
     let replay_events = events.clone();
     let host = ServerPluginHost::new_for_account(account)

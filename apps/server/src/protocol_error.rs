@@ -64,10 +64,26 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
             "上游内容安全规则拒绝了此请求".into(),
         );
     }
-    if message.contains("invalid_input")
-        || message.contains("missing_input")
-        || message.contains("unsupported_")
-    {
+    if message.contains("invalid_input") {
+        return (
+            400,
+            "invalid_input",
+            if message.contains("invalid_input: 附件文件名无效") {
+                "附件文件名无效，请检查文件名"
+            } else {
+                "请求输入格式无效，请检查输入内容与附件格式"
+            }
+            .into(),
+        );
+    }
+    if message.contains("missing_input") {
+        return (
+            400,
+            "missing_input",
+            "请求缺少必填输入，请检查输入内容与附件".into(),
+        );
+    }
+    if message.contains("unsupported_") {
         (
             400,
             "unsupported_parameter",
@@ -266,6 +282,31 @@ fn redact_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::public_failure;
+
+    #[test]
+    fn input_validation_is_not_misreported_as_model_capability_failure() {
+        let raw = "SAFE_RETRY:plugin.run_js JS 错误: Error: invalid_input: 附件文件名无效\n    at apiTextResponsesMedia (eval_script:2240:17)\nprivate-detail";
+        let (status, code, public) = public_failure(raw);
+        assert_eq!((status, code), (400, "invalid_input"));
+        assert_eq!(public, "附件文件名无效，请检查文件名");
+        assert!(!public.contains("eval_script"));
+        assert!(!public.contains("private-detail"));
+        assert_eq!(
+            public_failure("invalid_input: private-detail").1,
+            "invalid_input"
+        );
+        assert!(!public_failure("invalid_input: private-detail")
+            .2
+            .contains("private-detail"));
+        assert_eq!(
+            public_failure("missing_input: private-detail").1,
+            "missing_input"
+        );
+        assert_eq!(
+            public_failure("unsupported_speed: private-detail").1,
+            "unsupported_parameter"
+        );
+    }
 
     #[test]
     fn model_quota_failure_reports_only_validated_reset_time() {
