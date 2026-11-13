@@ -48,11 +48,7 @@ pub(crate) fn account_ready_for_kind(
 }
 
 pub(crate) fn text_concurrency_limit(account: &AccountRecord) -> u32 {
-    if account.policy.text_concurrency_limit == 0 {
-        account.policy.text_concurrency_default
-    } else {
-        account.policy.text_concurrency_limit
-    }
+    account.policy.text_concurrency_limit
 }
 
 /// 把跨日账号恢复为新一天的初始状态，避免每日用量一直累加成总用量。

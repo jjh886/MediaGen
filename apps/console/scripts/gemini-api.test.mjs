@@ -495,7 +495,7 @@ describe('Gemini API 插件', () => {
     expect(host.checkpoint().phase).toBe('failed')
   })
 
-  it('原通道确定结束且没有正文时按账号目录降级一次，并显示实际模型', () => {
+  it('原通道确定结束且没有正文时按账号目录降级一次，通过标准 model 返回实际模型', () => {
     const { context, host } = runtime()
     host.checkpoint({
       phase: 'accepted',
@@ -520,7 +520,7 @@ describe('Gemini API 插件', () => {
     const input = { request: { model: 'gemini-4-argon', input: 'test' } }
     const response = context.main(input).response
     expect(response.model).toBe('gemini-4-hydrogen')
-    expect(response.output_text).toBe('已改用 Hydrogen。\n\nOK')
+    expect(response.output_text).toBe('OK')
     expect(context.main(input).response.output_text).toBe(response.output_text)
     expect(context.geminiGenerate).toHaveBeenCalledTimes(1)
   })
@@ -654,7 +654,7 @@ describe('Gemini API 插件', () => {
     expect(context.geminiInitialize).not.toHaveBeenCalled()
   })
 
-  it('采用上游实际降级结果，正文显示改用提示，流式和结果都返回真实模型', () => {
+  it('采用上游实际降级结果，正文保持原样，流式和结果都返回真实模型', () => {
     const { context, host } = runtime()
     context.apiSessionRead = () => ({})
     context.geminiInitialize = (session) => session
@@ -680,13 +680,12 @@ describe('Gemini API 插件', () => {
     }
     const output = context.main(input).response
     expect(output.model).toBe('gemini-4-hydrogen')
-    expect(output.metadata).toMatchObject({
-      requested_model: 'gemini-4-argon',
-      actual_model: 'gemini-4-hydrogen',
-      model_notice: '已改用 Hydrogen。',
-    })
+    expect(output.metadata.requested_model).toBeUndefined()
+    expect(output.metadata.actual_model).toBeUndefined()
+    expect(output.metadata.actual_model_name).toBeUndefined()
+    expect(output.metadata.model_notice).toBeUndefined()
     expect(output.metadata.platform_session.conversation_id).toBe('c_current')
-    expect(output.output_text).toBe('已改用 Hydrogen。\n\nOK done')
+    expect(output.output_text).toBe('OK done')
     expect(
       host.emit.mock.calls
         .map(([event]) => (event.type === 'response.output_text.delta' ? event.delta : ''))

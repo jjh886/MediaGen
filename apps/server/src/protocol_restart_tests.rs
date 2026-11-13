@@ -8,6 +8,14 @@ async fn rate_limited_new_turn_can_failover_but_bound_conversation_keeps_account
         for (failure, category) in [
             ("rate_limit_exceeded: HTTP 429", "account_rate_limited"),
             (
+                "client error (ProxyConnect): unexpected end of file",
+                "proxy_unavailable",
+            ),
+            (
+                "account_model_unavailable: permission denied",
+                "account_model_unavailable",
+            ),
+            (
                 "account_model_unavailable: model_quota_exhausted; resets_at=2099-11-10T16:51:45Z",
                 "account_model_unavailable",
             ),
@@ -65,7 +73,10 @@ async fn rate_limited_new_turn_can_failover_but_bound_conversation_keeps_account
             .await;
             if continued || !available {
                 let error = result.unwrap_err();
-                if !continued && category == "account_model_unavailable" {
+                if !continued
+                    && category == "account_model_unavailable"
+                    && !failure.contains("model_quota_exhausted")
+                {
                     assert!(
                         error.starts_with("no_available_account_for_model:"),
                         "{error}"
@@ -183,213 +194,6 @@ async fn interrupted_protocol_reopens_store_and_cipher_then_queries_once_in_both
 }
 
 #[actix_web::test]
-async fn recovery_identity_is_scoped_to_caller_input_and_endpoint() {
-    let request = test::TestRequest::post()
-        .uri("/v1/responses")
-        .insert_header(("x-client-request-id", "same"))
-        .to_http_request();
-    let original =
-        crate::request_identity::recovery_id(&request, "owner-a", &json!({"input":"hello"}));
-    assert_eq!(
-        original,
-        crate::request_identity::recovery_id(&request, "owner-a", &json!({"input":"hello"}))
-    );
-    assert_ne!(
-        original,
-        crate::request_identity::recovery_id(&request, "owner-b", &json!({"input":"hello"}))
-    );
-    assert_ne!(
-        original,
-        crate::request_identity::recovery_id(&request, "owner-a", &json!({"input":"changed"}))
-    );
-    let chat = test::TestRequest::post()
-        .uri("/v1/chat/completions")
-        .insert_header(("x-client-request-id", "same"))
-        .to_http_request();
-    assert_ne!(
-        original,
-        crate::request_identity::recovery_id(&chat, "owner-a", &json!({"input":"hello"}))
-    );
-}
-
-#[actix_web::test]
-async fn chat_window_keeps_platform_cursor_across_http_turns_and_server_restart() {
-    for (mode, stream) in [
-        ("desktop", false),
-        ("responses", false),
-        ("chat", false),
-        ("responses", true),
-        ("chat", true),
-    ] {
-        let original = crate::protocol_api_tests::state();
-        let root = original.store.path.parent().unwrap().to_owned();
-        let mut configured = original.get_ref().clone();
-        configured.credential_cipher =
-            Arc::new(crate::generation_queue::CredentialCipher::new(&root).unwrap());
-        let script = configured
-            .plugin_loader
-            .get_plugin_dir("test")
-            .unwrap()
-            .join("scripts/text.js");
-        std::fs::write(script,r#"function main(ctx){
-      const previous=ctx.request.options?.platform_session;
-      const id=previous?.conversation_id || ('session-'+ctx.request.options.session_key);
-      const round=(previous?.round || 0)+1;
-      const response={id:'resp_'+ctx.request_id,object:'response',status:'completed',model:ctx.request.model,metadata:{platform_session:{conversation_id:id,round}},output:[{id:'answer',type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:id+'|'+round,annotations:[]}]}]};
-      host.emit({type:'response.created',response:{...response,output:[],metadata:{}}});
-      host.emit({type:'response.output_text.delta',item_id:'answer',delta:id+'|'+round});
-      host.emit({type:'response.completed',response});
-      return {response};
-    }"#).unwrap();
-        let mut conversation_ids = std::collections::HashMap::new();
-        for (window, expected) in [("first", 1), ("first", 2), ("second", 1), ("first", 3)] {
-            configured.store =
-                Arc::new(crate::store::AppStore::load(root.join("server-state.json")));
-            configured.credential_cipher =
-                Arc::new(crate::generation_queue::CredentialCipher::new(&root).unwrap());
-            let app = test::init_service(
-                App::new()
-                    .app_data(web::Data::new(configured.clone()))
-                    .configure(crate::configure_routes),
-            )
-            .await;
-            let mut request = json!({"model":"text-model","input":"继续","store":false,"stream":stream,"metadata":{"session_id":window}});
-            let endpoint = if mode == "chat" {
-                request.as_object_mut().unwrap().remove("input");
-                request["messages"] = json!([{"role":"user","content":"继续"}]);
-                "/v1/chat/completions"
-            } else {
-                "/v1/responses"
-            };
-            if mode == "desktop" {
-                request["metadata"] = json!({"duanju_mode":"chat","duanju_thread_id":window});
-            }
-            let response = test::call_service(
-                &app,
-                test::TestRequest::post()
-                    .uri(endpoint)
-                    .insert_header(("authorization", "Bearer key-a"))
-                    .set_json(request)
-                    .to_request(),
-            )
-            .await;
-            assert_eq!(response.status().as_u16(), 200);
-            let bytes = test::read_body(response).await;
-            let text = if stream {
-                let raw = String::from_utf8(bytes.to_vec()).unwrap();
-                assert!(!raw.contains("platform_session"));
-                let events = raw
-                    .lines()
-                    .filter_map(|line| line.strip_prefix("data: "))
-                    .filter_map(|data| serde_json::from_str::<Value>(data).ok())
-                    .collect::<Vec<_>>();
-                if mode == "chat" {
-                    assert!(raw.ends_with("data: [DONE]\n\n"));
-                    events
-                        .iter()
-                        .filter_map(|event| event["choices"][0]["delta"]["content"].as_str())
-                        .collect::<String>()
-                } else {
-                    events
-                        .iter()
-                        .find(|event| event["type"] == "response.completed")
-                        .unwrap()["response"]["output"][0]["content"][0]["text"]
-                        .as_str()
-                        .unwrap()
-                        .to_owned()
-                }
-            } else {
-                let body: Value = serde_json::from_slice(&bytes).unwrap();
-                assert!(body["metadata"].get("platform_session").is_none());
-                if mode == "chat" {
-                    body["choices"][0]["message"]["content"].as_str()
-                } else {
-                    body["output"][0]["content"][0]["text"].as_str()
-                }
-                .unwrap()
-                .to_owned()
-            };
-            let (id, round) = text.rsplit_once('|').unwrap();
-            assert_eq!(round, expected.to_string());
-            if let Some(previous) = conversation_ids.get(window) {
-                assert_eq!(id, previous)
-            } else {
-                assert!(!conversation_ids.values().any(|old| old == id));
-                conversation_ids.insert(window, id.to_owned());
-            }
-        }
-        std::fs::remove_dir_all(root).unwrap();
-    }
-}
-
-#[actix_web::test]
-async fn previous_response_continues_platform_session_after_restart_and_keeps_windows_separate() {
-    let original = crate::protocol_api_tests::state();
-    let root = original.store.path.parent().unwrap().to_owned();
-    let mut configured = original.get_ref().clone();
-    let script = configured
-        .plugin_loader
-        .get_plugin_dir("test")
-        .unwrap()
-        .join("scripts/text.js");
-    std::fs::write(script, r#"function main(ctx){
-        const cursor=ctx.request.options.platform_session;
-        const id=cursor?.conversation_id || ctx.request.options.session_key;
-        const round=(cursor?.round || 0)+1;
-        if(round>1 && ctx.request.input.length<3) throw new Error('missing history');
-        return {response:{id:'resp_'+ctx.request_id,object:'response',status:'completed',model:ctx.request.model,
-            metadata:{platform_session:{conversation_id:id,round}},output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:id+'|'+round}]}]}};
-    }"#).unwrap();
-    let mut previous = Value::Null;
-    let mut original_id = String::new();
-    for turn in 0..4 {
-        configured.store = Arc::new(crate::store::AppStore::load(root.join("server-state.json")));
-        configured.credential_cipher =
-            Arc::new(crate::generation_queue::CredentialCipher::new(&root).unwrap());
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(configured.clone()))
-                .configure(crate::configure_routes),
-        )
-        .await;
-        let mut body =
-            json!({"model":"text-model","input":"继续","prompt_cache_key":"shared-cache"});
-        if turn == 1 || turn == 3 {
-            body["previous_response_id"] = previous.clone();
-        }
-        let response = test::call_service(
-            &app,
-            test::TestRequest::post()
-                .uri("/v1/responses")
-                .insert_header(("authorization", "Bearer key-a"))
-                .set_json(body)
-                .to_request(),
-        )
-        .await;
-        assert_eq!(response.status(), 200);
-        let response: Value = test::read_body_json(response).await;
-        assert!(response["metadata"].get("platform_session").is_none());
-        let (id, round) = response["output"][0]["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .rsplit_once('|')
-            .unwrap();
-        assert_eq!(round, ["1", "2", "1", "3"][turn]);
-        if turn == 0 {
-            original_id = id.to_owned();
-        } else if turn == 2 {
-            assert_ne!(original_id, id);
-        } else {
-            assert_eq!(original_id, id);
-        }
-        if turn != 2 {
-            previous = response["id"].clone();
-        }
-    }
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[actix_web::test]
 async fn sync_image_request_id_recovers_checkpoint_and_replays_result_without_regeneration() {
     let mut state = crate::image_api_tests::queue_state("image-sync-recovery");
     let directory = state.plugin_loader.get_plugin_dir("fake").unwrap();
@@ -463,3 +267,185 @@ async fn sync_image_request_id_recovers_checkpoint_and_replays_result_without_re
         task.account_id
     );
 }
+
+// 显式运行的真实接口验证；使用临时资料副本，避免覆盖线上登录和任务检查点。
+#[actix_web::test]
+#[ignore = "需要 MEDIAGEN_LIVE_DATA 和 MEDIAGEN_LIVE_PROFILE，实际消耗一次生成额度"]
+async fn live_gemini_generation_and_history_recovery() {
+    use sha2::{Digest, Sha256};
+    let data = std::env::var("MEDIAGEN_LIVE_DATA").expect("live data directory");
+    let original = std::env::var("MEDIAGEN_LIVE_PROFILE").expect("live account profile");
+    let model = std::env::var("MEDIAGEN_LIVE_MODEL").unwrap_or_else(|_| "gemini-4-argon".into());
+    let old_task = std::env::var("MEDIAGEN_LIVE_TASK").ok();
+    let task = old_task
+        .clone()
+        .unwrap_or_else(|| format!("probe-{}", uuid::Uuid::new_v4()));
+    let temporary = tempfile::tempdir().unwrap();
+    let profile = temporary.path().join("profile");
+    std::fs::create_dir_all(profile.join("checkpoints")).unwrap();
+    std::fs::copy(
+        std::path::Path::new(&original).join("auth.json"),
+        profile.join("auth.json"),
+    )
+    .unwrap();
+    if old_task.is_some() {
+        let file = format!("{:x}.json", Sha256::digest(task.as_bytes()));
+        std::fs::copy(
+            std::path::Path::new(&original)
+                .join("checkpoints")
+                .join(&file),
+            profile.join("checkpoints").join(file),
+        )
+        .unwrap();
+    }
+    let plugins = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+    let mut state = crate::test_fixtures::server_state(
+        temporary.path().join("state"),
+        mediagen_plugin_runtime::PluginLoader::load_from(&plugins).unwrap(),
+    );
+    state.credential_cipher = Arc::new(
+        crate::generation_queue::CredentialCipher::new(std::path::Path::new(&data)).unwrap(),
+    );
+    let mut account = crate::test_fixtures::account_record("probe", "gemini", "probe", "");
+    account.profile_dir = profile.to_string_lossy().into_owned();
+    account.browser_os = "linux".into();
+    account.browser_version = "154".into();
+    let manifest = state.plugin_loader.get_plugin("gemini").unwrap();
+    let request = json!({"model":model,"input":"Reply only LIVE_GEMINI_OK","store":false,"options":{"session_key":"live-probe"}});
+    let first = crate::protocol_task::run_plugin(
+        &state,
+        manifest,
+        &account,
+        "generate_text",
+        request.clone(),
+        None,
+        &task,
+        Value::Null,
+    )
+    .await;
+    if old_task.is_some() {
+        let error = first.unwrap_err();
+        assert!(
+            error.contains("conversation_unavailable"),
+            "{}",
+            crate::protocol_error::sanitize_error(&error)
+        );
+        let start = std::time::Instant::now();
+        let again = crate::protocol_task::run_plugin(
+            &state,
+            manifest,
+            &account,
+            "generate_text",
+            request,
+            None,
+            &task,
+            Value::Null,
+        )
+        .await
+        .unwrap_err();
+        assert!(again.contains("conversation_unavailable"));
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
+        println!("LIVE_RESULT: unavailable conversation is terminal and repeated recovery makes no upstream request");
+        return;
+    }
+    let result =
+        first.unwrap_or_else(|error| panic!("{}", crate::protocol_error::sanitize_error(&error)));
+    assert!(result["response"]["output_text"]
+        .as_str()
+        .is_some_and(|text| text.contains("LIVE_GEMINI_OK")));
+    println!(
+        "LIVE_RESPONSE: {}",
+        json!({"requested":model,"actual":result["response"]["model"]})
+    );
+    assert!(!result["response"]["output_text"]
+        .as_str()
+        .unwrap()
+        .contains("已改用"));
+    for key in [
+        "requested_model",
+        "actual_model",
+        "actual_model_name",
+        "model_notice",
+    ] {
+        assert!(result["response"]["metadata"].get(key).is_none());
+    }
+    let host = crate::server_plugin_host::ServerPluginHost::new_for_account(&account)
+        .with_storage(
+            state.credential_cipher.clone(),
+            &account.profile_dir,
+            manifest,
+        )
+        .with_events(None, task.clone());
+    let mut saved = result["response"]["metadata"]["platform_session"].clone();
+    assert!(saved["conversation_id"].is_string());
+    assert!(saved["response_id"].is_string());
+    saved["phase"] = json!("accepted");
+    saved["accepted_at"] = json!(chrono::Utc::now().timestamp_millis());
+    host.checkpoint(&json!({"value":saved})).await.unwrap();
+    let recovered = crate::protocol_task::run_plugin(
+        &state,
+        manifest,
+        &account,
+        "generate_text",
+        request,
+        None,
+        &task,
+        Value::Null,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("{}", crate::protocol_error::sanitize_error(&error)));
+    assert_eq!(
+        result["response"]["output_text"],
+        recovered["response"]["output_text"]
+    );
+    println!("LIVE_RESULT: {model} generation and original-turn history recovery both succeeded");
+}
+
+#[actix_web::test]
+async fn repeated_transport_failure_keeps_receipt_and_stops_before_fourth_attempt() {
+    let state = crate::protocol_api_tests::state();
+    let account = state.store.account_by_id("account").unwrap();
+    let manifest = state.plugin_loader.get_plugin("test").unwrap();
+    let script = state
+        .plugin_loader
+        .get_plugin_dir("test")
+        .unwrap()
+        .join("scripts/text.js");
+    std::fs::write(&script, "function main(){const saved=host.checkpoint();host.checkpoint({...saved,phase:'accepted',conversation_id:'original'});throw new Error('operation timed out');}").unwrap();
+    for attempt in 1..=4 {
+        if attempt == 4 {
+            std::fs::write(&script, "function main(){throw new Error('must not run')}").unwrap();
+        }
+        let error = crate::protocol_task::run_plugin(
+            &state,
+            manifest,
+            &account,
+            "generate_text",
+            json!({"model":"text-model","input":"test"}),
+            None,
+            "bounded-transport",
+            Value::Null,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains(if attempt >= 3 {
+            "recovery_exhausted"
+        } else {
+            "operation timed out"
+        }));
+        assert!(!error.contains("must not run"));
+    }
+    let host = crate::server_plugin_host::ServerPluginHost::new_for_account(&account)
+        .with_storage(
+            state.credential_cipher.clone(),
+            &account.profile_dir,
+            manifest,
+        )
+        .with_events(None, "bounded-transport".into());
+    let saved = host.checkpoint(&json!({})).await.unwrap();
+    assert_eq!(saved["conversation_id"], "original");
+    assert_eq!(saved["_transport_failures"], 3);
+}
+
+#[path = "protocol_session_tests.rs"]
+mod session_tests;

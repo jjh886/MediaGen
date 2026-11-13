@@ -26,6 +26,7 @@ pub(super) async fn read_response_bounded(
 async fn read_json_stream(
     mut response: super::http_transport::TransportResponse,
     events: &tokio::sync::mpsc::Sender<Value>,
+    collect: bool,
 ) -> Result<(Vec<u8>, bool), String> {
     let mut bytes = Vec::new();
     let mut offset = 0;
@@ -55,6 +56,10 @@ async fn read_json_stream(
                 offset += consumed;
                 events.send(value).await.map_err(|_| "请求已取消")?;
             }
+            if !collect && offset > 0 {
+                bytes.drain(..offset);
+                offset = 0;
+            }
         }
     }
     if framed == Some(true) && bytes[offset..].iter().any(|b| !b.is_ascii_whitespace()) {
@@ -62,6 +67,9 @@ async fn read_json_stream(
             return Ok((bytes, false));
         }
         return Err("JSON 长度帧不完整".into());
+    }
+    if framed == Some(true) && !collect {
+        bytes.clear();
     }
     Ok((bytes, framed == Some(true)))
 }
@@ -133,8 +141,8 @@ impl ServerPluginHost {
                 .is_some_and(|mime| mime.trim().ends_with("json"))
         });
         if !ok || json_response {
-            let (bytes, framed) = if ok && params["collect_body"] == true {
-                read_json_stream(response, &events).await?
+            let (bytes, framed) = if ok {
+                read_json_stream(response, &events, params["collect_body"] == true).await?
             } else {
                 (read_response_bounded(response).await?, false)
             };
@@ -165,7 +173,9 @@ impl ServerPluginHost {
         let plain = headers
             .get("content-type")
             .is_some_and(|v| v.starts_with("text/plain"));
+        let mut framing = if plain { None } else { Some(false) };
         let mut framed = false;
+        let collect = params["collect_body"] == true;
         let metadata = params["include_sse_metadata"] == true;
         let mut stream = response.body;
         let mut decoder = crate::sse_decoder::Decoder::new(MAX_FILE_BYTES as usize);
@@ -176,21 +186,43 @@ impl ServerPluginHost {
             };
             let Some(chunk) = chunk else { break };
             let chunk = chunk?;
-            if params["collect_body"] == true {
-                if collected.len() + chunk.len() > MAX_FILE_BYTES as usize {
+            if collect || framing != Some(false) {
+                if collected.len().saturating_add(chunk.len()) > MAX_FILE_BYTES as usize {
                     return Err("事件流正文超过大小限制".into());
                 }
                 collected.extend_from_slice(&chunk);
             }
-            framed = plain && has_json_frame_prefix(&collected);
+            if framing.is_none() {
+                if let Some(first) = collected.iter().find(|b| !b.is_ascii_whitespace()) {
+                    if !first.is_ascii_digit() {
+                        framing = Some(false);
+                    } else if collected.contains(&b'\n') {
+                        framing = Some(has_json_frame_prefix(&collected));
+                    }
+                }
+            }
+            framed = framing == Some(true);
             if framed {
                 while let Some((consumed, value)) = read_json_frame(&collected[frame_offset..])? {
                     frame_offset += consumed;
                     events.send(value).await.map_err(|_| "请求已取消")?;
                 }
+                if !collect && frame_offset > 0 {
+                    collected.drain(..frame_offset);
+                    frame_offset = 0;
+                }
                 continue;
             }
-            for block in decoder.push(&chunk)? {
+            if framing.is_none() {
+                continue;
+            }
+            // 探测帧格式时暂存的字节也要交给 SSE 解码器。
+            let pending = if plain && !collected.is_empty() && !collect {
+                std::mem::take(&mut collected)
+            } else {
+                chunk.to_vec()
+            };
+            for block in decoder.push(&pending)? {
                 let stop = params["stop_condition"].as_str().is_some_and(|condition| {
                     std::str::from_utf8(&block)
                         .ok()
@@ -215,6 +247,9 @@ impl ServerPluginHost {
             }
         } else {
             forward_event(&events, &decoder.finish(), metadata).await?;
+        }
+        if !collect {
+            collected.clear();
         }
         Ok(
             json!({"status":status,"ok":true,"headers":headers,"body_text":String::from_utf8_lossy(&collected)}),
@@ -323,6 +358,47 @@ mod stop_tests {
     }
 
     #[tokio::test]
+    async fn uncollected_json_frames_exceed_total_limit_without_retaining_history() {
+        for mime in ["application/json", "text/plain"] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let payload = json!([[1, "x".repeat(64 * 1024)]]).to_string();
+            let frame = format!("{}\n{}\n", payload.len(), payload);
+            let count = MAX_FILE_BYTES as usize / frame.len() + 2;
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 4096];
+                socket.read(&mut request).await.unwrap();
+                socket
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nConnection: close\r\n\r\n"
+                        )
+                        .as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+                for _ in 0..count {
+                    socket.write_all(frame.as_bytes()).await.unwrap();
+                }
+            });
+            let host = ServerPluginHost::new_with_metadata(String::new(), &HashMap::new());
+            let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+            let consume = tokio::spawn(async move {
+                let mut received = 0;
+                while receiver.recv().await.is_some() {
+                    received += 1;
+                }
+                received
+            });
+            let result = host.stream_request(&json!({"url":format!("http://{address}/"),"proxy":"direct","collect_body":false}), sender).await.unwrap();
+            assert_eq!(result["body_text"], "");
+            assert_eq!(consume.await.unwrap(), count);
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn json_frames_are_delivered_before_connection_close() {
         for mime in ["application/json", "text/plain; charset=utf-8"] {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -375,7 +451,7 @@ mod stop_tests {
             if collect {
                 assert_eq!(result.unwrap()["body_text"], raw);
             } else {
-                assert!(result.unwrap_err().contains("JSON"));
+                assert_eq!(result.unwrap()["body_text"], "");
             }
             server.await.unwrap();
         }

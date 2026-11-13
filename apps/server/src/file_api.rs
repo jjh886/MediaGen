@@ -476,28 +476,5 @@ fn file_error(status: u16, code: &'static str, message: &str) -> HttpResponse {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{mime_from_filename, sanitize_filename};
-
-    #[test]
-    fn sanitizes_filename_to_basename() {
-        assert_eq!(sanitize_filename("../a.png"), "a.png");
-        assert_eq!(sanitize_filename(" "), "file.bin");
-    }
-
-    #[test]
-    fn infers_image_mime_from_filename() {
-        assert_eq!(mime_from_filename("a.jpg"), "image/jpeg");
-        assert_eq!(mime_from_filename("a.webp"), "image/webp");
-        assert_eq!(mime_from_filename("a.png"), "image/png");
-        assert_eq!(mime_from_filename("a.pdf"), "application/pdf");
-        assert_eq!(mime_from_filename("a.unknown"), "application/octet-stream");
-    }
-
-    #[test]
-    fn validates_file_id_before_path_join() {
-        assert!(super::validate_file_id("file-123e4567-e89b-12d3-a456-426614174000").is_ok());
-        assert!(super::validate_file_id("../secret").is_err());
-        assert!(super::validate_file_id("file-../../secret").is_err());
-    }
-}
+#[path = "file_api_tests.rs"]
+mod tests;

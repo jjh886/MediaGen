@@ -138,6 +138,10 @@ async fn finish_execution(
                     | "insufficient_quota"
                     | "account_model_unavailable"
                     | "rate_limit_exceeded"
+                    | "conversation_unavailable"
+                    | "recovery_exhausted"
+                    | "generation_failed"
+                    | "proxy_unavailable"
             )
         {
             finish_terminal_failure(state, task_id, body, code, message);

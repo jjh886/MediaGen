@@ -104,8 +104,6 @@ mod weixin;
 #[cfg(test)]
 mod browser_session_route_tests;
 #[cfg(test)]
-mod file_api_tests;
-#[cfg(test)]
 mod image_api_tests;
 #[cfg(test)]
 mod pagination_route_tests;

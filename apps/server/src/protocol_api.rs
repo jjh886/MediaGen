@@ -1,105 +1,17 @@
+#[path = "protocol_ingress.rs"]
+mod ingress;
+pub(crate) use ingress::{chat, compact, dispatch, responses, speech};
+
 pub(crate) use crate::protocol_task::{run_plugin, run_with_failover};
 use crate::ServerState;
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{web, HttpResponse};
 use base64::prelude::{Engine as _, BASE64_STANDARD};
-use futures_util::StreamExt;
 use mediagen_core::TaskKind;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 pub(crate) use crate::protocol_error::error;
 use crate::protocol_error::error_kind;
-
-pub(crate) async fn responses(
-    state: web::Data<ServerState>,
-    request: HttpRequest,
-    payload: web::Payload,
-) -> HttpResponse {
-    read_and_dispatch(state, request, payload, "responses").await
-}
-pub(crate) async fn chat(
-    state: web::Data<ServerState>,
-    request: HttpRequest,
-    payload: web::Payload,
-) -> HttpResponse {
-    read_and_dispatch(state, request, payload, "chat").await
-}
-pub(crate) async fn speech(
-    state: web::Data<ServerState>,
-    request: HttpRequest,
-    payload: web::Payload,
-) -> HttpResponse {
-    read_and_dispatch(state, request, payload, "speech").await
-}
-pub(crate) async fn compact(
-    state: web::Data<ServerState>,
-    request: HttpRequest,
-    payload: web::Payload,
-) -> HttpResponse {
-    read_and_dispatch(state, request, payload, "compact").await
-}
-
-async fn read_and_dispatch(
-    state: web::Data<ServerState>,
-    request: HttpRequest,
-    mut payload: web::Payload,
-    endpoint: &str,
-) -> HttpResponse {
-    if !crate::routes::api_key_allowed(&state, &request) {
-        return error(401, "invalid_api_key", "API Key 无效");
-    }
-    if !request
-        .headers()
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| {
-            value
-                .split(';')
-                .next()
-                .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json"))
-        })
-    {
-        return error(415, "unsupported_media_type", "此接口要求 application/json");
-    }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = payload.next().await {
-        let chunk = match chunk {
-            Ok(chunk) => chunk,
-            Err(_) => return error(400, "invalid_body", "读取请求体失败"),
-        };
-        if bytes.len().saturating_add(chunk.len()) > crate::MAX_REQUEST_BODY_BYTES {
-            eprintln!(
-                "{}",
-                json!({"event":"request_body_rejected", "request_id":crate::request_identity::id(&request), "path":request.path(), "status":413, "code":"body_too_large", "received_at_least_bytes":bytes.len().saturating_add(chunk.len()), "limit_bytes":crate::MAX_REQUEST_BODY_BYTES})
-            );
-            return error(
-                413,
-                "body_too_large",
-                "内联 JSON 超过 50 MiB；大附件请先上传 /v1/files，再通过 file_id 引用",
-            );
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    dispatch(state, request, web::Bytes::from(bytes), endpoint).await
-}
-
-pub(crate) async fn dispatch(
-    state: web::Data<ServerState>,
-    request: HttpRequest,
-    bytes: web::Bytes,
-    endpoint: &str,
-) -> HttpResponse {
-    if !crate::routes::api_key_allowed(&state, &request) {
-        return error(401, "invalid_api_key", "API Key 无效");
-    }
-    let body: Value = match serde_json::from_slice(&bytes) {
-        Ok(body) => body,
-        Err(_) => return error(400, "invalid_json", "请求体不是有效 JSON"),
-    };
-    let key = crate::routes::api_key_from_request(&request).unwrap_or_default();
-    let context = crate::request_identity::ProtocolRequest::from_http(&request, &key, &body);
-    execute(state, context, body, endpoint, key).await
-}
 
 pub(crate) async fn execute(
     state: web::Data<ServerState>,
@@ -110,6 +22,31 @@ pub(crate) async fn execute(
 ) -> HttpResponse {
     if let Err(message) = crate::protocol_request::validate_request(&body, endpoint) {
         return error(400, "invalid_request", &message);
+    }
+    // 同一逻辑请求的确定失败直接重放，调用端重连不能反复消耗上游请求。
+    if let Some(task) = state
+        .store
+        .task_by_id(&context.task_id)
+        .filter(|task| task.status == "failed")
+    {
+        if let Some((code, message)) = task
+            .error_message
+            .as_deref()
+            .and_then(|error| error.split_once(": "))
+        {
+            let status = match code {
+                "insufficient_quota" => Some(429),
+                "no_available_account_for_model" => Some(403),
+                "conversation_unavailable"
+                | "recovery_exhausted"
+                | "generation_failed"
+                | "proxy_unavailable" => Some(409),
+                _ => None,
+            };
+            if let Some(status) = status {
+                return error(status, code, message);
+            }
+        }
     }
     let model_id = body["model"].as_str().unwrap_or_default().to_string();
     crate::model_api::refresh_before_dispatch(&state, &model_id, &key).await;

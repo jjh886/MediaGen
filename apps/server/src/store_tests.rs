@@ -432,7 +432,7 @@ fn manifest_with_default_tier() -> PluginManifest {
 
 #[test]
 fn plugin_tier_controls_new_account_text_concurrency() {
-    for limit in [0, 3, 100] {
+    for limit in [0, 1, 3, 100] {
         let store = AppStore::load(
             std::env::temp_dir().join(format!("tier-default-{}.sqlite", uuid::Uuid::new_v4())),
         );

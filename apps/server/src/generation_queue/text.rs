@@ -175,3 +175,7 @@ pub(super) fn has_capacity(state: &ServerState) -> bool {
 #[cfg(test)]
 #[path = "text_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "text_validation_tests.rs"]
+mod validation_tests;

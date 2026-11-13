@@ -6,6 +6,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn upstream_model_switch_is_preserved_in_chat_results_and_streams() {
+        let response = json!({"id":"resp_switch","model":"actual-model","output":[],"metadata":{}});
+        assert_eq!(
+            crate::protocol_request::chat_response(&response, "requested-model")["model"],
+            "actual-model"
+        );
+        let mut encoder = Encoder::new(true, "requested-model".into(), false);
+        let event = encoder.encode(&json!({"type":"response.created","response":response}));
+        assert!(event.contains("\"model\":\"actual-model\""));
+        let end = encoder.encode(&json!({"type":"response.completed","response":response}));
+        assert!(!end.contains("actual_model"));
+        assert!(end.contains("actual-model"));
+    }
+
+    #[test]
     fn unavailable_model_and_quota_errors_end_both_stream_formats() {
         for code in [
             "no_available_account_for_model",
@@ -72,6 +87,12 @@ impl Encoder {
         let mut event = event.clone();
         if let Some(object) = event.as_object_mut() {
             object.remove("status");
+        }
+        if let Some(model) = event["response"]["model"]
+            .as_str()
+            .filter(|model| !model.is_empty())
+        {
+            self.model = model.into();
         }
         let kind = event["type"].as_str().unwrap_or("error");
         if !self.chat {

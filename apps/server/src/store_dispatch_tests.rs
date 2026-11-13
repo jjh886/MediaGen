@@ -57,7 +57,7 @@ fn test_store_path() -> std::path::PathBuf {
 }
 
 #[test]
-fn plugin_defaults_control_text_capacity_and_preserve_account_overrides_after_reload() {
+fn zero_text_capacity_is_unlimited_regardless_of_plugin_default_and_survives_reload() {
     let root = std::env::temp_dir().join(format!("plugin-defaults-{}", uuid::Uuid::new_v4()));
     for (platform, limit) in [("unlimited", 0), ("limited-concurrency", 3)] {
         let dir = root.join(platform);
@@ -72,7 +72,7 @@ fn plugin_defaults_control_text_capacity_and_preserve_account_overrides_after_re
         let path = test_store_path();
         let store = AppStore::load(path.clone());
         let mut account = account_record("account", platform, "默认账号", "");
-        // 旧账号缺失字段与显式填 0 均使用插件默认；默认值不写入快照。
+        // 旧账号缺失字段与显式填 0 均不限；插件默认值不能覆盖账号配置。
         let mut legacy = serde_json::to_value(&account).unwrap();
         legacy
             .as_object_mut()
@@ -89,7 +89,7 @@ fn plugin_defaults_control_text_capacity_and_preserve_account_overrides_after_re
             crate::routes::public_account(configured)["text_concurrency_default"],
             limit
         );
-        for index in 0..if limit == 0 { 105 } else { limit } {
+        for index in 0..105 {
             let selected = store
                 .select_account(platform, None, &[], "text")
                 .expect("默认并发内应可调度");
@@ -109,10 +109,7 @@ fn plugin_defaults_control_text_capacity_and_preserve_account_overrides_after_re
                 completed_at: None,
             });
         }
-        assert_eq!(
-            store.select_account(platform, None, &[], "text").is_some(),
-            limit == 0
-        );
+        assert!(store.select_account(platform, None, &[], "text").is_some());
         assert!(store.select_account(platform, None, &[], "image").is_some());
         if limit == 0 {
             store.update_account(
@@ -161,9 +158,6 @@ fn plugin_defaults_control_text_capacity_and_preserve_account_overrides_after_re
                 },
             )
             .unwrap();
-        assert_eq!(
-            crate::store_helpers::text_concurrency_limit(&account),
-            limit
-        );
+        assert_eq!(crate::store_helpers::text_concurrency_limit(&account), 0);
     }
 }
