@@ -76,7 +76,7 @@ function geminiChannelGenerate(session, model, inner, onFrame) {
   const metadata = Array(model.variant ? 25 : 18).fill(null)
   metadata[0] = 1
   metadata[6] = 'zh-CN'
-  metadata[8] = [4, 33, 22, 5, 6, 8, 16, 19, 20]
+  metadata[8] = [4, 33, 22, 5, 6, 8, 16, 19, 20, 38]
   metadata[14] = model.mode
   metadata[15] = model.think
   metadata[16] = session.client_instance_id ||= apiTextUuid().toUpperCase()
@@ -105,7 +105,7 @@ function geminiChannelGenerate(session, model, inner, onFrame) {
       [5, model.selector || model.hex],
       [7, 'zh-CN'],
       [8, 0],
-      [9, [4, 33, 22, 5, 6, 8, 16, 19, 20]],
+      [9, [4, 33, 22, 5, 6, 8, 16, 19, 20, 38]],
       ...(session.account_header ? [session.account_header] : []),
       [15, model.mode],
       [16, model.think],
@@ -265,7 +265,7 @@ function geminiChannelGenerate(session, model, inner, onFrame) {
         proxy: 'system',
         headers: geminiHeaders(session, url),
         timeout_ms: 1200000,
-        collect_body: true,
+        collect_body: false,
         include_http_metadata: true,
         retry: { max_attempts: 1 },
       },
@@ -277,7 +277,16 @@ function geminiChannelGenerate(session, model, inner, onFrame) {
     )
     geminiRequireOk(response)
   }
+  host.checkpoint({ ...host.checkpoint(), channel_ended: ended, channel_completed: closing })
   // 媒体任务可在受理后直接结束通道，产物继续通过指定轮次的历史接口轮询。
   if (!sent || !ended || (!closing && !model.tool))
-    throw new Error('temporary_unavailable: Gemini 生成尚未确认完成，请恢复原任务')
+    throw new Error(
+      'temporary_unavailable: Gemini 生成尚未确认完成；sent=' +
+        sent +
+        '; completed=' +
+        closing +
+        '; ended=' +
+        ended +
+        '，请恢复原任务'
+    )
 }

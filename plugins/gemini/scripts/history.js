@@ -1,16 +1,16 @@
 function geminiHistory(session, saved) {
   if (!/^c_[a-zA-Z0-9_-]+$/.test(saved.conversation_id || ''))
     throw new Error('invalid_response: Gemini 会话编号无效')
-  const value = geminiRpc(session, 'hNvQHb', [
-    saved.conversation_id,
-    10,
-    null,
-    1,
-    [0],
-    [4],
-    null,
-    1,
-  ])
+  let value
+  try {
+    value = geminiRpc(session, 'hNvQHb', [saved.conversation_id, 10, null, 1, [0], [4], null, 1])
+  } catch (error) {
+    if (String(error.message).startsWith('upstream_resource_not_found:'))
+      throw new Error(
+        'conversation_unavailable: Gemini 上游已无法加载原对话，不能继续恢复；请新建请求'
+      )
+    throw error
+  }
   const turn = value?.[0]?.find((turn) => turn?.[0]?.[1] === saved.response_id)
   if (!turn) return null
   const candidate = turn[3]?.[0]?.[0]
@@ -18,6 +18,8 @@ function geminiHistory(session, saved) {
     turn,
     text: typeof candidate?.[1]?.[0] === 'string' ? candidate[1][0] : '',
     candidate_id: candidate?.[0] || saved.candidate_id,
+    actual_model_name:
+      typeof turn[3]?.[21] === 'string' ? turn[3][21] : saved.actual_model_name || '',
   }
 }
 

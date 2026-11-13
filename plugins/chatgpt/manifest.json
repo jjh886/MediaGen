@@ -621,7 +621,7 @@
       "total_limit": 0,
       "cooldown_seconds": 30,
       "task_interval_seconds": 0,
-      "text_concurrency_limit": 3,
+      "text_concurrency_limit": 1,
       "text_daily_limit": 0,
       "text_total_limit": 0
     }
@@ -705,6 +705,12 @@
     }
   ],
   "failure_strategy": [
+    {
+      "contains_any": ["ProxyConnect", "SOCKS error", "tunnel error"],
+      "category": "proxy_unavailable",
+      "retry_action": "failover",
+      "usage_consumed": false
+    },
     {
       "contains_any": ["account_model_unavailable"],
       "category": "account_model_unavailable",

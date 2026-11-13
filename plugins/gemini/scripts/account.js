@@ -85,19 +85,27 @@ function geminiUsageWindows(raw) {
     .map((frame) => frame?.data?.viewer?.rpcs?.getUsageInfo)
     .find((value) => Array.isArray(value?.pools))
   if (!usage) throw new Error('AUTH_INCONCLUSIVE: Gemini 未返回统一用量数据')
-  const pool = usage.pools.find((pool) => pool?.poolType === 'GXU_FIVE_HOURLY')
-  if (!pool) return []
-  const used = pool.percentageUsed
-  const reset = Date.parse(pool.gxu?.windowRefreshesAt || '')
-  if (typeof used !== 'number' || !Number.isFinite(used) || used < 0 || !Number.isFinite(reset))
-    throw new Error('AUTH_INCONCLUSIVE: Gemini 用量窗口数据不完整')
-  return [
-    {
-      name: '统一额度',
+  return usage.pools.map((pool) => {
+    const used = pool?.percentageUsed
+    if (
+      typeof pool?.poolType !== 'string' ||
+      !pool.poolType ||
+      typeof used !== 'number' ||
+      !Number.isFinite(used) ||
+      used < 0
+    )
+      throw new Error('AUTH_INCONCLUSIVE: Gemini 用量窗口数据不完整')
+    const window = {
+      name: { GXU_FIVE_HOURLY: '5 小时额度', GXU_WEEKLY: '周额度' }[pool.poolType] || pool.poolType,
       remaining_percent: Math.max(0, 100 - Math.round(used * 100)),
-      reset_at: new Date(reset).toISOString(),
-    },
-  ]
+    }
+    if (pool.gxu?.windowRefreshesAt) {
+      const reset = Date.parse(pool.gxu.windowRefreshesAt)
+      if (!Number.isFinite(reset)) throw new Error('AUTH_INCONCLUSIVE: Gemini 用量窗口恢复时间无效')
+      window.reset_at = new Date(reset).toISOString()
+    }
+    return window
+  })
 }
 
 async function geminiBrowserAccount() {

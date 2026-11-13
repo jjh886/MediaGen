@@ -195,7 +195,7 @@ function chatgptApiPrepareConduit(
 // 会话初始化是独立请求，单独封装后主流程只保留“初始化、准备、发送、轮询”四个步骤。
 function chatgptApiInitializeConversation(auth) {
   const fingerprint = chatgptApiFingerprint(auth)
-  return chatgptApiRequireOk(
+  const initialized = chatgptApiRequireOk(
     chatgptApiRequest(auth, 'POST', '/backend-api/conversation/init', {
       target_path: '/backend-api/conversation/init',
       target_route: '/backend-api/conversation/init',
@@ -212,6 +212,21 @@ function chatgptApiInitializeConversation(auth) {
     }),
     '初始化 ChatGPT 会话'
   ).body
+  if (auth.storage_path && Array.isArray(initialized?.model_limits)) {
+    const key = 'chatgpt-auth:' + auth.storage_path
+    host.call('lock.acquire', { key })
+    try {
+      const latest = host.call('file.read_json', { path: auth.storage_path })
+      latest.auth.model_limits = initialized.model_limits.filter(
+        (limit) => Date.parse(limit.resets_after) > Date.now()
+      )
+      auth.auth.model_limits = latest.auth.model_limits
+      host.call('file.write_json', { path: auth.storage_path, value: latest })
+    } finally {
+      host.call('lock.release', { key })
+    }
+  }
+  return initialized
 }
 
 function chatgptApiConversationPreparePayload(

@@ -7,7 +7,7 @@ function geminiGenerate(session, model, prompt, files, previous, ratio, onResult
   geminiChannelGenerate(session, model, payload, (frame) => {
     const current = host.checkpoint() || {}
     if (frame[31] === true || frame[31] === 1) {
-      const error = 'temporary_unavailable: Gemini 返回生成失败标记 frame[31]'
+      const error = 'generation_failed: Gemini 上游明确返回生成失败标记 frame[31]'
       host.checkpoint({ ...current, phase: 'failed', error })
       throw new Error(error)
     }
@@ -15,6 +15,7 @@ function geminiGenerate(session, model, prompt, files, previous, ratio, onResult
       host.checkpoint({
         ...current,
         phase: 'accepted',
+        accepted_at: current.accepted_at || Date.now(),
         conversation_id: frame[1][0],
         response_id: frame[1][1],
         model: model.id,
@@ -27,6 +28,7 @@ function geminiGenerate(session, model, prompt, files, previous, ratio, onResult
       ...result,
       ...next,
       text: next.text || result?.text || '',
+      actual_model_name: next.actual_model_name || result?.actual_model_name || '',
       reasoning: next.reasoning || result?.reasoning || '',
       conversation_id: next.conversation_id || result?.conversation_id || '',
       response_id: next.response_id || result?.response_id || '',
@@ -39,6 +41,7 @@ function geminiGenerate(session, model, prompt, files, previous, ratio, onResult
       token: result.token,
       turn: (previous?.turn || 0) + 1,
       received_text_length: result.text.length,
+      actual_model_name: result.actual_model_name,
       received_frame_length: frame.length,
     })
     if (onResult) onResult(result)

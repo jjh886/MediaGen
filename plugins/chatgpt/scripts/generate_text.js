@@ -11,7 +11,10 @@ function main(ctx) {
   if (!saved.phase) chatgptApiCheckpoint({ ...saved, phase: 'ready' })
   if (saved.reset_session && request.session && !saved.session_attachments_rebuilt)
     delete saved.attachments
-  const auth = chatgptApiRefreshSession(chatgptApiReadAuth(ctx))
+  const storedAuth = chatgptApiReadAuth(ctx)
+  if (!saved.conversation_id && saved.phase !== 'submitting')
+    chatgptApiAssertModelAvailable({ model_limits: storedAuth.auth?.model_limits }, request.model)
+  const auth = chatgptApiRefreshSession(storedAuth)
   const bootstrap =
     !saved.conversation_id && saved.phase !== 'submitting' ? chatgptApiBootstrap(auth, false) : null
   let initialized

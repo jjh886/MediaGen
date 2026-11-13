@@ -9,16 +9,20 @@ function geminiFrames(raw) {
       throw new Error('invalid_response: Gemini 响应帧损坏')
     }
     for (const row of rows) {
-      if (row[0] === 'er') {
-        const code = Number(row[2])
+      if (row[0] === 'er' || (row[0] === 'wrb.fr' && row[2] == null && Array.isArray(row[5]))) {
+        const code = Number(row[0] === 'er' ? row[2] : row[5][0])
         const kind =
           code === 401 || code === 16
             ? 'LOGIN_EXPIRED'
             : code === 429 || code === 8
               ? 'rate_limit_exceeded'
-              : code === 400
-                ? 'invalid_input'
-                : 'temporary_unavailable'
+              : code === 5
+                ? 'upstream_resource_not_found'
+                : code === 7
+                  ? 'account_permission_denied'
+                  : code === 400 || code === 3
+                    ? 'invalid_input'
+                    : 'temporary_unavailable'
         throw new Error(kind + ': Gemini RPC 错误 code=' + code)
       }
       if (row[0] !== 'wrb.fr' || typeof row[2] !== 'string') continue
@@ -140,7 +144,7 @@ function geminiPayload(prompt, model, files, previous, ratio) {
     17: [[previous?.turn || 0]],
     18: 0,
     27: 1,
-    30: [4, 16, 19],
+    30: [4, 16, 19, 12],
     41: [1],
     53: 0,
     59: apiTextUuid().toUpperCase(),
@@ -181,7 +185,7 @@ function geminiParseGeneration(raw, model) {
     if (!Array.isArray(data)) continue
     result.frames.push(data)
     if (data[31] === true || data[31] === 1)
-      throw new Error('temporary_unavailable: Gemini 返回生成失败标记 frame[31]')
+      throw new Error('generation_failed: Gemini 上游明确返回生成失败标记 frame[31]')
     if (data[1]?.[0]) result.conversation_id = data[1][0]
     if (data[1]?.[1]) result.response_id = data[1][1]
     if (typeof data[26] === 'string') result.token = data[26]
@@ -193,20 +197,7 @@ function geminiParseGeneration(raw, model) {
         result.reasoning = reasoning
     }
     const reported = data[42]
-    if (
-      !model.tool &&
-      !model.automatic &&
-      typeof reported === 'string' &&
-      reported &&
-      reported !== model.name &&
-      !reported.startsWith(model.name + ' ')
-    )
-      throw new Error(
-        'account_model_unavailable: Gemini 返回模型与请求不符；requested=' +
-          model.name +
-          '; reported=' +
-          reported
-      )
+    if (typeof reported === 'string' && reported.trim()) result.actual_model_name = reported.trim()
   }
   return result
 }
