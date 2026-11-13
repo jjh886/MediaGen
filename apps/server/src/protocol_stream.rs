@@ -6,6 +6,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unavailable_model_and_quota_errors_end_both_stream_formats() {
+        for code in [
+            "no_available_account_for_model",
+            "insufficient_quota",
+            "account_model_unavailable",
+        ] {
+            for chat in [false, true] {
+                let mut encoder = Encoder::new(chat, "test-model".into(), false);
+                let body = encoder.encode(
+                    &json!({"type":"error", "error":{"code":code,"message":"没有可用账号"}}),
+                );
+                assert!(body.contains(code));
+                assert!(body.contains("没有可用账号"));
+                assert!(encoder.terminal);
+            }
+        }
+    }
+
+    #[test]
     fn outdated_client_errors_keep_actionable_codes_in_both_stream_formats() {
         let (status, code, message) =
             crate::protocol_api::public_failure("upstream_client_outdated: private-upstream-token");

@@ -44,6 +44,9 @@ pub(super) async fn dispatch_available(state: &web::Data<ServerState>) {
                 now,
                 now + ChronoDuration::hours(LEASE_HOURS),
                 |job| {
+                    if super::records::unavailable_text_account(state, job) {
+                        return true;
+                    }
                     (if job.task_kind == "text" {
                         text_available
                     } else {
@@ -126,6 +129,20 @@ async fn finish_execution(
     if task.status == "cancelled" {
         finish_cancelled(state, task_id, body);
         return;
+    }
+    if let Err((_, code, message)) = &result {
+        if task.task_kind == "text"
+            && matches!(
+                code.as_str(),
+                "no_available_account_for_model"
+                    | "insufficient_quota"
+                    | "account_model_unavailable"
+                    | "rate_limit_exceeded"
+            )
+        {
+            finish_terminal_failure(state, task_id, body, code, message);
+            return;
+        }
     }
     if result.as_ref().is_err_and(|(status, _, _)| *status == 429)
         && task

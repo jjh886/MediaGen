@@ -17,8 +17,23 @@ const status = () => {
   data[17] = []
   return data
 }
+const usage = (
+  pools = [
+    {
+      poolType: 'GXU_FIVE_HOURLY',
+      percentageUsed: 0.27,
+      gxu: { windowRefreshesAt: '2026-11-13T05:13:56.318980Z' },
+    },
+    {
+      poolType: 'GXU_WEEKLY',
+      percentageUsed: 0.28113717,
+      gxu: { windowRefreshesAt: '2026-11-17T09:13:56.319154Z' },
+    },
+  ]
+) => JSON.stringify([{ data: { viewer: { rpcs: { getUsageInfo: { pools } } } } }])
 function runtime(data = identity) {
   const fetch = vi.fn(async (url) => {
+    if (String(url).includes('/graphql/')) return { ok: true, text: async () => usage() }
     const rpc = new URL(url).searchParams.get('rpcids')
     const value =
       rpc === 'otAQ7b' ? status() : rpc === 'VxUbXb' ? [null, null, null, 0] : [false, 0, []]
@@ -63,20 +78,18 @@ describe('Gemini 登录身份和账号资料', () => {
       user_id: identity.S06Grb,
       tier: 'Google AI Pro',
     })
-    expect(result.quota_windows[0].name).toContain('未达上限')
+    expect(result.quota_windows.map((row) => row.name)).toEqual(['统一额度'])
     expect(result.quota_windows[0].remaining_count).toBeUndefined()
-    expect(result.quota_windows[0].remaining_percent).toBeUndefined()
+    expect(result.quota_windows[0].remaining_percent).toBe(73)
   })
   it('身份接口失败不接受成功，额度接口失败保留已确认身份但不清空旧额度', async () => {
     const { context, fetch } = runtime()
     fetch.mockResolvedValueOnce({ ok: false, status: 503 })
     expect((await context.geminiBrowserAccount()).logged_in).toBeNull()
-    fetch
-      .mockResolvedValueOnce({
-        ok: true,
-        text: async () => JSON.stringify([['wrb.fr', 'otAQ7b', JSON.stringify(status())]]),
-      })
-      .mockResolvedValueOnce({ ok: false, status: 503 })
+    const normal = fetch.getMockImplementation()
+    fetch.mockImplementation((url) =>
+      String(url).includes('/graphql/') ? { ok: false, status: 503 } : normal(url)
+    )
     const result = await context.geminiBrowserAccount()
     expect(result.logged_in).toBe(true)
     expect(result.quota_windows).toBeUndefined()
@@ -108,22 +121,70 @@ describe('Gemini 登录身份和账号资料', () => {
       data[17] = features
       expect(context.geminiAccountProfile({ email: 'test@example.com' }, data).tier).toBe(tier)
     }
-    const reset = Math.floor(Date.now() / 1000) + 3600
-    expect(context.geminiQuotaWindows([], [true, 0, [reset, 0]])[0]).toMatchObject({
-      remaining_count: 0,
-      reset_at: new Date(reset * 1000).toISOString(),
-    })
+    expect(context.geminiUsageWindows(usage([]))).toEqual([])
+    expect(context.geminiUsageWindows(")]}'\n" + usage())).toMatchObject([
+      { remaining_percent: 73, reset_at: '2026-11-13T05:13:56.318Z' },
+    ])
     expect(
       context
-        .geminiQuotaWindows([], [])
-        .every((row) => row.remaining_count === undefined && row.remaining_percent === undefined)
+        .geminiUsageWindows(usage())
+        .every((row) => !row.task_kind && row.remaining_count === undefined)
     ).toBe(true)
-    expect(
-      context.geminiQuotaWindows([], [], [[[[null, 7], 2, 65, [reset, 0], 2400, 829]]])[0]
-    ).toMatchObject({
-      name: '图片额度',
-      remaining_percent: 35,
-      reset_at: new Date(reset * 1000).toISOString(),
+    expect(() => context.geminiUsageWindows('[]')).toThrow('未返回统一用量')
+    expect(() =>
+      context.geminiUsageWindows(usage([{ poolType: 'GXU_FIVE_HOURLY', percentageUsed: 0.2 }]))
+    ).toThrow('不完整')
+  })
+  it('头像与显示名来自当前账号个人资料，拒绝其他账号和非官方头像地址', () => {
+    const { context } = runtime()
+    const person = [
+      identity.S06Grb,
+      null,
+      [[null, '测试用户']],
+      [[null, 'https://lh3.googleusercontent.com/a/avatar=s96']],
+    ]
+    const data = [[['me', 1, person]]]
+    expect(context.geminiAccountDetails({ user_id: identity.S06Grb }, data)).toEqual({
+      username: '测试用户',
+      avatar_url: person[3][0][1],
     })
+    expect(context.geminiAccountDetails({ user_id: 'different' }, data)).toEqual({})
+    person[3][0][1] = 'https://lh3.googleusercontent.com.attacker.test/a'
+    expect(
+      context.geminiAccountDetails({ user_id: identity.S06Grb }, data).avatar_url
+    ).toBeUndefined()
+  })
+  it('API 额度查询使用网页 Cookie 鉴权，失败时不能声称刷新成功', () => {
+    const { context } = runtime()
+    const session = {
+      auth: { user_id: identity.S06Grb, email: identity.oPEP7c },
+      user_status: status(),
+    }
+    Object.assign(context, {
+      apiSessionRead: () => session,
+      geminiInitialize: (x) => x,
+      geminiCatalog: () => [{}],
+      geminiRpc: () => [],
+      geminiBase: () => 'https://gemini.google.com',
+      geminiRequest: (_session, url, options) => {
+        expect(url).toContain('/graphql/schemas/GEMINI_WEB_GRAPHQL/executeQuery')
+        expect(options.authorize).toBe(false)
+        expect(options.headers['sec-fetch-site']).toBe('same-origin')
+        expect(options.headers['sec-fetch-mode']).toBe('cors')
+        expect(options.headers['sec-fetch-dest']).toBe('empty')
+        return { body_text: usage() }
+      },
+      apiSessionHealthError: () => ({ status: 'inconclusive', logged_in: null }),
+    })
+    vm.runInContext(source('check_account.js'), context)
+    expect(context.main({})).toMatchObject({
+      status: 'available',
+      quota_windows: [{ name: '统一额度', remaining_percent: 73 }],
+    })
+    context.geminiRequest = () => {
+      throw new Error('temporary_unavailable: Gemini HTTP 403')
+    }
+    expect(context.main({})).toMatchObject({ status: 'inconclusive', logged_in: null })
+    expect(context.main({}).reason).toContain('403')
   })
 })

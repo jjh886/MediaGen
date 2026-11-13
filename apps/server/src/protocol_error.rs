@@ -21,6 +21,18 @@ pub(crate) fn error_kind(status: u16) -> &'static str {
 }
 
 pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
+    for (prefix, status, code) in [
+        (
+            "no_available_account_for_model: ",
+            403,
+            "no_available_account_for_model",
+        ),
+        ("insufficient_quota: ", 429, "insufficient_quota"),
+    ] {
+        if let Some(detail) = message.strip_prefix(prefix) {
+            return (status, code, detail.to_string());
+        }
+    }
     if message == "task_cancelled" {
         return (409, "task_cancelled", "请求已取消".into());
     }

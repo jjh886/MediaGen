@@ -455,6 +455,19 @@ pub(crate) async fn run_with_failover(
             Some(next)
         });
         let Some(next) = next else {
+            if model.task_kind == TaskKind::Text {
+                crate::protocol_queue::check_model_accounts(
+                    state,
+                    manifest,
+                    &model.model_id,
+                    "text",
+                    key,
+                    None,
+                )?;
+                if decision.category == "account_model_unavailable" {
+                    return Err(format!("no_available_account_for_model: 没有账号可以使用模型 {}，上游拒绝该模型，其他账号当前不可用", model.model_id));
+                }
+            }
             return result;
         };
         crate::media_execution::record_attempt_failure(

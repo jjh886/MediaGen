@@ -28,51 +28,76 @@ function geminiAccountProfile(identity, status) {
   return { ...identity, tier }
 }
 
-function geminiQuotaWindows(modeQuota, quota, mediaQuota) {
-  const windows = []
-  if (typeof quota?.[0] === 'boolean') {
-    const reset = Number(quota[2]?.[0])
-    windows.push({
-      name: quota[0] ? '文本额度（已达上限）' : '文本额度（未达上限，总量未公开）',
-      task_kind: 'text',
-      ...(quota[0] ? { remaining_count: 0, unit: '次' } : {}),
-      ...(reset > 0 && Number.isFinite(reset)
-        ? { reset_at: new Date(reset * 1000).toISOString() }
-        : {}),
-    })
+const GEMINI_PROFILE_ARGS = [
+  ['me'],
+  [[['person.photo', 'person.name', 'person.email']], null, [1, 7]],
+]
+
+function geminiAccountDetails(identity, data) {
+  const person = data?.[0]?.find((entry) => entry?.[0] === 'me')?.[2]
+  if (!person || String(person[0]) !== identity.user_id) return {}
+  const name = person[2]?.[0]?.[1]
+  const avatar = person[3]?.[0]?.[1]
+  return {
+    ...(typeof name === 'string' && name.trim() ? { username: name.trim() } : {}),
+    ...(typeof avatar === 'string' &&
+    /^https:\/\/lh[0-9]+\.googleusercontent\.com\/[^\s<>"']+$/.test(avatar)
+      ? { avatar_url: avatar }
+      : {}),
   }
-  for (const row of Array.isArray(modeQuota?.[0]) ? modeQuota[0] : []) {
-    const names = { 1: 'Flash', 3: 'Pro', 6: 'Flash-Lite', 8: 'Argon' }
-    const reset = Number(row?.[4]?.[0])
-    windows.push({
-      name: (names[row?.[0]] || '模型') + '（部分功能受限）',
-      task_kind: 'text',
-      ...(reset > 0 && Number.isFinite(reset)
-        ? { reset_at: new Date(reset * 1000).toISOString() }
-        : {}),
-    })
+}
+
+function geminiUsagePath() {
+  // 来自网页 UsagePageQuery；失败时保留旧额度，不再用工具枚举推测图片或视频额度。
+  const variables = {
+    g1Request: {
+      entrypoints: [
+        'GEMINI_USAGE_SETTINGS_UPGRADE_BANNER',
+        'GEMINI_USAGE_SETTINGS_AI_CREDITS_UPSELL_CARD',
+        'GEMINI_USAGE_SETTINGS_UPGRADE_AND_CREDITS_BANNER',
+      ],
+    },
+    workspaceRequest: {
+      recommendationsForSurfaceRequests: [
+        {
+          recommendationSurface: { rpOnramp: 'GEMINI_CHAT_USAGE_LIMITS_UPSELL', version: '1' },
+          maxRecommendationCount: 1,
+        },
+      ],
+    },
   }
-  for (const [action, name, kind] of [
-    [7, '图片', 'image'],
-    [5, '视频', 'video'],
-  ]) {
-    const row = (Array.isArray(mediaQuota?.[0]) ? mediaQuota[0] : []).find(
-      (row) => row?.[0]?.[1] === action
-    )
-    const used = row?.[2]
-    const reset = Number(row?.[3]?.[0])
-    windows.push({
-      name: name + (typeof used === 'number' ? '额度' : '额度（上游未提供数据）'),
-      task_kind: kind,
-      ...(typeof used === 'number' && Number.isFinite(used) && used >= 0 && used <= 100
-        ? { remaining_percent: 100 - used }
-        : {}),
-      ...(reset > 0 && Number.isFinite(reset)
-        ? { reset_at: new Date(reset * 1000).toISOString() }
-        : {}),
-    })
+  return (
+    '/_/BardChatUi/graphql/schemas/GEMINI_WEB_GRAPHQL/executeQuery?query_signature=' +
+    encodeURIComponent('2/r9A7h8PGYFROeibFhACp9h3mHf72UWS3JhgYaQYlPoo=') +
+    '&variables=' +
+    encodeURIComponent(JSON.stringify(variables))
+  )
+}
+
+function geminiUsageWindows(raw) {
+  let frames
+  try {
+    frames = JSON.parse(String(raw).replace(/^\s*\)\]\}'\s*/, ''))
+  } catch (_) {
+    throw new Error('AUTH_INCONCLUSIVE: Gemini 用量响应格式无效')
   }
-  return windows
+  const usage = (Array.isArray(frames) ? frames : [])
+    .map((frame) => frame?.data?.viewer?.rpcs?.getUsageInfo)
+    .find((value) => Array.isArray(value?.pools))
+  if (!usage) throw new Error('AUTH_INCONCLUSIVE: Gemini 未返回统一用量数据')
+  const pool = usage.pools.find((pool) => pool?.poolType === 'GXU_FIVE_HOURLY')
+  if (!pool) return []
+  const used = pool.percentageUsed
+  const reset = Date.parse(pool.gxu?.windowRefreshesAt || '')
+  if (typeof used !== 'number' || !Number.isFinite(used) || used < 0 || !Number.isFinite(reset))
+    throw new Error('AUTH_INCONCLUSIVE: Gemini 用量窗口数据不完整')
+  return [
+    {
+      name: '统一额度',
+      remaining_percent: Math.max(0, 100 - Math.round(used * 100)),
+      reset_at: new Date(reset).toISOString(),
+    },
+  ]
 }
 
 async function geminiBrowserAccount() {
@@ -114,19 +139,27 @@ async function geminiBrowserAccount() {
     throw new Error('Gemini 账号检查未返回资料')
   }
   try {
-    const account = geminiAccountProfile(identity, await rpc('otAQ7b'))
+    const account = geminiAccountProfile(identity, await rpc('otAQ7b', [1]))
     try {
-      const [mode, quota, media] = await Promise.all([
-        rpc('VxUbXb'),
-        rpc('aPya6c'),
-        rpc('qpEbW', [
-          [
-            [1, 7],
-            [1, 5],
-          ],
-        ]),
-      ])
-      return { ...account, logged_in: true, quota_windows: geminiQuotaWindows(mode, quota, media) }
+      Object.assign(
+        account,
+        geminiAccountDetails(identity, await rpc('o30O0e', GEMINI_PROFILE_ARGS))
+      )
+    } catch (_) {
+      /* 资料接口失败不覆盖已确认身份。 */
+    }
+    try {
+      const response = await fetch((authuser ? '/u/' + authuser : '') + geminiUsagePath(), {
+        credentials: 'include',
+        signal: AbortSignal.timeout(8000),
+        headers: { accept: 'application/json' },
+      })
+      if (!response.ok) throw new Error('Gemini 用量查询 HTTP ' + response.status)
+      return {
+        ...account,
+        logged_in: true,
+        quota_windows: geminiUsageWindows(await response.text()),
+      }
     } catch (_) {
       return { ...account, logged_in: true, reason: '登录已确认，额度暂时无法读取' }
     }

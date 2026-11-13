@@ -150,6 +150,80 @@ describe('Gemini API 插件', () => {
     })
   })
 
+  it('按账号选择策略区分 Argon 与 Carbon，不把锁定的基础型号当成可用模型', () => {
+    const { context } = runtime()
+    const row = Array(20).fill(null)
+    row[0] = '95a4c0abcba24364'
+    row[12] = '4 Carbon'
+    row[17] = 8
+    const policy = (variant, name) => [
+      [null, 8, false, variant, name, name],
+      [[1], [4], [2]],
+    ]
+    const data = Array(25).fill(null)
+    data[15] = [row]
+    data[24] = ['carbon_multi_ultra_pro_policy', [policy('argon', '4 Argon')]]
+    context.geminiRpc = () => data
+    const model = context.geminiModel({}, 'gemini-4-argon', 'medium')
+    expect(model).toMatchObject({
+      id: 'gemini-4-argon',
+      name: '4 Argon',
+      hex: row[0],
+      mode: 8,
+      selector: 'argon',
+      variant: 'argon',
+      think: 4,
+    })
+    expect(() => context.geminiModel({}, 'gemini-4-carbon')).toThrow('account_model_unavailable')
+    data[24][1].push(policy('carbon', '4 Carbon'))
+    expect(context.geminiModel({}, 'gemini-4-carbon')).toMatchObject({
+      selector: 'carbon',
+      variant: 'carbon',
+      name: '4 Carbon',
+    })
+    const frame = Array(43).fill(null)
+    frame[42] = '4 Carbon'
+    expect(() =>
+      context.geminiParseGeneration(
+        JSON.stringify([['wrb.fr', null, JSON.stringify(frame)]]),
+        model
+      )
+    ).toThrow('模型与请求不符')
+    data[24][1] = []
+    expect(context.geminiCatalog({})).toEqual([])
+  })
+
+  it('免费账号自动模式使用稳定 ID，不再把中文用途转换成 gemini--', () => {
+    const { context } = runtime()
+    const row = Array(20).fill(null)
+    row[0] = 'cf41b0e0dd7d53e5'
+    row[1] = '自动'
+    row[12] = '根据需求调整回答'
+    row[17] = 6
+    const data = Array(25).fill(null)
+    data[15] = [row]
+    data[24] = [
+      'launch_free_policy',
+      [
+        [
+          [null, 6, false, null, '自动', '根据需求调整回答'],
+          [[1], [4], [2]],
+        ],
+      ],
+    ]
+    context.geminiRpc = () => data
+    const model = context.geminiModel({}, 'gemini-auto')
+    expect(model).toMatchObject({ name: '自动', automatic: true, selector: row[0] })
+    const frame = Array(43).fill(null)
+    frame[42] = '3.5 Flash-Lite'
+    expect(() =>
+      context.geminiParseGeneration(
+        JSON.stringify([['wrb.fr', null, JSON.stringify(frame)]]),
+        model
+      )
+    ).not.toThrow()
+  })
+
   it('解析中文和连续长度帧，不把 UTF-16 长度误当 UTF-8 字节数', () => {
     const { context } = runtime()
     const first = JSON.stringify([[1, ['中文🙂']]])
@@ -213,84 +287,109 @@ describe('Gemini API 插件', () => {
     expect(context.geminiWireMessage(fields, 1)[1]).toEqual([[]])
   })
 
-  it('按手动请求顺序检查额度，收到确认序号后才发送提示词，最后关闭通道', () => {
-    const { context, host } = runtime()
-    const requests = []
-    const rpcs = []
-    context.geminiRpc = (_session, rpc) => {
-      rpcs.push(rpc)
-      return rpc === 'aPya6c' ? [false, 0, []] : []
-    }
-    context.geminiHeaders = () => ({ authorization: 'test-only' })
-    context.geminiRequest = (_session, url, options) => {
-      requests.push({ url: new URL(url), ...options })
-      const raw = JSON.stringify([[0, ['c', 'test-session']]])
-      return {
-        ok: true,
-        body_text: raw.length + '\n' + raw,
-        headers: { 'x-http-session-id': 'test' },
+  it.each(['', 'argon', 'carbon'])(
+    '按手动顺序检查额度与变体 %s，确认后发送提示词并关闭通道',
+    (variant) => {
+      const { context, host } = runtime()
+      const requests = []
+      const rpcs = []
+      context.geminiRpc = (_session, rpc, _args, headers) => {
+        const metadata = JSON.parse(headers['x-goog-ext-525001261-jspb'])
+        expect(metadata[24] || '').toBe(variant)
+        if (rpc === 'aPya6c') expect(metadata[4]).toBe(variant || '56fdd199312815e2')
+        rpcs.push(rpc)
+        return rpc === 'aPya6c' ? [false, 0, []] : []
       }
-    }
-    host.stream = (_action, params, receive) => {
-      expect(new URL(params.url).searchParams.get('CI')).toBe('0')
-      expect(requests.filter((r) => r.body?.ofs !== undefined).map((r) => r.body.ofs)).toEqual([0])
-      const setup = context.geminiWireMessage(
-        context.geminiWireDecode([...Buffer.from(requests.at(-1).body.req0___data__, 'base64')]),
-        1
+      context.geminiHeaders = () => ({ authorization: 'test-only' })
+      context.geminiRequest = (_session, url, options) => {
+        requests.push({ url: new URL(url), ...options })
+        const raw = JSON.stringify([[0, ['c', 'test-session']]])
+        return {
+          ok: true,
+          body_text: raw.length + '\n' + raw,
+          headers: { 'x-http-session-id': 'test' },
+        }
+      }
+      host.stream = (_action, params, receive) => {
+        expect(new URL(params.url).searchParams.get('CI')).toBe('0')
+        expect(requests.filter((r) => r.body?.ofs !== undefined).map((r) => r.body.ofs)).toEqual([
+          0,
+        ])
+        const setup = context.geminiWireMessage(
+          context.geminiWireDecode([...Buffer.from(requests.at(-1).body.req0___data__, 'base64')]),
+          1
+        )
+        const meta = context.geminiWireMessage(setup, 1)
+        expect(context.geminiWireText(meta, 2)).toBe(variant || '56fdd199312815e2')
+        const header = requests[0].url.searchParams
+          .get('$httpHeaders')
+          .split('\r\n')
+          .find((line) => line.startsWith('x-goog-ext-525001261-bin:'))
+          .split(':')[1]
+        const wireHeader = context.geminiWireDecode([...Buffer.from(header, 'base64')])
+        expect(context.geminiWireText(wireHeader, 5)).toBe(variant || '56fdd199312815e2')
+        expect(context.geminiWireText(wireHeader, 25)).toBe(variant)
+        const inner = context.geminiWireMessage(
+          context.geminiWireMessage(context.geminiWireMessage(setup, 8), 5),
+          1
+        )
+        expect(context.geminiWireText(meta, 4)).toBe(context.geminiWireText(inner, 60))
+        const turn = requests[0].url.searchParams
+          .get('$httpHeaders')
+          .split('\r\n')
+          .find((line) => line.startsWith('x-goog-ext-525005358-bin:'))
+          .split(':')[1]
+        expect(
+          context.geminiWireText(context.geminiWireDecode([...Buffer.from(turn, 'base64')]), 1)
+        ).toBe(context.geminiWireText(inner, 60))
+        receive({ type: 'http_response', ok: true })
+        receive([[1, [context.geminiWireBase64(context.geminiWireEncode([[1, []]]))]]])
+        expect(requests.at(-1).body.ofs).toBe(1)
+        expect(requests.at(-1).url.searchParams.get('AID')).toBe('1')
+        const message = context.geminiWireMessage(
+          context.geminiWireDecode([...Buffer.from(requests.at(-1).body.req0___data__, 'base64')]),
+          2
+        )
+        expect(context.geminiWireText(context.geminiWireMessage(message, 9), 1)).toBe('1+1=?')
+        const done = context.geminiWireEncode([
+          [
+            2,
+            context.geminiWireEncode([
+              [7, context.geminiWireEncode([[1, context.geminiWireEncode([[1, 1]])]])],
+            ]),
+          ],
+        ])
+        receive([[2, [context.geminiWireBase64(done)]]])
+        receive([[3, [context.geminiWireBase64(context.geminiWireEncode([[4, []]]))]]])
+        return { ok: true }
+      }
+      const model = {
+        id: 'gemini-4-hydrogen',
+        hex: '56fdd199312815e2',
+        mode: variant ? 8 : 1,
+        think: 1,
+        tool: 0,
+        selector: variant || '56fdd199312815e2',
+        variant,
+      }
+      context.geminiChannelGenerate(
+        { tokens: { api_key: 'test', bl: 'test' }, auth: {} },
+        model,
+        context.geminiPayload('1+1=?', model, [], null),
+        () => {}
       )
-      const meta = context.geminiWireMessage(setup, 1)
-      const inner = context.geminiWireMessage(
-        context.geminiWireMessage(context.geminiWireMessage(setup, 8), 5),
-        1
-      )
-      expect(context.geminiWireText(meta, 4)).toBe(context.geminiWireText(inner, 60))
-      const turn = requests[0].url.searchParams
-        .get('$httpHeaders')
-        .split('\r\n')
-        .find((line) => line.startsWith('x-goog-ext-525005358-bin:'))
-        .split(':')[1]
+      expect(rpcs).toEqual(['ESY5D', 'VxUbXb', 'aPya6c'])
       expect(
-        context.geminiWireText(context.geminiWireDecode([...Buffer.from(turn, 'base64')]), 1)
-      ).toBe(context.geminiWireText(inner, 60))
-      receive({ type: 'http_response', ok: true })
-      receive([[1, [context.geminiWireBase64(context.geminiWireEncode([[1, []]]))]]])
-      expect(requests.at(-1).body.ofs).toBe(1)
-      expect(requests.at(-1).url.searchParams.get('AID')).toBe('1')
-      const message = context.geminiWireMessage(
-        context.geminiWireDecode([...Buffer.from(requests.at(-1).body.req0___data__, 'base64')]),
-        2
-      )
-      expect(context.geminiWireText(context.geminiWireMessage(message, 9), 1)).toBe('1+1=?')
-      const done = context.geminiWireEncode([
-        [
-          2,
-          context.geminiWireEncode([
-            [7, context.geminiWireEncode([[1, context.geminiWireEncode([[1, 1]])]])],
-          ]),
-        ],
+        requests.filter((r) => r.body?.ofs !== undefined).map((r) => [r.body.count, r.body.ofs])
+      ).toEqual([
+        [1, 0],
+        [1, 1],
+        [1, 2],
       ])
-      receive([[2, [context.geminiWireBase64(done)]]])
-      receive([[3, [context.geminiWireBase64(context.geminiWireEncode([[4, []]]))]]])
-      return { ok: true }
+      expect(requests.at(-1).url.searchParams.get('TYPE')).toBe('terminate')
+      expect(host.call).toHaveBeenCalledWith('time.sleep', { milliseconds: 500 })
     }
-    const model = { id: 'gemini-3.8-flash', hex: '56fdd199312815e2', mode: 1, think: 1, tool: 0 }
-    context.geminiChannelGenerate(
-      { tokens: { api_key: 'test', bl: 'test' }, auth: {} },
-      model,
-      context.geminiPayload('1+1=?', model, [], null),
-      () => {}
-    )
-    expect(rpcs).toEqual(['ESY5D', 'VxUbXb', 'aPya6c'])
-    expect(
-      requests.filter((r) => r.body?.ofs !== undefined).map((r) => [r.body.count, r.body.ofs])
-    ).toEqual([
-      [1, 0],
-      [1, 1],
-      [1, 2],
-    ])
-    expect(requests.at(-1).url.searchParams.get('TYPE')).toBe('terminate')
-    expect(host.call).toHaveBeenCalledWith('time.sleep', { milliseconds: 500 })
-  })
+  )
 
   it('额度接口明确耗尽时不提交生成，也不编造恢复时间', () => {
     const { context, host } = runtime()

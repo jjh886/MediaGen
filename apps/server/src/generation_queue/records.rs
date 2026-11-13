@@ -100,3 +100,31 @@ pub(super) fn runnable(state: &crate::ServerState, job: &GenerationJobRecord) ->
     )
     .is_ok()
 }
+
+/// 已排队任务的权限或额度消失后仍须被领取，才能向客户端返回终止错误。
+pub(super) fn unavailable_text_account(
+    state: &crate::ServerState,
+    job: &GenerationJobRecord,
+) -> bool {
+    if job.task_kind != "text" {
+        return false;
+    }
+    let Some(task) = state.store.task_by_id(&job.task_id) else {
+        return false;
+    };
+    let Some(manifest) = state.plugin_loader.get_plugin(&task.platform) else {
+        return false;
+    };
+    let Ok(key) = state.credential_cipher.decrypt(&job.credential_ciphertext) else {
+        return false;
+    };
+    crate::protocol_queue::check_model_accounts(
+        state,
+        manifest,
+        &task.model_id,
+        "text",
+        &key,
+        task.account_id.as_deref(),
+    )
+    .is_err()
+}

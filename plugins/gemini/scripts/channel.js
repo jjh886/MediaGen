@@ -73,7 +73,7 @@ function geminiChannelPost(session, channel, offset, data) {
 function geminiChannelGenerate(session, model, inner, onFrame) {
   if (!session.tokens.api_key)
     throw new Error('upstream_client_outdated: Gemini 页面未提供 WebChannel 参数')
-  const metadata = Array(18).fill(null)
+  const metadata = Array(model.variant ? 25 : 18).fill(null)
   metadata[0] = 1
   metadata[6] = 'zh-CN'
   metadata[8] = [4, 33, 22, 5, 6, 8, 16, 19, 20]
@@ -81,13 +81,14 @@ function geminiChannelGenerate(session, model, inner, onFrame) {
   metadata[15] = model.think
   metadata[16] = session.client_instance_id ||= apiTextUuid().toUpperCase()
   metadata[17] = [session.tokens.bl]
+  if (model.variant) metadata[24] = model.variant
   const rpcHeaders = () => ({
     'x-goog-ext-525001261-jspb': JSON.stringify(metadata),
     'x-goog-ext-73010989-jspb': '[0]',
   })
   geminiRpc(session, 'ESY5D', [null, [5]], rpcHeaders())
   session.mode_quota = geminiRpc(session, 'VxUbXb', [], rpcHeaders())
-  metadata[4] = model.hex
+  metadata[4] = model.selector || model.hex
   const quota = geminiRpc(session, 'aPya6c', [], rpcHeaders())
   if (quota?.[0] === true) {
     const reset = Number(quota[2]?.[0])
@@ -101,7 +102,7 @@ function geminiChannelGenerate(session, model, inner, onFrame) {
   const binary = geminiWireBase64(
     geminiWireEncode([
       [1, 1],
-      [5, model.hex],
+      [5, model.selector || model.hex],
       [7, 'zh-CN'],
       [8, 0],
       [9, [4, 33, 22, 5, 6, 8, 16, 19, 20]],
@@ -110,6 +111,7 @@ function geminiChannelGenerate(session, model, inner, onFrame) {
       [16, model.think],
       [17, (session.client_instance_id ||= apiTextUuid())],
       [18, geminiWireEncode([[1, session.tokens.bl]])],
+      ...(model.variant ? [[25, model.variant]] : []),
     ])
   )
   const auth = geminiHeaders(session, GEMINI_ORIGIN)
@@ -150,7 +152,7 @@ function geminiChannelGenerate(session, model, inner, onFrame) {
   inner[0][0] = ''
   const meta = geminiWireEncode([
     [1, 1],
-    [2, model.hex],
+    [2, model.selector || model.hex],
     [3, 'zh-CN'],
     [4, inner[59]],
   ])

@@ -4,29 +4,32 @@ function main(ctx) {
     const models = geminiCatalog(session)
     if (!models.length) throw new Error('AUTH_INCONCLUSIVE: Google 未返回账号可用模型')
     const account = geminiAccountProfile(session.auth, session.user_status)
-    let quota
     try {
-      quota = geminiQuotaWindows(
-        geminiRpc(session, 'VxUbXb', []),
-        geminiRpc(session, 'aPya6c', []),
-        geminiRpc(session, 'qpEbW', [
-          [
-            [1, 7],
-            [1, 5],
-          ],
-        ])
+      Object.assign(
+        account,
+        geminiAccountDetails(session.auth, geminiRpc(session, 'o30O0e', GEMINI_PROFILE_ARGS))
       )
     } catch (_) {
-      quota = undefined
+      /* 头像读取失败时保留原资料。 */
     }
+    const quota = geminiUsageWindows(
+      geminiRequest(session, geminiBase(session) + geminiUsagePath(), {
+        authorize: false,
+        headers: {
+          accept: 'application/json',
+          referer: geminiBase(session) + '/usage',
+          'sec-fetch-site': 'same-origin',
+          'sec-fetch-mode': 'cors',
+          'sec-fetch-dest': 'empty',
+        },
+      }).body_text
+    )
     return {
       logged_in: true,
       status: 'available',
       account,
-      reason: quota
-        ? '身份已验证；额度状态来自 Gemini，总量未公开时显示未知'
-        : '身份已验证；额度暂时无法读取，保留原数据',
-      ...(quota ? { quota_windows: quota } : {}),
+      reason: '身份已验证；当前用量来自 Gemini 网页统一额度',
+      quota_windows: quota,
     }
   } catch (error) {
     if (String(error.message).startsWith('verification_required:'))

@@ -114,6 +114,13 @@ pub(crate) async fn execute(
     let model_id = body["model"].as_str().unwrap_or_default().to_string();
     crate::model_api::refresh_before_dispatch(&state, &model_id, &key).await;
     let Some((manifest, model, _)) = crate::model_api::resolve(&state, &model_id, &key) else {
+        if state.plugin_loader.resolve_model(&model_id).is_some() {
+            return error(
+                403,
+                "no_available_account_for_model",
+                &format!("没有账号可以使用模型 {model_id}，当前已登录账号未提供该模型的权限"),
+            );
+        }
         return error(404, "model_not_found", "模型不存在，请先获取模型目录");
     };
     let (kind, flow) = if endpoint == "speech" {
@@ -160,6 +167,15 @@ pub(crate) async fn execute(
         crate::protocol_request::validate_capabilities(&parameter_payload, &capabilities)
     {
         return error(400, "unsupported_parameter", &message);
+    }
+
+    if kind == TaskKind::Text {
+        if let Err(message) = crate::protocol_queue::check_model_accounts(
+            &state, &manifest, &model_id, "text", &key, None,
+        ) {
+            let (status, code, message) = public_failure(&message);
+            return error(status, code, &message);
+        }
     }
 
     if body["async"] == true && !context.queued {
@@ -276,6 +292,12 @@ pub(crate) async fn execute(
     {
         Ok(value) => value,
         Err(message) => {
+            if message.starts_with("no_available_account_for_model:")
+                || message.starts_with("insufficient_quota:")
+            {
+                let (status, code, message) = public_failure(&message);
+                return error(status, code, &message);
+            }
             let code = if message.contains("等待") {
                 "account_queue_timeout"
             } else {

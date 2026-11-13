@@ -64,7 +64,16 @@ async fn rate_limited_new_turn_can_failover_but_bound_conversation_keeps_account
             )
             .await;
             if continued || !available {
-                assert!(result.unwrap_err().contains(failure));
+                let error = result.unwrap_err();
+                if !continued && category == "account_model_unavailable" {
+                    assert!(
+                        error.starts_with("no_available_account_for_model:"),
+                        "{error}"
+                    );
+                    assert!(error.contains("text-model"));
+                } else {
+                    assert!(error.contains(failure), "{error}");
+                }
                 assert_eq!(account.id, if continued { "account" } else { "fourth" });
             } else {
                 assert_eq!(result.unwrap()["response"]["output_text"], "OK");

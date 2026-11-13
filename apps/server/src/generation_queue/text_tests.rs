@@ -464,3 +464,47 @@ async fn text_callback_requires_async_and_valid_http_url() {
         }
     }
 }
+
+#[actix_web::test]
+async fn queued_text_without_model_permission_finishes_failed() {
+    let state = crate::test_fixtures::protocol_state(true);
+    let scripts = state
+        .plugin_loader
+        .get_plugin_dir("test")
+        .unwrap()
+        .join("scripts");
+    std::fs::write(scripts.join("models.js"), "function main(){return {models:[{model_id:'text-model',display_name:'Text',task_kind:'text'}]}}").unwrap();
+    crate::model_api::refresh_account(&state, state.store.account_by_id("account").unwrap())
+        .await
+        .unwrap();
+    let app = test::init_service(
+        App::new()
+            .app_data(state.clone())
+            .configure(crate::configure_routes),
+    )
+    .await;
+    let accepted: Value = test::call_and_read_body_json(
+        &app,
+        test::TestRequest::post()
+            .uri("/v1/responses")
+            .insert_header(("authorization", "Bearer key-a"))
+            .set_json(json!({"model":"text-model","input":"test","async":true}))
+            .to_request(),
+    )
+    .await;
+    let id = accepted["data"]["taskId"].as_str().unwrap();
+    std::fs::write(
+        scripts.join("models.js"),
+        "function main(){return {models:[]}}",
+    )
+    .unwrap();
+    crate::model_api::refresh_account(&state, state.store.account_by_id("account").unwrap())
+        .await
+        .unwrap();
+    super::super::worker::dispatch_available(&state).await;
+    wait_job(&state, id, crate::store::GenerationJobState::Failed).await;
+    let job = state.store.generation_job(id, None).unwrap();
+    assert_eq!(job.retry_count, 0);
+    assert!(job.last_error_summary.unwrap().contains("text-model"));
+    assert_eq!(state.store.task_by_id(id).unwrap().status, "failed");
+}

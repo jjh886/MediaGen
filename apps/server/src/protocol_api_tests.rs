@@ -463,3 +463,68 @@ async fn discovered_models_keep_plugin_prices_and_authoritative_capabilities() {
         assert_eq!(model["capabilities"]["reasoning"]["default_effort"], "low");
     }
 }
+
+#[actix_web::test]
+async fn unavailable_model_or_quota_fails_before_streaming_or_enqueuing() {
+    for missing_permission in [true, false] {
+        let state = crate::test_fixtures::protocol_state(missing_permission);
+        if !missing_permission {
+            state
+                .store
+                .mark_account_state_for_seconds("account", "daily_quota_exhausted", 3600);
+            state
+                .store
+                .record_account_failure("account", "quota", "text");
+        }
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(crate::configure_routes),
+        )
+        .await;
+        for endpoint in ["responses", "chat/completions"] {
+            for mode in ["sync", "stream", "async"] {
+                let mut body = if endpoint == "responses" {
+                    json!({"model":"text-model","input":"test"})
+                } else {
+                    json!({"model":"text-model","messages":[{"role":"user","content":"test"}]})
+                };
+                if mode != "sync" {
+                    body[mode] = json!(true);
+                }
+                let response = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    actix_test::call_service(
+                        &app,
+                        actix_test::TestRequest::post()
+                            .uri(&format!("/v1/{endpoint}"))
+                            .insert_header(("authorization", "Bearer key-a"))
+                            .set_json(body)
+                            .to_request(),
+                    ),
+                )
+                .await
+                .expect("没有权限或额度时不应等待");
+                assert_eq!(
+                    response.status().as_u16(),
+                    if missing_permission { 403 } else { 429 }
+                );
+                let body: Value = actix_test::read_body_json(response).await;
+                assert_eq!(
+                    body["error"]["code"],
+                    if missing_permission {
+                        "no_available_account_for_model"
+                    } else {
+                        "insufficient_quota"
+                    }
+                );
+                assert!(body["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("text-model"));
+                assert!(state.store.list_tasks(None).is_empty());
+                assert_eq!(state.store.active_generation_job_count("text"), 0);
+            }
+        }
+    }
+}

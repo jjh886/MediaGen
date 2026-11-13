@@ -33,7 +33,7 @@ function geminiFrames(raw) {
 }
 
 function geminiCatalog(session) {
-  const data = geminiRpc(session, 'otAQ7b', [])
+  const data = geminiRpc(session, 'otAQ7b', [1])
   session.user_status = data
   const status = Number(data?.[14] || 1000)
   if (status !== 1000) {
@@ -61,22 +61,41 @@ function geminiCatalog(session) {
   const business = products.includes(21) ? 1 : products.includes(22) ? 2 : null
   session.account_header =
     tier === 2 || tier === 3 ? [12, tier] : business ? [13, business] : tier ? [12, tier] : null
-  return data[15]
-    .filter(
-      (row) =>
-        /^[0-9a-f]{16}$/.test(row?.[0]) &&
-        typeof (row[12] || row[2] || row[11]) === 'string' &&
-        Number.isInteger(row[17])
-    )
-    .map((row) => ({
-      id: 'gemini-' + (row[12] || row[2] || row[11]).toLowerCase().replace(/[^a-z0-9.]+/g, '-'),
-      name: row[12] || row[2] || row[11],
-      hex: row[0],
-      mode: row[17],
-      efforts: (data[24]?.[1]?.find((entry) => entry?.[0]?.[1] === row[17])?.[1] || [])
-        .map((entry) => ({ 1: 'low', 4: 'medium', 2: 'high' })[entry?.[0]])
-        .filter(Boolean),
-    }))
+  const rows = data[15].filter(
+    (row) => /^[0-9a-f]{16}$/.test(row?.[0]) && Number.isInteger(row[17])
+  )
+  // 基础表描述模型家族；账号选择策略才决定实际可用名称和变体（Argon/Carbon 共用档位）。
+  const choices = Array.isArray(data[24]?.[1])
+    ? data[24][1]
+    : rows.map((row) => [[null, row[17]], []])
+  return choices.flatMap((choice) => {
+    const mode = choice?.[0]?.[1]
+    const row = rows.find((row) => row[17] === mode)
+    if (!row) return []
+    const automatic = /^(自动|auto(?:matic)?)$/i.test(choice[0][4] || row[1] || '')
+    const name = automatic ? choice[0][4] || row[1] : choice[0][5] || row[12] || row[2] || row[11]
+    if (typeof name !== 'string' || !name.trim()) return []
+    const slug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9.]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+    if (!automatic && !slug) return []
+    const variant = typeof choice[0][3] === 'string' ? choice[0][3] : ''
+    return [
+      {
+        id: automatic ? 'gemini-auto' : 'gemini-' + slug,
+        name,
+        hex: row[0],
+        mode,
+        variant,
+        selector: variant || row[0],
+        automatic,
+        efforts: (Array.isArray(choice[1]) ? choice[1] : [])
+          .map((entry) => ({ 1: 'low', 4: 'medium', 2: 'high' })[entry?.[0]])
+          .filter(Boolean),
+      },
+    ]
+  })
 }
 
 function geminiModel(session, id, effort) {
@@ -176,6 +195,7 @@ function geminiParseGeneration(raw, model) {
     const reported = data[42]
     if (
       !model.tool &&
+      !model.automatic &&
       typeof reported === 'string' &&
       reported &&
       reported !== model.name &&

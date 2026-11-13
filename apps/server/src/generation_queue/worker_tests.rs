@@ -304,7 +304,7 @@ async fn worker_automatically_drains_both_queues_at_configured_account_concurren
 }
 
 #[actix_web::test]
-async fn timed_quota_keeps_bound_tasks_queued_then_automatically_resumes_original_account() {
+async fn timed_quota_ends_text_wait_but_preserves_image_recovery() {
     for kind in ["image", "text"] {
         let (state, key, model, account) = scheduling_state(kind, 1);
         let id = enqueue(&state, kind, key, model).await;
@@ -319,9 +319,15 @@ async fn timed_quota_keeps_bound_tasks_queued_then_automatically_resumes_origina
         start_worker(state.clone());
         tokio::time::sleep(Duration::from_millis(150)).await;
         let waiting = state.store.generation_job(&id, None).unwrap();
-        assert_eq!(waiting.state, GenerationJobState::Queued);
         assert_eq!(waiting.retry_count, 0);
-        wait_completed(&state, &id).await;
+        if kind == "text" {
+            assert_eq!(waiting.state, GenerationJobState::Failed);
+            assert!(waiting.last_error_summary.unwrap().contains("可用额度"));
+            assert_eq!(state.store.task_by_id(&id).unwrap().status, "failed");
+        } else {
+            assert_eq!(waiting.state, GenerationJobState::Queued);
+            wait_completed(&state, &id).await;
+        }
         assert_eq!(
             state.store.task_by_id(&id).unwrap().account_id.as_deref(),
             Some(account)
@@ -413,7 +419,7 @@ async fn image_recovery_cannot_bypass_original_account_quota_or_concurrency() {
 }
 
 #[actix_web::test]
-async fn upstream_quota_with_reset_time_preserves_job_for_retry_instead_of_failing() {
+async fn upstream_quota_terminates_text_and_preserves_image_retry() {
     for kind in ["image", "text"] {
         let (state, key, model, account) = scheduling_state(kind, 1);
         let id = enqueue(&state, kind, key, model).await;
@@ -436,12 +442,18 @@ async fn upstream_quota_with_reset_time_preserves_job_for_retry_instead_of_faili
         )
         .await;
         let job = state.store.generation_job(&id, None).unwrap();
-        assert_eq!(job.state, GenerationJobState::RetryWait);
-        assert_eq!(
-            job.last_failure_category.as_deref(),
-            Some("account_limited")
-        );
-        assert_eq!(state.store.task_by_id(&id).unwrap().status, "pending");
+        if kind == "text" {
+            assert_eq!(job.state, GenerationJobState::Failed);
+            assert_eq!(job.retry_count, 0);
+            assert_eq!(state.store.task_by_id(&id).unwrap().status, "failed");
+        } else {
+            assert_eq!(job.state, GenerationJobState::RetryWait);
+            assert_eq!(
+                job.last_failure_category.as_deref(),
+                Some("account_limited")
+            );
+            assert_eq!(state.store.task_by_id(&id).unwrap().status, "pending");
+        }
         assert_eq!(
             state.store.task_by_id(&id).unwrap().account_id.as_deref(),
             Some(account)

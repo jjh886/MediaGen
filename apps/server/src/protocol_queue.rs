@@ -8,6 +8,45 @@ use mediagen_core::PluginManifest;
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
 
+/// 并发占用可以排队；没有权限、登录态或额度不能无限等待。
+pub(crate) fn check_model_accounts(
+    state: &ServerState,
+    manifest: &PluginManifest,
+    model: &str,
+    kind: &str,
+    key: &str,
+    bound: Option<&str>,
+) -> Result<(), String> {
+    let mut permitted = false;
+    for mut account in state.store.list_accounts(Some(&manifest.platform_id)) {
+        if bound.is_some_and(|id| id != account.id)
+            || !(state.store.global_api_key_allowed(key)
+                || crate::access_control::account_key_allowed(&account.api_key, key))
+            || matches!(
+                account.login_state.as_str(),
+                "disabled" | "login_expired" | "verification_required"
+            )
+            || state
+                .store
+                .account_with_required_runtime_proxy(account.clone())
+                .is_err()
+            || crate::model_api::account_model(state, manifest, model, &account.id).is_none()
+        {
+            continue;
+        }
+        permitted = true;
+        account.task_interval_seconds = 0;
+        if crate::store_helpers::account_ready_for_kind(&account, &[], kind) {
+            return Ok(());
+        }
+    }
+    if !permitted {
+        Err(format!("no_available_account_for_model: 没有账号可以使用模型 {model}，请检查模型权限、登录状态和代理配置"))
+    } else {
+        Err(format!("insufficient_quota: 没有账号具备模型 {model} 的可用额度，账号已达限额或处于冷却中，请恢复额度后重新请求"))
+    }
+}
+
 struct Waiting {
     store: Arc<AppStore>,
     id: String,
@@ -36,6 +75,10 @@ pub(crate) async fn reserve_affinity_wait(
     requirements: Option<&Value>,
     preferred: Option<&str>,
 ) -> Result<(AccountRecord, Lease), String> {
+    let bound = crate::protocol_task::bound_account(state, id, requirements, preferred)?;
+    if kind == "text" {
+        check_model_accounts(state, manifest, model, kind, key, bound.as_deref())?;
+    }
     // 持久队列负责等待和重试，执行尝试只复用账号准入，不再嵌套同步等待队列。
     if state.store.generation_job(id, None).is_some() {
         return reserve_affinity(
@@ -69,7 +112,6 @@ pub(crate) async fn reserve_affinity_wait(
             return Ok(value);
         }
     }
-    let bound = crate::protocol_task::bound_account(state, id, requirements, preferred)?;
     let eligible = || {
         state
             .store
@@ -148,6 +190,9 @@ pub(crate) async fn reserve_affinity_wait(
             .is_none_or(|task| task.status != "queued")
         {
             return Err("请求已停止等待，请检查原任务状态".into());
+        }
+        if kind == "text" {
+            check_model_accounts(state, manifest, model, kind, key, bound.as_deref())?;
         }
         if !eligible() {
             return Err("账号已停用、失效或无可恢复额度，请检查账号配置".into());
