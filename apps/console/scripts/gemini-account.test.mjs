@@ -78,7 +78,7 @@ describe('Gemini 登录身份和账号资料', () => {
       user_id: identity.S06Grb,
       tier: 'Google AI Pro',
     })
-    expect(result.quota_windows.map((row) => row.name)).toEqual(['统一额度'])
+    expect(result.quota_windows.map((row) => row.name)).toEqual(['5 小时额度', '周额度'])
     expect(result.quota_windows[0].remaining_count).toBeUndefined()
     expect(result.quota_windows[0].remaining_percent).toBe(73)
   })
@@ -122,8 +122,20 @@ describe('Gemini 登录身份和账号资料', () => {
       expect(context.geminiAccountProfile({ email: 'test@example.com' }, data).tier).toBe(tier)
     }
     expect(context.geminiUsageWindows(usage([]))).toEqual([])
+    expect(
+      context.geminiUsageWindows(
+        usage([
+          { poolType: 'GXU_WEEKLY', percentageUsed: 0.1 },
+          { poolType: 'NEW_UPSTREAM_POOL', percentageUsed: 0.4 },
+        ])
+      )
+    ).toEqual([
+      { name: '周额度', remaining_percent: 90 },
+      { name: 'NEW_UPSTREAM_POOL', remaining_percent: 60 },
+    ])
     expect(context.geminiUsageWindows(")]}'\n" + usage())).toMatchObject([
       { remaining_percent: 73, reset_at: '2026-11-13T05:13:56.318Z' },
+      { remaining_percent: 72, reset_at: '2026-11-17T09:13:56.319Z' },
     ])
     expect(
       context
@@ -131,9 +143,9 @@ describe('Gemini 登录身份和账号资料', () => {
         .every((row) => !row.task_kind && row.remaining_count === undefined)
     ).toBe(true)
     expect(() => context.geminiUsageWindows('[]')).toThrow('未返回统一用量')
-    expect(() =>
-      context.geminiUsageWindows(usage([{ poolType: 'GXU_FIVE_HOURLY', percentageUsed: 0.2 }]))
-    ).toThrow('不完整')
+    expect(() => context.geminiUsageWindows(usage([{ poolType: 'GXU_FIVE_HOURLY' }]))).toThrow(
+      '不完整'
+    )
   })
   it('头像与显示名来自当前账号个人资料，拒绝其他账号和非官方头像地址', () => {
     const { context } = runtime()
@@ -179,7 +191,10 @@ describe('Gemini 登录身份和账号资料', () => {
     vm.runInContext(source('check_account.js'), context)
     expect(context.main({})).toMatchObject({
       status: 'available',
-      quota_windows: [{ name: '统一额度', remaining_percent: 73 }],
+      quota_windows: [
+        { name: '5 小时额度', remaining_percent: 73 },
+        { name: '周额度', remaining_percent: 72 },
+      ],
     })
     context.geminiRequest = () => {
       throw new Error('temporary_unavailable: Gemini HTTP 403')

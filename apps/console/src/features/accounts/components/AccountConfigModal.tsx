@@ -280,9 +280,8 @@ export default function AccountConfigModal({
               </table>
             </div>
             <div style={labelStyle}>
-              每日及累计限额为 0 表示不限；文本并发默认 {account?.text_concurrency_default ?? 0}
-              ，可按账号调整，填 0 使用插件默认值，插件默认 0
-              表示不设文本并发上限。两类用量独立计算，平台额度另行生效。
+              这里设置的是本地调度限制，文本并发、每日及累计限额为 0
+              表示不限；上游额度按账号实际返回的信息显示。
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <label style={fieldStyle}>

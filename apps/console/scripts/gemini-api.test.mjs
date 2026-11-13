@@ -183,12 +183,12 @@ describe('Gemini API 插件', () => {
     })
     const frame = Array(43).fill(null)
     frame[42] = '4 Carbon'
-    expect(() =>
+    expect(
       context.geminiParseGeneration(
         JSON.stringify([['wrb.fr', null, JSON.stringify(frame)]]),
         model
-      )
-    ).toThrow('模型与请求不符')
+      ).actual_model_name
+    ).toBe('4 Carbon')
     data[24][1] = []
     expect(context.geminiCatalog({})).toEqual([])
   })
@@ -274,8 +274,8 @@ describe('Gemini API 插件', () => {
     const { context } = runtime()
     const payload = context.geminiPayload('', { mode: 1, think: 1, tool: 0 }, [], null)
     const fields = context.geminiWireDecode(context.geminiWireInner(payload))
-    // 来自成功网页请求：tag=31/wire=2，长度=3，值为 4、16、19。
-    expect(fields[31]).toEqual([[4, 16, 19]])
+    // 来自成功网页请求：tag=31/wire=2，长度=4，值为 4、16、19、12。
+    expect(fields[31]).toEqual([[4, 16, 19, 12]])
     expect(fields[3]).toBeUndefined()
     expect(fields[50]).toEqual([0])
     expect(fields[80]).toEqual([1])
@@ -408,7 +408,7 @@ describe('Gemini API 插件', () => {
     expect(host.checkpoint()).toEqual({ phase: 'ready' })
   })
 
-  it('识别 HTTP 200 内失败标记和静默换模型，不伪装生成成功', () => {
+  it('识别 HTTP 200 内失败标记，并保留上游返回的实际模型', () => {
     const { context } = runtime()
     const frame = Array(43).fill(null)
     frame[31] = true
@@ -416,8 +416,8 @@ describe('Gemini API 插件', () => {
     expect(() => context.geminiParseGeneration(raw(), { name: '4 Argon' })).toThrow('frame[31]')
     frame[31] = false
     frame[42] = '3.5 Flash-Lite'
-    expect(() => context.geminiParseGeneration(raw(), { name: '4 Argon' })).toThrow(
-      'account_model_unavailable'
+    expect(context.geminiParseGeneration(raw(), { name: '4 Argon' }).actual_model_name).toBe(
+      '3.5 Flash-Lite'
     )
     frame[42] = '4 Argon High'
     expect(() => context.geminiParseGeneration(raw(), { name: '4 Argon' })).not.toThrow()
@@ -433,6 +433,116 @@ describe('Gemini API 插件', () => {
     expect(() =>
       context.geminiRequireOk({ ok: true, final_url: 'https://www.google.com/sorry/index' })
     ).toThrow('verification_required')
+  })
+
+  it('识别真实 RPC 空结果中的错误码并终止无法加载的会话', () => {
+    const { context, host } = runtime()
+    context.geminiRequest = () => ({
+      body_text: JSON.stringify([
+        [
+          'wrb.fr',
+          'hNvQHb',
+          null,
+          null,
+          null,
+          [
+            5,
+            null,
+            [
+              [
+                'type.googleapis.com/assistant.boq.bard.application.BardErrorInfo',
+                [1167, null, '无法加载对话。（1167）'],
+              ],
+            ],
+          ],
+          'generic',
+        ],
+      ]),
+    })
+    expect(() =>
+      context.geminiHistory(
+        { auth: {}, tokens: {} },
+        { conversation_id: 'c_original', response_id: 'r_original' }
+      )
+    ).toThrow('conversation_unavailable')
+    host.checkpoint({ phase: 'accepted', conversation_id: 'c_original', response_id: 'r_original' })
+    context.apiSessionRead = () => ({ auth: {}, tokens: {} })
+    const initialize = vi.fn((session) => session)
+    context.geminiInitialize = initialize
+    const input = { request: { model: 'gemini-4-argon', input: 'test' } }
+    expect(() => context.main(input)).toThrow('conversation_unavailable')
+    expect(host.checkpoint().phase).toBe('failed')
+    expect(() => context.main(input)).toThrow('conversation_unavailable')
+    expect(initialize).toHaveBeenCalledTimes(1)
+  })
+
+  it('降级后的通道仍没有结果时终止，不循环降级', () => {
+    const { context, host } = runtime()
+    host.checkpoint({
+      phase: 'accepted',
+      conversation_id: 'c_original',
+      response_id: 'r_original',
+      fallback_model: 'gemini-4-hydrogen',
+      channel_ended: true,
+    })
+    context.apiSessionRead = () => ({})
+    context.geminiInitialize = (session) => session
+    context.geminiHistory = vi.fn(() => null)
+    const input = { request: { model: 'gemini-4-argon', input: 'test' } }
+    expect(() => context.main(input)).toThrow('generation_failed')
+    expect(() => context.main(input)).toThrow('generation_failed')
+    expect(context.geminiHistory).toHaveBeenCalledTimes(1)
+    expect(host.checkpoint().phase).toBe('failed')
+  })
+
+  it('原通道确定结束且没有正文时按账号目录降级一次，并显示实际模型', () => {
+    const { context, host } = runtime()
+    host.checkpoint({
+      phase: 'accepted',
+      conversation_id: 'c_original',
+      response_id: 'r_original',
+      channel_ended: true,
+    })
+    context.apiSessionRead = () => ({})
+    context.geminiInitialize = (session) => session
+    context.geminiHistory = vi.fn(() => null)
+    context.geminiCatalog = () => [{ id: 'gemini-4-hydrogen', name: '4 Hydrogen', mode: 1 }]
+    context.geminiReferences = () => []
+    context.geminiGenerate = vi.fn((_session, model) => {
+      expect(model.id).toBe('gemini-4-hydrogen')
+      expect(host.checkpoint()).toMatchObject({
+        phase: 'ready',
+        fallback_model: 'gemini-4-hydrogen',
+        original_receipt: { conversation_id: 'c_original', response_id: 'r_original' },
+      })
+      return { conversation_id: 'c_fallback', response_id: 'r_fallback', text: 'OK' }
+    })
+    const input = { request: { model: 'gemini-4-argon', input: 'test' } }
+    const response = context.main(input).response
+    expect(response.model).toBe('gemini-4-hydrogen')
+    expect(response.output_text).toBe('已改用 Hydrogen。\n\nOK')
+    expect(context.main(input).response.output_text).toBe(response.output_text)
+    expect(context.geminiGenerate).toHaveBeenCalledTimes(1)
+  })
+
+  it('恢复等待有跨请求时限，过期后不再查询上游或重发生成', () => {
+    const { context, host } = runtime()
+    host.checkpoint({
+      phase: 'accepted',
+      conversation_id: 'c_original',
+      response_id: 'r_original',
+      accepted_at: Date.now() - 21 * 60 * 1000,
+    })
+    context.apiSessionRead = () => ({})
+    context.geminiInitialize = (session) => session
+    context.geminiHistory = vi.fn()
+    context.geminiGenerate = vi.fn()
+    const input = { request: { model: 'gemini-4-argon', input: 'test' } }
+    expect(() => context.main(input)).toThrow('recovery_exhausted')
+    expect(() => context.main(input)).toThrow('recovery_exhausted')
+    expect(context.geminiHistory).not.toHaveBeenCalled()
+    expect(context.geminiGenerate).not.toHaveBeenCalled()
+    expect(host.checkpoint().phase).toBe('failed')
   })
 
   it('恢复只读取指定轮次，拒绝返回别的轮次产物', () => {
@@ -542,6 +652,47 @@ describe('Gemini API 插件', () => {
       'frame[31]'
     )
     expect(context.geminiInitialize).not.toHaveBeenCalled()
+  })
+
+  it('采用上游实际降级结果，正文显示改用提示，流式和结果都返回真实模型', () => {
+    const { context, host } = runtime()
+    context.apiSessionRead = () => ({})
+    context.geminiInitialize = (session) => session
+    context.geminiModel = () => ({
+      id: 'gemini-4-argon',
+      name: '4 Argon',
+      mode: 8,
+      think: 1,
+      tool: 0,
+    })
+    context.geminiReferences = () => []
+    context.geminiChannelGenerate = (_s, _m, _p, callback) => {
+      for (const text of ['OK', 'OK done']) {
+        const frame = Array(43).fill(null)
+        frame[1] = ['c_current', 'r_current']
+        frame[4] = [['rc_current', [text]]]
+        frame[42] = '4 Hydrogen'
+        callback(frame)
+      }
+    }
+    const input = {
+      request: { input: 'test', model: 'gemini-4-argon', options: { session_key: 'test' } },
+    }
+    const output = context.main(input).response
+    expect(output.model).toBe('gemini-4-hydrogen')
+    expect(output.metadata).toMatchObject({
+      requested_model: 'gemini-4-argon',
+      actual_model: 'gemini-4-hydrogen',
+      model_notice: '已改用 Hydrogen。',
+    })
+    expect(output.metadata.platform_session.conversation_id).toBe('c_current')
+    expect(output.output_text).toBe('已改用 Hydrogen。\n\nOK done')
+    expect(
+      host.emit.mock.calls
+        .map(([event]) => (event.type === 'response.output_text.delta' ? event.delta : ''))
+        .join('')
+    ).toBe(output.output_text)
+    expect(context.main(input).response.output_text).toBe(output.output_text)
   })
 
   it('文本成功后保存结果，恢复同一个请求不再次消耗额度', () => {

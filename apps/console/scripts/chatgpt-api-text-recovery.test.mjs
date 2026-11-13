@@ -53,6 +53,7 @@ beforeEach(() => {
   ]) {
     vm.runInContext(readFileSync(path.join(scriptDirectory, `${name}.js`), 'utf8'), context)
   }
+  context.actualInitialize = context.chatgptApiInitializeConversation
   context.actualWaitForText = context.chatgptApiWaitForText
   context.actualWaitForRichText = context.chatgptApiWaitForRichText
   context.actualStreamTextConversation = context.chatgptApiStreamTextConversation
@@ -95,6 +96,46 @@ describe('ChatGPT 文本提交与恢复', () => {
     expect(run).toThrow('retry after 120 seconds')
     expect(checkpoint.phase).toBe('ready')
     expect(checkpoint.conversation_id).toBeUndefined()
+  })
+
+  it('仅缓存初始化接口给出的有效恢复时间，写入时保留最新登录资料', () => {
+    const stored = { auth: { token: 'latest' }, cookies: [{ name: 'session', value: 'latest' }] }
+    const auth = { storage_path: '/profile/auth.json', auth: {}, cookies: [] }
+    const limit = { model_slug: 'gpt-6-pro', resets_after: '2099-11-10T16:51:45Z' }
+    context.chatgptApiFingerprint = () => ({})
+    context.chatgptApiRequireOk = (response) => response
+    context.chatgptApiRequest = () => ({
+      body: { model_limits: [limit, { model_slug: 'unknown-reset' }] },
+    })
+    context.host.call = vi.fn((action, params) => {
+      if (action === 'file.read_json') return stored
+      if (action === 'file.write_json') expect(params.value.cookies).toEqual(stored.cookies)
+      return {}
+    })
+    context.actualInitialize(auth)
+    expect(stored.auth.model_limits).toEqual([limit])
+    expect(stored.auth.token).toBe('latest')
+    expect(auth.auth.model_limits).toEqual([limit])
+    expect(context.host.call).toHaveBeenLastCalledWith('lock.release', {
+      key: 'chatgpt-auth:/profile/auth.json',
+    })
+    context.chatgptApiRequest = () => ({ body: { model_limits: [] } })
+    context.actualInitialize(auth)
+    expect(stored.auth.model_limits).toEqual([])
+  })
+
+  it('缓存的真实模型限额恢复前不再访问上游，恢复后继续正常调用', () => {
+    const limit = { model_slug: 'gpt-5-6-instant', resets_after: '2099-11-10T16:51:45Z' }
+    context.chatgptApiReadAuth = () => ({ auth: { model_limits: [limit] } })
+    expect(run).toThrow('model_quota_exhausted')
+    expect(refresh).not.toHaveBeenCalled()
+    limit.resets_after = '2020-01-01T00:00:00Z'
+    try {
+      run()
+    } catch (_) {
+      /* 此测试只验证额度恢复后的请求准入。 */
+    }
+    expect(refresh).toHaveBeenCalledTimes(1)
   })
 
   it('所选模型受限时在上传前停止，保留安全换号边界和上游恢复时间', () => {

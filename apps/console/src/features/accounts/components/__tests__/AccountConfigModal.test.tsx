@@ -72,7 +72,7 @@ describe('账号配置', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  it.each([3, 0])('未配置文本并发时展示服务端插件默认值 %i', (limit) => {
+  it.each([3, 0])('插件默认值 %i 不改变文本并发 0 表示不限', (limit) => {
     render(
       <AccountConfigModal
         open
@@ -82,11 +82,10 @@ describe('账号配置', () => {
       />
     )
     expect(screen.getByLabelText('文本并发')).toHaveValue(0)
-    expect(screen.getByText(new RegExp(`文本并发默认 ${limit}`))).toBeInTheDocument()
-    expect(screen.getByText(/插件默认 0 表示不设文本并发上限/)).toBeInTheDocument()
+    expect(screen.getByText(/文本并发、每日及累计限额为 0 表示不限/)).toBeInTheDocument()
   })
 
-  it('允许账号保存 100 并发或填 0 跟随插件默认值', async () => {
+  it('允许账号保存 100 并发或填 0 不限', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined)
     render(
       <AccountConfigModal
