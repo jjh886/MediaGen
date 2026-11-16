@@ -28,6 +28,7 @@ beforeEach(() => {
     '../../_shared/api_session.js',
     'auth.js',
     'session_cookies.js',
+    'model_picker.js',
     'startup.js',
     'sentinel_vm.js',
     'sentinel.js',
@@ -156,11 +157,11 @@ describe('ChatGPT API 文本协议', () => {
         ],
       },
     })
-    expect(evaluate('main({})').models.map((model) => model.model_id)).toEqual([
-      'gpt-5-6',
-      'gpt-6-pro',
-      'gpt-6.1-sol',
-    ])
+    expect(
+      evaluate('main({})')
+        .models.filter((m) => !m.catalog_hidden)
+        .map((model) => model.model_id)
+    ).toEqual(['chatgpt-gpt-6', 'chatgpt-gpt-5.6-sol'])
   })
   it('只按上游明确列出的模型限额阻止请求，不扩大 reason 提示的作用范围', () => {
     const init = {

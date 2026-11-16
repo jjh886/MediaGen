@@ -83,6 +83,7 @@ describe('ChatGPT 聊天音频转写', () => {
         '_shared/api_text_attachments.js',
         'chatgpt/scripts/poll_retry.js',
         'chatgpt/scripts/reference_upload.js',
+        'chatgpt/scripts/conversation_results.js',
         'chatgpt/scripts/generate_text.js',
       ],
       { checkpoint: () => ({ phase: 'ready', attachments: [] }), call: () => ({ size: 3 }) }
@@ -169,11 +170,15 @@ describe('API 插件共同附件协议', () => {
     expect(extensions.length).toBeGreaterThan(0)
     expect(new Set(extensions).size).toBe(extensions.length)
     expect(extensions).not.toContain('gdoc')
-    const run = scripts([...shared, `${platform}/scripts/list_models.js`])
+    const run = scripts([
+      ...shared,
+      ...(platform === 'chatgpt' ? ['chatgpt/scripts/model_picker.js'] : []),
+      `${platform}/scripts/list_models.js`,
+    ])
     run(`apiSessionRead=()=>({});geminiInitialize=x=>x;
       geminiCatalog=()=>[{id:'new-model',name:'New',efforts:['low']}];
       chatgptApiReadAuth=()=>({});chatgptApiRefreshSession=x=>x;
-      chatgptApiRequest=()=>({body:{models:[{slug:'gpt-99-new'}]}});
+      chatgptApiRequest=()=>({body:{models:[{slug:'gpt-6'}]}});
       chatgptApiRequireOk=x=>x;chatgptApiDiscoveredReasoning=()=>({})`)
     expect(run('main({}).models[0].capabilities.file_extensions')).toEqual(extensions)
     expect(run('main({}).models[0].capabilities.attachment_transport')).toBe('workspace')

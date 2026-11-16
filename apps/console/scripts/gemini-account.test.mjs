@@ -82,6 +82,38 @@ describe('Gemini 登录身份和账号资料', () => {
     expect(result.quota_windows[0].remaining_count).toBeUndefined()
     expect(result.quota_windows[0].remaining_percent).toBe(73)
   })
+  it('同一页面反复检测登录后，仍能采集当前 /u/2 的 Ultra 账号', async () => {
+    const { context, fetch } = runtime({})
+    context.location.pathname = '/u/2/app'
+    const script = (entry) => [source('account.js'), source(entry)].join('\n;\n')
+    const check = () => vm.runInContext(script('check_login.js'), context).then(JSON.parse)
+    expect((await check()).logged_in).toBe(false)
+    context.window.WIZ_global_data = identity
+    const normal = fetch.getMockImplementation()
+    fetch.mockImplementation((url) => {
+      const path = new URL(url, context.location.origin)
+      expect(path.pathname).toMatch(/^\/u\/2\//)
+      if (path.searchParams.get('rpcids') !== 'otAQ7b') return normal(url)
+      const data = status()
+      data[16] = [16, 38]
+      data[17] = [106]
+      return {
+        ok: true,
+        text: async () => JSON.stringify([['wrb.fr', 'otAQ7b', JSON.stringify(data)]]),
+      }
+    })
+    const expected = {
+      logged_in: true,
+      email: identity.oPEP7c,
+      user_id: identity.S06Grb,
+      tier: 'Google AI Ultra',
+    }
+    expect(await check()).toMatchObject(expected)
+    expect(await check()).toMatchObject(expected)
+    context.apiLoginFingerprint = vi.fn(() => ({}))
+    const captured = JSON.parse(await vm.runInContext(script('capture_auth.js'), context))
+    expect(captured).toMatchObject({ ...expected, authuser: 2 })
+  })
   it('身份接口失败不接受成功，额度接口失败保留已确认身份但不清空旧额度', async () => {
     const { context, fetch } = runtime()
     fetch.mockResolvedValueOnce({ ok: false, status: 503 })

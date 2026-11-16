@@ -3,10 +3,23 @@ import codex from '../../../plugins/codex/manifest.json'
 import chatgpt from '../../../plugins/chatgpt/manifest.json'
 import doubao from '../../../plugins/doubao-api/manifest.json'
 import deepseek from '../../../plugins/deepseek-api/manifest.json'
+import gemini from '../../../plugins/gemini/manifest.json'
 import grok from '../../../plugins/grok/manifest.json'
 import { scripts } from './platform-api-test-helper.mjs'
 
 describe('新版插件装配与协议', () => {
+  it('所有插件的正式 ID 使用插件前缀，ChatGPT 静态对话目录只展示网页版本', () => {
+    for (const plugin of [gemini, chatgpt, codex, doubao, deepseek, grok]) {
+      for (const model of plugin.models)
+        expect(model.model_id.startsWith(plugin.platform_id + '-')).toBe(true)
+    }
+    expect(
+      chatgpt.models
+        .filter((m) => m.task_kind === 'text' && !m.catalog_hidden)
+        .map((m) => m.display_name)
+    ).toEqual(['GPT-6', 'GPT-5.6 Sol'])
+  })
+
   it('模型目录不再声明停用型号，保留无日期的图片型号和 Seedream 5', () => {
     const retired = [
       'gpt-image-1.5',
@@ -41,12 +54,79 @@ describe('新版插件装配与协议', () => {
     const retained = ['gpt-5-6', 'gpt-5-6-mini', 'gpt-5.6-pro', 'gpt-6-pro', 'gpt-6.1-sol']
     const retired = ['gpt-3.5', 'gpt-4', 'gpt-4o', 'gpt-5', 'gpt-5-5', 'gpt-5.5-pro', 'o3']
     const models = [...retained, ...retired, 'gpt-6-pro-wm', 'research'].map((slug) => ({ slug }))
-    const run = scripts(['chatgpt/scripts/list_models.js'])
+    const run = scripts(['chatgpt/scripts/model_picker.js', 'chatgpt/scripts/list_models.js'])
     run(
       'chatgptApiReadAuth=()=>({});chatgptApiRefreshSession=auth=>auth;chatgptApiRequireOk=value=>value;chatgptApiRequest=()=>({body:{models}});chatgptApiDiscoveredReasoning=()=>({})',
       { models: [...models, {}, null] }
     )
-    expect(run('main({}).models').map((model) => model.model_id)).toEqual(retained)
+    expect(
+      run('main({}).models')
+        .filter((m) => !m.catalog_hidden)
+        .map((m) => m.model_id)
+    ).toEqual(['chatgpt-gpt-6', 'chatgpt-gpt-5.6-sol'])
+    expect(run('main({}).models').flatMap((m) => m.aliases)).toEqual(
+      expect.arrayContaining(retained)
+    )
+  })
+
+  it('两个网页版本按各自账号的预设选择实际模型，升级提示不可调用', () => {
+    const models = ['gpt-6', 'gpt-6-instant', 'gpt-6-thinking', 'gpt-6-pro', 'gpt-5-6-t-mini'].map(
+      (slug) => ({ slug })
+    )
+    const presets = [
+      ['instant', 'gpt-6-instant'],
+      ['thinking', 'gpt-6-thinking', 'standard'],
+      ['thinking', 'gpt-6-thinking', 'extended'],
+      ['thinking', 'gpt-6-thinking', 'max'],
+      ['pro', 'gpt-6-pro'],
+      ['thinking', 'gpt-5-6-t-mini', 'standard'],
+    ].map(([lane, model_slug, thinking_effort]) => ({
+      lane,
+      model_slug,
+      thinking_effort,
+      preset_type: 'available',
+    }))
+    const catalog = { models, versions: [{ intelligence_presets: presets }] }
+    const run = scripts([
+      'chatgpt/scripts/model_picker.js',
+      'chatgpt/scripts/conversation.js',
+      'chatgpt/scripts/list_models.js',
+    ])
+    run(
+      `chatgptApiReadAuth=()=>({});chatgptApiRefreshSession=x=>x;chatgptApiRequireOk=x=>x;
+      chatgptApiRequest=()=>({ok:true,body:catalog})`,
+      { catalog }
+    )
+    const visible = () => run('main({}).models.filter(m=>!m.catalog_hidden)')
+    expect(visible().map((m) => [m.display_name, m.capabilities.reasoning.efforts])).toEqual([
+      ['GPT-6', ['none', 'standard', 'extended', 'max', 'pro']],
+      ['GPT-5.6 Sol', ['standard']],
+    ])
+    const select = (id, effort) =>
+      run(
+        `var request={model:id,reasoning:{effort}};chatgptApiTextReasoning({}, {}, request, catalog);request`,
+        { id, effort }
+      )
+    expect(select('chatgpt-gpt-6', 'none')).toMatchObject({
+      model: 'gpt-6-instant',
+      reasoning: { effort: undefined },
+    })
+    expect(select('chatgpt-gpt-6', 'max')).toMatchObject({
+      model: 'gpt-6-thinking',
+      reasoning: { effort: 'max' },
+    })
+    expect(select('chatgpt-gpt-6', 'pro')).toMatchObject({
+      model: 'gpt-6-pro',
+      reasoning: { effort: undefined },
+    })
+    expect(select('chatgpt-gpt-5.6-sol', 'standard').model).toBe('gpt-5-6-t-mini')
+    presets[4].preset_type = 'upgrade'
+    expect(visible()[0].capabilities.reasoning.efforts).not.toContain('pro')
+    expect(run("main({}).models.some(m=>m.aliases.includes('gpt-6-pro'))")).toBe(false)
+    expect(() => select('chatgpt-gpt-6', 'pro')).toThrow('account_model_unavailable')
+    catalog.versions[0].enabled = false
+    expect(visible()).toEqual([])
+    expect(() => select('chatgpt-gpt-6')).toThrow('account_model_unavailable')
   })
 
   it('生成流程包含续期、保活和 TTS 文本依赖，权限覆盖新增原子', () => {
@@ -113,9 +193,9 @@ describe('新版插件装配与协议', () => {
     run('codexEnsureFreshAuth=()=>({tokens:{access_token:"test"}})')
     const discovered = run('main({}).models')
     expect(discovered.map((model) => model.model_id)).toEqual([
-      'gpt-6.1-sol',
-      'gpt-6.1-terra',
-      'gpt-6-sol',
+      'codex-gpt-6.1-sol',
+      'codex-gpt-6.1-terra',
+      'codex-gpt-6-sol',
     ])
     expect(discovered[0].capabilities.reasoning.efforts).toEqual(['low', 'ultra'])
     expect(discovered[1].capabilities.reasoning.efforts).toEqual(['low', 'ultra'])
@@ -149,7 +229,11 @@ describe('新版插件装配与协议', () => {
 
   it('文本启动不访问图片启动接口，挑战页进入人工验证状态', () => {
     const paths = []
-    const run = scripts(['chatgpt/scripts/session_cookies.js', 'chatgpt/scripts/startup.js'])
+    const run = scripts([
+      'chatgpt/scripts/session_cookies.js',
+      'chatgpt/scripts/model_picker.js',
+      'chatgpt/scripts/startup.js',
+    ])
     run(
       'chatgptApiFingerprint=()=>({});chatgptApiRequireOk=value=>value;chatgptApiRequest=request',
       {

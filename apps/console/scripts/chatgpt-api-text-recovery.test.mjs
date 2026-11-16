@@ -40,6 +40,7 @@ beforeEach(() => {
   for (const name of [
     'auth',
     'session_cookies',
+    'model_picker',
     'conversation',
     'conversation_results',
     '../../_shared/api_text_attachments',
