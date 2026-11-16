@@ -29,7 +29,7 @@ impl CachedModels {
                 (model.task_kind == mediagen_core::TaskKind::Text)
                     .then_some(model.model_id.as_str())
             });
-        required.is_none_or(|id| self.models.iter().any(|model| model.model_id == id))
+        required.is_none_or(|id| self.models.iter().any(|model| model.matches_id(id)))
     }
 }
 
@@ -195,7 +195,7 @@ mod tests {
             (
                 "pro-account",
                 json!([{
-                    "model_id":"text-pro", "display_name":"Pro", "task_kind":"text"
+                    "model_id":"test-text-pro", "aliases":["text-pro"], "catalog_hidden":true, "display_name":"Pro", "task_kind":"text"
                 }]),
             ),
         ] {
@@ -245,9 +245,16 @@ mod tests {
             .unwrap()
             .iter()
             .any(|model| model["id"] == "image-pro"));
-        assert!(super::super::catalog(&state, "key-a")
+        assert!(super::super::catalog(&state, "key-a", None)
             .iter()
             .any(|model| model["id"] == "image-pro"));
+        let restricted = super::super::catalog(&state, "key-a", Some("account"));
+        assert!(!restricted.iter().any(|m| m["id"] == "image-pro"));
+        let pro = super::super::catalog(&state, "key-a", Some("pro-account"));
+        assert!(pro.iter().any(|m| m["id"] == "image-pro"));
+        assert!(!pro
+            .iter()
+            .any(|m| m["id"] == "test-text-pro" || m["id"] == "text-pro"));
         state
             .model_catalog
             .0
@@ -257,7 +264,7 @@ mod tests {
             .unwrap()
             .models
             .clear();
-        assert!(!super::super::catalog(&state, "key-a")
+        assert!(!super::super::catalog(&state, "key-a", None)
             .iter()
             .any(|model| model["id"] == "image-pro"));
     }

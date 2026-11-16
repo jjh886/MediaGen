@@ -37,6 +37,7 @@ pub async fn plugins(state: web::Data<ServerState>) -> impl Responder {
         .sorted_plugins()
         .into_iter()
         .map(|manifest| {
+            let models: Vec<_> = manifest.models.iter().filter(|m| m.catalog_visible()).collect();
             serde_json::json!({
                 "platform_id": manifest.platform_id,
                 "display_name": manifest.display_name,
@@ -44,11 +45,11 @@ pub async fn plugins(state: web::Data<ServerState>) -> impl Responder {
                 "adapter_mode": manifest.adapter_mode,
                 "login_url": manifest.login_url,
                 "workspace_url": manifest.workspace_url,
-                "models": manifest.models,
+                "models": models,
                 "tiers": manifest.tiers,
                 // 配置结构由插件声明；服务端只按公共协议原样透传，不解释字段含义。
                 "generation_settings": manifest.extra.get("generation_settings").cloned().unwrap_or(Value::Null),
-                "model_count": manifest.models.len(),
+                "model_count": models.len(),
                 "supports_registration": manifest.extra
                     .get("registration")
                     .and_then(|value| value.get("enabled"))

@@ -132,9 +132,8 @@ fn validate_settings_update(
     }
     let model_exists = state
         .plugin_loader
-        .all_models()
-        .into_iter()
-        .any(|(_, model)| model.task_kind == TaskKind::Image && model.model_id == model_id);
+        .resolve_model(model_id)
+        .is_some_and(|(_, model)| model.task_kind == TaskKind::Image);
     if !model_id.is_empty() && !model_exists {
         return Err("默认模型不存在或不支持图片生成".to_string());
     }

@@ -23,7 +23,13 @@ pub(crate) fn previous_input(
         return Ok(());
     };
     let prior = stored(state, key, id).ok_or("previous_response_id 不存在或无权访问")?;
-    if prior.get("model_id").unwrap_or(&prior["response"]["model"]) != &request["model"] {
+    let previous_model = prior.get("model_id").unwrap_or(&prior["response"]["model"]);
+    if previous_model != &request["model"]
+        && !previous_model.as_str().is_some_and(|id| {
+            crate::model_api::resolve(state, id, key)
+                .is_some_and(|(_, model, _)| request["model"] == model.model_id)
+        })
+    {
         return Err("previous_response_id 必须使用相同模型".into());
     }
     let mut input = prior["input"].as_array().cloned().unwrap_or_default();

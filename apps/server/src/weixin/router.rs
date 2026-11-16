@@ -245,9 +245,8 @@ async fn reference_urls_for_image(
 fn update_model(state: &ServerState, model_id: &str) -> Result<String, String> {
     let exists = state
         .plugin_loader
-        .all_models()
-        .into_iter()
-        .any(|(_, model)| model.task_kind == TaskKind::Image && model.model_id == model_id);
+        .resolve_model(model_id)
+        .is_some_and(|(_, model)| model.task_kind == TaskKind::Image);
     if !exists {
         return Err("模型不存在或不支持图片生成".to_string());
     }

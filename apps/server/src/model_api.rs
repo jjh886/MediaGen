@@ -41,7 +41,7 @@ pub(crate) fn resolve(
             entry
                 .models
                 .iter()
-                .find(|model| model.model_id == id || model.model_id == canonical)
+                .find(|model| model.matches_id(canonical))
         }) else {
             continue;
         };
@@ -98,7 +98,7 @@ pub(crate) fn account_model(
         entry
             .models
             .iter()
-            .find(|model| model.model_id == canonical || model.model_id == model_id)
+            .find(|model| model.matches_id(canonical))
     }) {
         return Some(model.clone());
     }
@@ -170,7 +170,7 @@ pub(crate) async fn list(
             failures.push(json!({"account_id":account.id,"code":code}));
         }
     }
-    let data = catalog(&state, &key);
+    let data = catalog(&state, &key, query.account_id.as_deref());
     HttpResponse::Ok().json(json!({"object":"list","data":data,"refresh_errors":failures}))
 }
 
@@ -254,17 +254,29 @@ pub(crate) async fn retrieve(
         return crate::protocol_api::error(401, "invalid_api_key", "API Key 无效");
     }
     let key = crate::routes::api_key_from_request(&request).unwrap_or_default();
-    match catalog(&state, &key)
+    let canonical = state
+        .plugin_loader
+        .resolve_model(&path)
+        .map(|(_, m)| m.model_id.as_str())
+        .unwrap_or(&path);
+    match catalog(&state, &key, None)
         .into_iter()
-        .find(|item| item["id"] == path.as_str())
+        .find(|item| item["id"] == canonical)
     {
-        Some(model) => HttpResponse::Ok().json(model),
+        Some(mut model) => {
+            if canonical != path.as_str() {
+                model["alias_of"] = json!(canonical);
+                model["id"] = json!(path.as_str());
+            }
+            HttpResponse::Ok().json(model)
+        }
         None => crate::protocol_api::error(404, "model_not_found", "模型不存在"),
     }
 }
 
-fn catalog(state: &ServerState, key: &str) -> Vec<Value> {
-    let accounts = visible_accounts(state, key);
+fn catalog(state: &ServerState, key: &str, account_id: Option<&str>) -> Vec<Value> {
+    let mut accounts = visible_accounts(state, key);
+    accounts.retain(|account| account_id.is_none_or(|id| account.id == id));
     let cache = state
         .model_catalog
         .0
@@ -276,7 +288,19 @@ fn catalog(state: &ServerState, key: &str) -> Vec<Value> {
             .any(|account| account.platform == platform && cache.contains_key(&account.id))
     };
     let mut entries = BTreeMap::new();
-    for (manifest, model) in state.plugin_loader.all_models() {
+    for (manifest, model) in state
+        .plugin_loader
+        .all_models()
+        .into_iter()
+        .filter(|(_, m)| m.catalog_visible())
+    {
+        if account_id.is_some()
+            && !accounts
+                .iter()
+                .any(|account| account.platform == manifest.platform_id)
+        {
+            continue;
+        }
         if model.task_kind == mediagen_core::TaskKind::Text && refreshed(&manifest.platform_id) {
             continue;
         }
@@ -304,25 +328,15 @@ fn catalog(state: &ServerState, key: &str) -> Vec<Value> {
             .get(&account.id)
             .into_iter()
             .flat_map(|entry| &entry.models)
+            .filter(|model| model.catalog_visible())
         {
             entries
                 .entry(model.model_id.clone())
                 .or_insert_with(|| model_value(manifest, model, &model.model_id));
         }
     }
-    for (alias, manifest, model) in state.plugin_loader.model_aliases() {
-        if !entries.contains_key(&model.model_id) {
-            continue;
-        }
-        entries
-            .entry(alias.clone())
-            .or_insert_with(|| model_value(manifest, model, &alias));
-    }
     for value in entries.values_mut() {
-        let canonical = value["alias_of"]
-            .as_str()
-            .unwrap_or_else(|| value["id"].as_str().unwrap_or_default())
-            .to_string();
+        let canonical = value["id"].as_str().unwrap_or_default().to_string();
         let platform = value["owned_by"].as_str().unwrap_or_default().to_string();
         let variants = accounts.iter().filter(|account| account.platform == platform).filter_map(|account| {
             let entry = cache.get(&account.id)?;
@@ -442,6 +456,7 @@ pub(crate) async fn account_models(
     let mut models = manifest
         .models
         .iter()
+        .filter(|model| model.catalog_visible())
         .filter(|model| {
             entry.is_none_or(|entry| {
                 model.task_kind != mediagen_core::TaskKind::Text && entry.supports_declared(model)
@@ -454,6 +469,7 @@ pub(crate) async fn account_models(
             entry
                 .models
                 .iter()
+                .filter(|model| model.catalog_visible())
                 .map(|model| model_value(manifest, model, &model.model_id)),
         );
     }
