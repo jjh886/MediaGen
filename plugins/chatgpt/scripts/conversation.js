@@ -396,19 +396,36 @@ function chatgptApiResolveReasoning(model, requested, models, fallback) {
 }
 
 function chatgptApiTextReasoning(ctx, auth, request, modelCatalog) {
-  let response = modelCatalog ? { body: modelCatalog } : undefined
+  const family = CHATGPT_CHAT_MODELS.find((f) => f.id === request.model)
+  let response = modelCatalog ? { ok: true, body: modelCatalog } : undefined
   try {
-    response ||= chatgptApiRequest(auth, 'GET', '/backend-api/models', {
+    response ||= chatgptApiRequest(auth, 'GET', CHATGPT_MODELS_PATH, {
       target_path: '/backend-api/models',
       target_route: '/backend-api/models',
       timeout_ms: 15000,
     })
   } catch (error) {
     if (/^(?:verification_required|LOGIN_EXPIRED):/.test(String(error?.message || ''))) throw error
-    if (!ctx.model_capabilities?.reasoning) throw error
+    if (family || !ctx.model_capabilities?.reasoning) throw error
+  }
+  if (family) {
+    const catalog = chatgptApiRequireOk(response, '读取 ChatGPT 模型目录').body
+    if (!Array.isArray(catalog?.models)) throw new Error('invalid_response: ChatGPT 模型目录无效')
+    const routes = chatgptApiPickerOptions(catalog, family)
+    const effort = request.reasoning.effort
+    const route = effort
+      ? routes.get(effort)
+      : routes.get('standard') ||
+        (!Array.isArray(catalog.versions) && catalog.models.some((m) => m?.slug === family.base)
+          ? { model: family.base }
+          : routes.values().next().value)
+    if (!route) throw new Error('account_model_unavailable: 当前账号未提供所选网页模型或思考档位')
+    request.model = route.model
+    request.reasoning.effort = route.thinking_effort
+    return
   }
   const selection = chatgptApiModelSelection(
-    request.model,
+    request.model.replace(/^chatgpt-(?=gpt-)/, ''),
     request.reasoning.effort,
     response?.body?.models,
     ctx.model_capabilities?.reasoning

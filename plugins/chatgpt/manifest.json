@@ -8,21 +8,142 @@
   "workspace_url": "https://chatgpt.com/",
   "models": [
     {
-      "model_id": "ChatGPT",
+      "model_id": "chatgpt-image",
       "display_name": "ChatGPT 生图",
       "task_kind": "image",
-      "aliases": ["chatgpt"],
+      "aliases": ["ChatGPT", "chatgpt"],
       "alias_priority": 20
     },
     {
-      "model_id": "gpt-5-6",
+      "model_id": "chatgpt-gpt-6",
+      "display_name": "GPT-6",
+      "task_kind": "text",
+      "aliases": ["gpt-6"],
+      "alias_priority": 20,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["none", "standard", "extended", "max", "pro"],
+          "default_effort": "standard"
+        },
+        "tool_calling": false,
+        "input_modalities": ["text", "image", "video", "audio", "file"],
+        "output_modalities": ["text", "image"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "input_schema": {
+          "type": "object",
+          "required": ["model", "input"],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "input": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array"
+                }
+              ]
+            },
+            "stream": {
+              "type": "boolean"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "object"
+            }
+          }
+        },
+        "unsupported_parameters": [
+          "temperature",
+          "top_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "max_output_tokens",
+          "stop",
+          "logprobs",
+          "top_logprobs",
+          "logit_bias",
+          "seed",
+          "prediction",
+          "audio",
+          "modalities",
+          "text",
+          "prompt",
+          "conversation",
+          "context_management",
+          "prompt_cache_key",
+          "prompt_cache_retention",
+          "max_tool_calls",
+          "include",
+          "service_tier",
+          "truncation",
+          "safety_identifier"
+        ],
+        "image_sources": ["data_url", "file_id"],
+        "input_types": ["text", "image", "video", "audio", "file"],
+        "file_extensions": [
+          "pdf",
+          "txt",
+          "md",
+          "csv",
+          "json",
+          "doc",
+          "docx",
+          "xls",
+          "xlsx",
+          "ppt",
+          "pptx",
+          "py",
+          "js",
+          "jsx",
+          "ts",
+          "tsx",
+          "go",
+          "rs",
+          "java",
+          "c",
+          "cpp",
+          "h",
+          "cs",
+          "php",
+          "rb",
+          "sh",
+          "sql",
+          "html",
+          "css",
+          "xml",
+          "yaml",
+          "yml",
+          "toml",
+          "log",
+          "tsv",
+          "rtf",
+          "odt",
+          "eml",
+          "ods",
+          "odp"
+        ],
+        "attachment_transport": "workspace",
+        "attachment_limits": {
+          "file_bytes": 536870912,
+          "image_bytes": 20971520
+        }
+      }
+    },
+    {
+      "model_id": "chatgpt-gpt-5.6-sol",
       "display_name": "GPT-5.6 Sol",
       "task_kind": "text",
       "aliases": [],
       "alias_priority": 20,
       "capabilities": {
         "reasoning": {
-          "efforts": ["none", "min", "standard", "extended", "max"],
+          "efforts": ["none", "standard", "extended", "max", "pro"],
           "default_effort": "standard"
         },
         "tool_calling": false,
@@ -136,10 +257,18 @@
       }
     },
     {
-      "model_id": "gpt-5-6-pro",
+      "model_id": "chatgpt-gpt-5-6",
+      "display_name": "GPT-5.6 Sol",
+      "task_kind": "text",
+      "aliases": ["gpt-5-6"],
+      "alias_priority": 20,
+      "catalog_hidden": true
+    },
+    {
+      "model_id": "chatgpt-gpt-5-6-pro",
       "display_name": "GPT-5.6 Pro",
       "task_kind": "text",
-      "aliases": [],
+      "aliases": ["gpt-5-6-pro"],
       "alias_priority": 20,
       "capabilities": {
         "reasoning": {
@@ -254,13 +383,14 @@
           "file_bytes": 536870912,
           "image_bytes": 20971520
         }
-      }
+      },
+      "catalog_hidden": true
     },
     {
-      "model_id": "gpt-6-pro",
+      "model_id": "chatgpt-gpt-6-pro",
       "display_name": "GPT-6 Pro",
       "task_kind": "text",
-      "aliases": [],
+      "aliases": ["gpt-6-pro"],
       "alias_priority": 20,
       "capabilities": {
         "reasoning": {
@@ -375,13 +505,14 @@
           "file_bytes": 536870912,
           "image_bytes": 20971520
         }
-      }
+      },
+      "catalog_hidden": true
     },
     {
-      "model_id": "gpt-5-6-mini",
+      "model_id": "chatgpt-gpt-5-6-mini",
       "display_name": "GPT-5.6 Luna",
       "task_kind": "text",
-      "aliases": [],
+      "aliases": ["gpt-5-6-mini"],
       "alias_priority": 20,
       "capabilities": {
         "reasoning": {
@@ -496,7 +627,8 @@
           "file_bytes": 536870912,
           "image_bytes": 20971520
         }
-      }
+      },
+      "catalog_hidden": true
     },
     {
       "model_id": "chatgpt-speech",
@@ -830,6 +962,7 @@
             "sentinel.js",
             "reference_upload.js",
             "poll_retry.js",
+            "model_picker.js",
             "conversation.js",
             "conversation_results.js",
             "generate_image.js"
@@ -847,6 +980,7 @@
             "@shared/api_session.js",
             "auth.js",
             "session_cookies.js",
+            "model_picker.js",
             "startup.js",
             "quota_status.js",
             "check_account.js"
@@ -868,6 +1002,7 @@
             "startup.js",
             "sentinel_vm.js",
             "sentinel.js",
+            "model_picker.js",
             "conversation.js",
             "conversation_results.js",
             "@shared/api_text_attachments.js",
@@ -889,7 +1024,13 @@
       "steps": [
         {
           "action": "plugin.run_js",
-          "script_files": ["auth.js", "session_cookies.js", "conversation.js", "list_models.js"],
+          "script_files": [
+            "auth.js",
+            "session_cookies.js",
+            "model_picker.js",
+            "conversation.js",
+            "list_models.js"
+          ],
           "timeout_ms": 60000
         }
       ]
@@ -908,6 +1049,7 @@
             "startup.js",
             "sentinel_vm.js",
             "sentinel.js",
+            "model_picker.js",
             "conversation.js",
             "conversation_results.js",
             "poll_retry.js",
@@ -943,6 +1085,7 @@
             "startup.js",
             "sentinel_vm.js",
             "sentinel.js",
+            "model_picker.js",
             "conversation.js",
             "conversation_results.js",
             "reference_upload.js",
@@ -965,7 +1108,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "1.7.5",
+  "version": "1.7.6",
   "schema_version": 1,
   "task_recovery": {
     "media_types": ["text", "image"],

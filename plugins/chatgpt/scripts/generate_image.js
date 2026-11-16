@@ -62,7 +62,9 @@ function main(ctx) {
 }
 
 function chatgptApiGenerationConfig(ctx, bootstrap, init) {
-  const legacy = ['ChatGPT', 'chatgpt', 'ChatGPT API', 'chatgpt-api'].includes(ctx.model_id)
+  const legacy = ['chatgpt-image', 'ChatGPT', 'chatgpt', 'ChatGPT API', 'chatgpt-api'].includes(
+    ctx.model_id
+  )
   const selected = String(
     legacy
       ? ctx.platform_config?.model || 'chatgpt-image-auto'

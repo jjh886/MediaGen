@@ -4,6 +4,7 @@ function main(ctx) {
     throw new Error('invalid_input: fixed_video_analysis 必须是布尔值')
   chatgptApiFixedVideoAnalysis = fixedVideoAnalysis === true
   let request = apiTextNormalizeTextRequest(ctx.request)
+  request.public_model = request.model?.startsWith('chatgpt-gpt-') ? request.model : undefined
   const saved = chatgptApiPrepareConversationAttempt(request.session)
   if (saved.phase === 'completed' && saved.result?.response) return saved.result
   if (request.session?.conversation_id && !saved.reset_session)
@@ -20,6 +21,7 @@ function main(ctx) {
   let initialized
   if (!saved.conversation_id && saved.phase !== 'submitting') {
     chatgptApiTextReasoning(ctx, auth, request, bootstrap['/backend-api/models'])
+    chatgptApiAssertModelAvailable({ model_limits: storedAuth.auth?.model_limits }, request.model)
     initialized = chatgptApiInitializeConversation(auth)
     // 限额检查必须先于上传和提交，才能安全切换账号且不重复消耗上传额度。
     chatgptApiTextOptions(initialized, request)
@@ -62,7 +64,7 @@ function chatgptApiGenerateTextConversation(auth, request, initialized) {
   if (saved.phase === 'submitting' && !saved.conversation_id) {
     throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 原文本会话提交状态待核对')
   }
-  const writer = apiTextCreateResponseWriter(request)
+  const writer = apiTextCreateResponseWriter({ ...request })
   let started = false
   const start = () => {
     if (!started) {
@@ -93,7 +95,7 @@ function chatgptApiGenerateTextConversation(auth, request, initialized) {
     }
     const state = chatgptApiCreateTextStreamState()
     if (conversationId) {
-      writer.request.model = saved.model || request.model
+      writer.request.model = request.public_model || saved.model || request.model
       start()
       // 恢复先查询原会话快照；旧实时流可能已经关闭，不能先等待过期流。
     } else {
@@ -105,7 +107,7 @@ function chatgptApiGenerateTextConversation(auth, request, initialized) {
       }
       const init = initialized || chatgptApiInitializeConversation(auth)
       const options = chatgptApiTextOptions(init, request)
-      writer.request.model = options.model
+      writer.request.model = request.public_model || options.model
       const sentinelHeaders = chatgptApiSentinelHeaders(auth)
       const prepared = chatgptApiPrepareTextConversation(
         auth,

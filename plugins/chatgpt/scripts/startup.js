@@ -10,10 +10,7 @@ function chatgptApiBootstrap(auth, includeImages = true) {
       '/backend-api/accounts/check/{version}',
     ],
     ['/backend-api/settings/user', '/backend-api/settings/user'],
-    [
-      '/backend-api/models?iim=false&is_gizmo=false&supports_model_picker_upgrade_presets=true',
-      '/backend-api/models',
-    ],
+    [CHATGPT_MODELS_PATH, '/backend-api/models'],
     ...(includeImages ? [['/backend-api/images/bootstrap', '/backend-api/images/bootstrap']] : []),
   ]
   const responses = {}
