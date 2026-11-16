@@ -15,12 +15,12 @@ export MEDIAGEN_API_KEY="你的 MediaGen API Key"
 
 ## 豆包模型
 
-| model                    | 名称              | 输入                 |
-| ------------------------ | ----------------- | -------------------- |
-| `doubao-seedance-2-5`    | Seedance 2.5      | 文本、图片           |
-| `doubao-seedance-2`      | Seedance 2.0      | 文本、图片           |
-| `doubao-seedance-2-fast` | Seedance 2.0 Fast | 文本、图片、参考视频 |
-| `doubao-seedance-2-mini` | Seedance 2.0 Mini | 文本、图片           |
+| model                        | 名称              | 输入                 |
+| ---------------------------- | ----------------- | -------------------- |
+| `doubao-api-seedance-2-5`    | Seedance 2.5      | 文本、图片           |
+| `doubao-api-seedance-2`      | Seedance 2.0      | 文本、图片           |
+| `doubao-api-seedance-2-fast` | Seedance 2.0 Fast | 文本、图片、参考视频 |
+| `doubao-api-seedance-2-mini` | Seedance 2.0 Mini | 文本、图片           |
 
 插件按当前账号的平台配置检查具体模型、时长及比例，不自动切换到其他模型。以上为豆包网页 API 插件，不需要安装 Doubao Work。
 
@@ -49,7 +49,7 @@ curl "$BASE_URL/v1/videos" \
   -H "Authorization: Bearer $MEDIAGEN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "doubao-seedance-2-5",
+    "model": "doubao-api-seedance-2-5",
     "prompt": "云层缓慢流过山谷，镜头平稳向前推进",
     "seconds": "10",
     "size": "1280x720"
@@ -62,7 +62,7 @@ curl "$BASE_URL/v1/videos" \
 {
   "id": "video_example",
   "object": "video",
-  "model": "doubao-seedance-2-5",
+  "model": "doubao-api-seedance-2-5",
   "status": "queued",
   "progress": 0,
   "seconds": "10",
@@ -78,7 +78,7 @@ curl "$BASE_URL/v1/videos" \
 ```sh
 curl "$BASE_URL/v1/videos" \
   -H "Authorization: Bearer $MEDIAGEN_API_KEY" \
-  -F 'model=doubao-seedance-2-fast' \
+  -F 'model=doubao-api-seedance-2-fast' \
   -F 'prompt=让参考图中的人物自然转身，保持外貌一致' \
   -F 'seconds=10' \
   -F 'size=720x1280' \
@@ -89,7 +89,7 @@ JSON 可使用 `"input_reference":{"file_id":"上传返回的 ID"}`，或 `"inpu
 
 ### 参考视频生成视频
 
-使用 `doubao-seedance-2-fast`，最多 1 个 MP4/MOV。先上传文件（最多 50 MiB）：
+使用 `doubao-api-seedance-2-fast`，最多 1 个 MP4/MOV。先上传文件（最多 50 MiB）：
 
 ```sh
 curl "$BASE_URL/v1/files" \
@@ -105,7 +105,7 @@ curl "$BASE_URL/v1/videos" \
   -H "Authorization: Bearer $MEDIAGEN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "doubao-seedance-2-fast",
+    "model": "doubao-api-seedance-2-fast",
     "prompt": "参考视频中的运动方式，生成一段海边漫步镜头",
     "seconds": "10",
     "size": "1280x720",

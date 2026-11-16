@@ -8,7 +8,7 @@
 
 视频任务接口见 [OpenAI 兼容视频接口](video-api.md)。
 
-图片模型 `ChatGPT` 使用控制台中的平台模型配置；未配置或选择自动时，采用该账号会话初始化返回的默认模型。`chatgpt-image-*` 则使用明确指定的模型，不会把账号不支持的型号静默替换成其他型号。图片编辑中的本地参考图会先完成上传与处理，再提交编辑请求。
+图片模型 `chatgpt-image` 使用控制台中的平台模型配置；未配置或选择自动时，采用该账号会话初始化返回的默认模型。`chatgpt-image-*` 则使用明确指定的模型，不会把账号不支持的型号静默替换成其他型号。图片编辑中的本地参考图会先完成上传与处理，再提交编辑请求。
 
 ## 会话与账号绑定
 
@@ -46,7 +46,7 @@ curl "$BASE_URL/v1/responses" \
   -H "Authorization: Bearer $MEDIAGEN_API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{
-    "model": "doubao-text",
+    "model": "doubao-api-text",
     "input": "帮我设计橙色杯子的广告文案",
     "store": true,
     "metadata": {"project": "cup"}
@@ -83,7 +83,7 @@ curl "$BASE_URL/v1/responses" \
 Chat SSE 示例：
 
 ```text
-data: {"id":"chatcmpl_example","object":"chat.completion.chunk","created":1790000000,"model":"doubao-text","choices":[{"index":0,"delta":{},"finish_reason":"stop","logprobs":null}],"metadata":{"conversation_id":"upstream-conversation-id","conversation_title":"橙色杯子广告"}}
+data: {"id":"chatcmpl_example","object":"chat.completion.chunk","created":1790000000,"model":"doubao-api-text","choices":[{"index":0,"delta":{},"finish_reason":"stop","logprobs":null}],"metadata":{"conversation_id":"upstream-conversation-id","conversation_title":"橙色杯子广告"}}
 
 data: [DONE]
 ```
@@ -96,9 +96,11 @@ data: [DONE]
 
 ## 插件协议与模型同步
 
-Codex 文本模型包括 `gpt-6.1-sol`、`gpt-6.1-terra`、`gpt-6-astra`、`gpt-6-sol`、`gpt-6-luna`、`gpt-5.6-sol`、`gpt-5.6-terra` 和 `gpt-5.6-luna`。`gpt-6.1-sol` 和 `gpt-6.1-terra` 的 `reasoning.effort` 支持 `low/medium/high/xhigh/max/ultra`，默认 `low`；其他型号优先按账号模型目录校验。目录不再列出插件不支持的上游型号。
+ChatGPT 对话提供 `chatgpt-gpt-6`（GPT-6）和 `chatgpt-gpt-5.6-sol`（GPT-5.6 Sol）。网页的即时、中、高、极高、Pro 分别对应 `reasoning.effort` 的 `none`、`standard`、`extended`、`max`、`pro`。每个账号仅公布其可用档位。
 
-Codex 图片模型为 `gpt-image-2.6-flare`、`gpt-image-2.6-sunburst`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`、`gpt-image-2`，`codex` 别名指向 `gpt-image-2.5-flare`。此前的 `gpt-image-1.5` 和日期后缀型号不再由 Codex 插件提供。模型 `capabilities.pricing` 同步源插件的参考价格，不表示当前账号的实际收费。
+Codex 文本模型包括 `codex-gpt-6.1-sol`、`codex-gpt-6.1-terra`、`codex-gpt-6-astra`、`codex-gpt-6-sol`、`codex-gpt-6-luna`、`codex-gpt-5.6-sol`、`codex-gpt-5.6-terra` 和 `codex-gpt-5.6-luna`。`codex-gpt-6.1-sol` 和 `codex-gpt-6.1-terra` 的 `reasoning.effort` 支持 `low/medium/high/xhigh/max/ultra`，默认 `low`；其他型号优先按账号模型目录校验。目录不再列出插件不支持的上游型号。
+
+Codex 图片模型为 `codex-gpt-image-2.6-flare`、`codex-gpt-image-2.6-sunburst`、`codex-gpt-image-2.5-flare`、`codex-gpt-image-2.5-sunburst`、`codex-gpt-image-2`，`codex` 别名指向 `codex-gpt-image-2.5-flare`。此前的 `gpt-image-1.5` 和日期后缀型号不再由 Codex 插件提供。模型 `capabilities.pricing` 同步源插件的参考价格，不表示当前账号的实际收费。
 
 Codex 文本请求的 `service_tier` 支持 `auto/default/priority/flex/scale/ultrafast`，兼容 `fast` 并转成 `priority`；其他值返回参数错误，账号是否具有对应服务等级仍由上游判定。
 

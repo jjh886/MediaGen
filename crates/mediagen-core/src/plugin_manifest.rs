@@ -38,6 +38,19 @@ pub struct ModelDef {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+impl ModelDef {
+    pub fn catalog_visible(&self) -> bool {
+        self.extra
+            .get("catalog_hidden")
+            .and_then(serde_json::Value::as_bool)
+            != Some(true)
+    }
+
+    pub fn matches_id(&self, id: &str) -> bool {
+        self.model_id == id || self.aliases.iter().any(|alias| alias == id)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TierDef {
     #[serde(default)]
