@@ -8,7 +8,9 @@ const CODEX_DIRECT_IMAGE_MODELS = [
 ]
 
 function codexImageModel(ctx) {
-  const model = String(ctx.model_id || 'gpt-image-2.5-flare').trim()
+  const model = String(ctx.model_id || 'gpt-image-2.5-flare')
+    .trim()
+    .replace(/^codex-/, '')
   if (model === 'codex') return 'gpt-image-2.5-flare'
   if (!CODEX_DIRECT_IMAGE_MODELS.includes(model)) {
     throw new Error('unsupported_model: Codex 不支持图片模型 ' + model)

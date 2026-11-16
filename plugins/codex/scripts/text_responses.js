@@ -31,6 +31,7 @@ function codexNormalizeResponsesRequest(value, platformConfig) {
   payload.model = aliases.includes(requestedModel.toLowerCase())
     ? String(platformConfig?.model || CODEX_TEXT_DEFAULT_MODEL).trim()
     : requestedModel || String(platformConfig?.model || CODEX_TEXT_DEFAULT_MODEL).trim()
+  payload.model = payload.model.replace(/^codex-/, '')
   if (!codexSupportedTextModel(payload.model)) {
     throw new Error('unsupported_model: Codex 不支持文本模型 ' + payload.model)
   }
@@ -245,6 +246,8 @@ function codexExecuteResponses(auth, payload, ctx) {
     },
     (event) => {
       const type = String(event?.type || '')
+      if (event.response?.model && ctx?.request?.model?.startsWith('codex-'))
+        event.response.model = 'codex-' + event.response.model.replace(/^codex-/, '')
       if (
         type === 'response.output_item.done' &&
         event.item &&

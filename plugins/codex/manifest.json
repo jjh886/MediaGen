@@ -8,10 +8,10 @@
   "workspace_url": "https://chatgpt.com/",
   "models": [
     {
-      "model_id": "gpt-image-2.6-sunburst",
+      "model_id": "codex-gpt-image-2.6-sunburst",
       "display_name": "GPT Image 2.6 Sunburst",
       "task_kind": "image",
-      "aliases": [],
+      "aliases": ["gpt-image-2.6-sunburst"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -28,10 +28,10 @@
       }
     },
     {
-      "model_id": "gpt-image-2.6-flare",
+      "model_id": "codex-gpt-image-2.6-flare",
       "display_name": "GPT Image 2.6 Flare",
       "task_kind": "image",
-      "aliases": [],
+      "aliases": ["gpt-image-2.6-flare"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -48,10 +48,10 @@
       }
     },
     {
-      "model_id": "gpt-image-2.5-flare",
+      "model_id": "codex-gpt-image-2.5-flare",
       "display_name": "GPT Image 2.5 Flare",
       "task_kind": "image",
-      "aliases": ["codex"],
+      "aliases": ["gpt-image-2.5-flare", "codex"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -83,10 +83,10 @@
       }
     },
     {
-      "model_id": "gpt-image-2.5-sunburst",
+      "model_id": "codex-gpt-image-2.5-sunburst",
       "display_name": "GPT Image 2.5 Sunburst",
       "task_kind": "image",
-      "aliases": [],
+      "aliases": ["gpt-image-2.5-sunburst"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -118,10 +118,10 @@
       }
     },
     {
-      "model_id": "gpt-image-2",
+      "model_id": "codex-gpt-image-2",
       "display_name": "GPT Image 2",
       "task_kind": "image",
-      "aliases": [],
+      "aliases": ["gpt-image-2"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -153,10 +153,10 @@
       }
     },
     {
-      "model_id": "gpt-6.1-terra",
+      "model_id": "codex-gpt-6.1-terra",
       "display_name": "GPT-6.1 Terra",
       "task_kind": "text",
-      "aliases": [],
+      "aliases": ["gpt-6.1-terra"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -216,10 +216,10 @@
       }
     },
     {
-      "model_id": "gpt-6.1-sol",
-      "display_name": "GPT-6.1-Sol",
+      "model_id": "codex-gpt-6.1-sol",
+      "display_name": "GPT-6.1 Sol",
       "task_kind": "text",
-      "aliases": [],
+      "aliases": ["gpt-6.1-sol"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -307,10 +307,10 @@
       }
     },
     {
-      "model_id": "gpt-6-astra",
-      "display_name": "GPT-6-Astra",
+      "model_id": "codex-gpt-6-astra",
+      "display_name": "GPT-6 Astra",
       "task_kind": "text",
-      "aliases": [],
+      "aliases": ["gpt-6-astra"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -390,10 +390,10 @@
       }
     },
     {
-      "model_id": "gpt-6-sol",
-      "display_name": "GPT-6-Sol",
+      "model_id": "codex-gpt-6-sol",
+      "display_name": "GPT-6 Sol",
       "task_kind": "text",
-      "aliases": [],
+      "aliases": ["gpt-6-sol"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -483,10 +483,10 @@
       }
     },
     {
-      "model_id": "gpt-6-luna",
-      "display_name": "GPT-6-Luna",
+      "model_id": "codex-gpt-6-luna",
+      "display_name": "GPT-6 Luna",
       "task_kind": "text",
-      "aliases": [],
+      "aliases": ["gpt-6-luna"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -576,10 +576,10 @@
       }
     },
     {
-      "model_id": "gpt-5.6-sol",
-      "display_name": "GPT-5.6-Sol",
+      "model_id": "codex-gpt-5.6-sol",
+      "display_name": "GPT-5.6 Sol",
       "task_kind": "text",
-      "aliases": [],
+      "aliases": ["gpt-5.6-sol"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -666,10 +666,10 @@
       }
     },
     {
-      "model_id": "gpt-5.6-terra",
-      "display_name": "GPT-5.6-Terra",
+      "model_id": "codex-gpt-5.6-terra",
+      "display_name": "GPT-5.6 Terra",
       "task_kind": "text",
-      "aliases": [],
+      "aliases": ["gpt-5.6-terra"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -756,10 +756,10 @@
       }
     },
     {
-      "model_id": "gpt-5.6-luna",
-      "display_name": "GPT-5.6-Luna",
+      "model_id": "codex-gpt-5.6-luna",
+      "display_name": "GPT-5.6 Luna",
       "task_kind": "text",
-      "aliases": [],
+      "aliases": ["gpt-5.6-luna"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
@@ -846,7 +846,7 @@
       }
     },
     {
-      "model_id": "gpt-live-1",
+      "model_id": "codex-gpt-live-1",
       "display_name": "Codex Live 实时语音",
       "task_kind": "realtime",
       "capabilities": {
@@ -869,10 +869,11 @@
             }
           }
         }
-      }
+      },
+      "aliases": ["gpt-live-1"]
     },
     {
-      "model_id": "gpt-realtime-2.1",
+      "model_id": "codex-gpt-realtime-2.1",
       "display_name": "Codex 官方实时语音",
       "task_kind": "realtime",
       "capabilities": {
@@ -894,7 +895,8 @@
           "marin",
           "cedar"
         ]
-      }
+      },
+      "aliases": ["gpt-realtime-2.1"]
     }
   ],
   "tiers": {
@@ -1220,6 +1222,6 @@
     ],
     "notice": "新模型是否可用取决于当前 Codex 账号授权。默认使用 GPT-6 Luna，可按账号支持情况切换。"
   },
-  "version": "1.4.1",
+  "version": "1.4.2",
   "schema_version": 1
 }

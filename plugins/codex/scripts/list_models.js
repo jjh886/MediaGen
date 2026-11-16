@@ -18,7 +18,7 @@ function main(ctx) {
     models: result.body.models
       .filter((item) => typeof item?.slug === 'string' && codexSupportedTextModel(item.slug))
       .map((item) => ({
-        model_id: item.slug,
+        model_id: 'codex-' + item.slug,
         display_name: item.display_name || item.slug,
         task_kind: 'text',
         capabilities: {

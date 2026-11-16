@@ -1,6 +1,6 @@
 function main(ctx) {
   const auth = codexEnsureFreshAuth(ctx)
-  const model = String(ctx.request.model || 'gpt-realtime-2.1')
+  const model = String(ctx.request.model || 'gpt-realtime-2.1').replace(/^codex-/, '')
   if (model !== 'gpt-realtime-2.1')
     throw new Error('unsupported_model: 此模型不支持官方实时 WebSocket')
   return {
