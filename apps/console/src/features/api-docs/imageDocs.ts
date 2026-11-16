@@ -9,7 +9,7 @@ export const imageDocs: ApiExample[] = [
       '默认同步返回完整 Base64。使用 async=true 或 sync=false 可立即返回 taskId，再轮询排队接口。',
     notes: imageNotes,
     body: {
-      model: 'gpt-image-2',
+      model: 'codex-gpt-image-2',
       prompt: '一只窗边的猫，水彩画。',
       n: 1,
       size: '1024x1024',
@@ -25,7 +25,7 @@ export const imageDocs: ApiExample[] = [
     title: '图片编辑',
     description: '支持 multipart 上传，或通过 JSON images 输入图片。当前排队仅开放图片生成。',
     notes: imageNotes,
-    form: ['model=gpt-image-2', 'prompt=把背景改为蓝色', 'image=@reference.png'],
+    form: ['model=codex-gpt-image-2', 'prompt=把背景改为蓝色', 'image=@reference.png'],
     response: image,
   },
   {
@@ -36,7 +36,7 @@ export const imageDocs: ApiExample[] = [
     description:
       '保留标准接口；仅模型声明 supports_variation=true 时可用，当前未支持的插件返回 400。',
     notes: ['model、image 文件必填；n、size、response_format 同图片生成。'],
-    form: ['model=gpt-image-2', 'image=@reference.png'],
+    form: ['model=codex-gpt-image-2', 'image=@reference.png'],
     response: {
       error: {
         message: '当前模型不支持此图片接口',
@@ -55,7 +55,7 @@ export const imageDocs: ApiExample[] = [
     description:
       '图片持久化排队，允许轮询、取消、提升优先级和结果回调；文本使用 async=true 进入独立队列，音频不支持排队。',
     notes: imageNotes,
-    body: { model: 'gpt-image-2', prompt: '一只窗边的猫', sync: false },
+    body: { model: 'codex-gpt-image-2', prompt: '一只窗边的猫', sync: false },
     status: 202,
     response: {
       success: true,
@@ -76,7 +76,9 @@ export const imageDocs: ApiExample[] = [
       success: true,
       data: {
         total: 1,
-        items: [{ taskId: 'task-example', modelId: 'gpt-image-2', status: 'queued', position: 1 }],
+        items: [
+          { taskId: 'task-example', modelId: 'codex-gpt-image-2', status: 'queued', position: 1 },
+        ],
       },
     },
   },

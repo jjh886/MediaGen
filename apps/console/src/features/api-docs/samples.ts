@@ -14,7 +14,7 @@ export const response = {
   id: 'resp_example',
   object: 'response',
   status: 'completed',
-  model: 'gpt-6-luna',
+  model: 'codex-gpt-6-luna',
   output: [
     {
       type: 'message',

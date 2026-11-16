@@ -75,7 +75,7 @@ export const fileDocs: ApiExample[] = [
     title: '豆包文生视频',
     description: '豆包 Seedance 通过同一视频接口创建异步任务，HTTP 200 返回任务 ID。',
     notes: [
-      '模型：doubao-seedance-2-5（2.5）、doubao-seedance-2（2.0）、doubao-seedance-2-fast（2.0 Fast）、doubao-seedance-2-mini（2.0 Mini）。',
+      '模型：doubao-api-seedance-2-5（2.5）、doubao-api-seedance-2（2.0）、doubao-api-seedance-2-fast（2.0 Fast）、doubao-api-seedance-2-mini（2.0 Mini）。',
       '先在控制台登录豆包账号，并将账号池授权给当前 API Key；具体模型还需账号具有平台使用权限。',
       '默认 10 秒、1280x720；插件总范围为 4–30 秒，具体模型的时长、步长和比例由平台实时校验，不会自动换模型或近似时长。',
       'size 用于推导比例，不保证输出精确像素；quality 不控制豆包清晰度，保留默认 standard。',
@@ -84,12 +84,12 @@ export const fileDocs: ApiExample[] = [
       '平台明确返回额度耗尽时报告 quota_exhausted；订阅限制报告 platform_rejected。请读取任务 error，限制提示不属于生成结果。',
     ],
     body: {
-      model: 'doubao-seedance-2-5',
+      model: 'doubao-api-seedance-2-5',
       prompt: '云层缓慢流过山谷，镜头平稳向前推进',
       seconds: '10',
       size: '1280x720',
     },
-    response: { ...video, model: 'doubao-seedance-2-5', seconds: '10' },
+    response: { ...video, model: 'doubao-api-seedance-2-5', seconds: '10' },
   },
   {
     group: '视频',
@@ -105,13 +105,13 @@ export const fileDocs: ApiExample[] = [
       '视频创建请求体上限 50 MiB；返回任务后按查询、下载流程处理。',
     ],
     form: [
-      'model=doubao-seedance-2-fast',
+      'model=doubao-api-seedance-2-fast',
       'prompt=让参考图中的人物自然转身，保持外貌一致',
       'seconds=10',
       'size=720x1280',
       'input_reference=@reference.png',
     ],
-    response: { ...video, model: 'doubao-seedance-2-fast', seconds: '10', size: '720x1280' },
+    response: { ...video, model: 'doubao-api-seedance-2-fast', seconds: '10', size: '720x1280' },
   },
   {
     group: '视频',
@@ -127,13 +127,13 @@ export const fileDocs: ApiExample[] = [
       '文件和视频任务按 API Key 隔离，查询与下载必须使用提交时的 Key。',
     ],
     body: {
-      model: 'doubao-seedance-2-fast',
+      model: 'doubao-api-seedance-2-fast',
       prompt: '参考视频中的运动方式，生成一段海边漫步镜头',
       seconds: '10',
       size: '1280x720',
       video_reference: { file_id: 'file_example' },
     },
-    response: { ...video, model: 'doubao-seedance-2-fast', seconds: '10' },
+    response: { ...video, model: 'doubao-api-seedance-2-fast', seconds: '10' },
   },
   {
     group: '视频',

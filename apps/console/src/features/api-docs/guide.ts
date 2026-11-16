@@ -68,10 +68,10 @@ export const guideSections: GuideSection[] = [
         title: '豆包视频模型与参考输入',
         headings: ['模型 ID', '显示名称', '输入'],
         rows: [
-          ['doubao-seedance-2-5', 'Seedance 2.5', '文本、图片'],
-          ['doubao-seedance-2', 'Seedance 2.0', '文本、图片'],
-          ['doubao-seedance-2-fast', 'Seedance 2.0 Fast', '文本、图片、参考视频'],
-          ['doubao-seedance-2-mini', 'Seedance 2.0 Mini', '文本、图片'],
+          ['doubao-api-seedance-2-5', 'Seedance 2.5', '文本、图片'],
+          ['doubao-api-seedance-2', 'Seedance 2.0', '文本、图片'],
+          ['doubao-api-seedance-2-fast', 'Seedance 2.0 Fast', '文本、图片、参考视频'],
+          ['doubao-api-seedance-2-mini', 'Seedance 2.0 Mini', '文本、图片'],
         ],
       },
       {
@@ -136,7 +136,7 @@ export const guideSections: GuideSection[] = [
         language: 'json',
         value: JSON.stringify(
           {
-            model: 'doubao-text',
+            model: 'doubao-api-text',
             input: '帮我设计橙色杯子的广告文案',
             metadata: { project: 'cup' },
             store: true,
@@ -166,7 +166,7 @@ export const guideSections: GuideSection[] = [
         title: 'Chat 流式结束帧示例',
         language: 'text',
         value:
-          'data: {"id":"chatcmpl_example","object":"chat.completion.chunk","created":1790000000,"model":"doubao-text","choices":[{"index":0,"delta":{},"finish_reason":"stop","logprobs":null}],"metadata":{"conversation_id":"upstream-conversation-id","conversation_title":"橙色杯子广告"}}\n\ndata: [DONE]',
+          'data: {"id":"chatcmpl_example","object":"chat.completion.chunk","created":1790000000,"model":"doubao-api-text","choices":[{"index":0,"delta":{},"finish_reason":"stop","logprobs":null}],"metadata":{"conversation_id":"upstream-conversation-id","conversation_title":"橙色杯子广告"}}\n\ndata: [DONE]',
       },
       {
         kind: 'note',
@@ -206,7 +206,7 @@ export const guideSections: GuideSection[] = [
         title: '提交任务 · JSON 请求体',
         language: 'json',
         value: JSON.stringify(
-          { model: 'gpt-image-2', prompt: '一只窗边的猫', sync: false },
+          { model: 'codex-gpt-image-2', prompt: '一只窗边的猫', sync: false },
           null,
           2
         ),
@@ -217,7 +217,7 @@ export const guideSections: GuideSection[] = [
         language: 'json',
         value: JSON.stringify(
           {
-            model: 'gpt-6-luna',
+            model: 'codex-gpt-6-luna',
             input: '请总结剧本。',
             async: true,
             callback_url: 'https://your-app.example/callback',
@@ -320,7 +320,7 @@ export const guideSections: GuideSection[] = [
         title: '选择实时模型',
         headings: ['通道', '连接路径'],
         rows: [
-          ['Codex', '/v1/realtime?model=gpt-realtime-2.1'],
+          ['Codex', '/v1/realtime?model=codex-gpt-realtime-2.1'],
           ['Grok', '/v1/realtime?model=grok-voice-latest'],
         ],
       },

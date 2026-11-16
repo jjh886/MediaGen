@@ -9,14 +9,15 @@ export const textDocs: ApiExample[] = [
       '一次获取模型、接口、输入类型、参数约束与账号能力。不要把目录中的能力理解为账号一定有剩余额度。',
     notes: [
       'refresh=true：主动刷新账号模型目录；account_id：仅查询有访问权限的账号。',
-      'Codex 文本型号：gpt-6.1-sol/terra、gpt-6-astra/sol/luna、gpt-5.6-sol/terra/luna。gpt-6.1-sol/terra 的思考深度为 low/medium/high/xhigh/max/ultra；其他型号以账号目录为准。',
-      'Codex 图片型号：gpt-image-2.6-flare、gpt-image-2.6-sunburst、gpt-image-2.5-flare、gpt-image-2.5-sunburst、gpt-image-2；codex 别名指向 flare。目录中的 pricing 为源插件参考价格，不表示实际账单。',
+      'ChatGPT 对话模型为 chatgpt-gpt-6（GPT-6）和 chatgpt-gpt-5.6-sol（GPT-5.6 Sol）。即时、中、高、极高、Pro 分别使用 none、standard、extended、max、pro，以账号目录实际提供的档位为准。',
+      'Codex 文本型号：codex-gpt-6.1-sol/terra、codex-gpt-6-astra/sol/luna、codex-gpt-5.6-sol/terra/luna。codex-gpt-6.1-sol/terra 的思考深度为 low/medium/high/xhigh/max/ultra；其他型号以账号目录为准。',
+      'Codex 图片型号：codex-gpt-image-2.6-flare、codex-gpt-image-2.6-sunburst、codex-gpt-image-2.5-flare、codex-gpt-image-2.5-sunburst、codex-gpt-image-2；codex 别名指向 flare。目录中的 pricing 为源插件参考价格，不表示实际账单。',
     ],
     response: {
       object: 'list',
       data: [
         {
-          id: 'gpt-realtime-2.1',
+          id: 'codex-gpt-realtime-2.1',
           object: 'model',
           owned_by: 'codex',
           task_kind: 'realtime',
@@ -39,7 +40,7 @@ export const textDocs: ApiExample[] = [
     description: '包含当前模型的参数及能力约束。',
     notes: ['model：模型 ID 或声明的别名。'],
     response: {
-      id: 'gpt-6-luna',
+      id: 'codex-gpt-6-luna',
       object: 'model',
       owned_by: 'codex',
       task_kind: 'text',
@@ -54,7 +55,7 @@ export const textDocs: ApiExample[] = [
     description: '支持同步 JSON 和 SSE，续接、工具调用、结构化输出依插件能力而定。',
     notes: textNotes,
     body: {
-      model: 'gpt-6-luna',
+      model: 'codex-gpt-6-luna',
       input: '请用一句话介绍你自己。',
       stream: false,
       store: true,
@@ -70,7 +71,7 @@ export const textDocs: ApiExample[] = [
     description: '默认同步，显式传入 async=true 才排队。复用图片队列的管理接口，两类队列独立运行。',
     notes: textNotes,
     body: {
-      model: 'gpt-6-luna',
+      model: 'codex-gpt-6-luna',
       input: '请总结这段剧本的主要冲突。',
       async: true,
       callback_url: 'https://your-app.example/callback',
@@ -92,7 +93,7 @@ export const textDocs: ApiExample[] = [
       'Authorization: Bearer API_KEY；JSON 文本帧，不传音频二进制。',
       '客户端事件：response.create。服务端使用 Responses 事件；错误事件带 error.code。',
     ],
-    body: { type: 'response.create', model: 'gpt-6-luna', input: '你好' },
+    body: { type: 'response.create', model: 'codex-gpt-6-luna', input: '你好' },
     response: { type: 'response.completed', response },
   },
   {
@@ -103,7 +104,7 @@ export const textDocs: ApiExample[] = [
     description: 'OpenAI Chat 兼容格式；流以 data: [DONE] 结束。',
     notes: textNotes,
     body: {
-      model: 'gpt-6-luna',
+      model: 'codex-gpt-6-luna',
       messages: [{ role: 'user', content: '你好' }],
       stream: false,
       metadata: { session_id: 'my-conversation-001' },
@@ -111,7 +112,7 @@ export const textDocs: ApiExample[] = [
     response: {
       id: 'chatcmpl_example',
       object: 'chat.completion',
-      model: 'gpt-6-luna',
+      model: 'codex-gpt-6-luna',
       choices: [
         { index: 0, message: { role: 'assistant', content: '你好' }, finish_reason: 'stop' },
       ],
@@ -125,7 +126,10 @@ export const textDocs: ApiExample[] = [
     title: '压缩上下文',
     description: '仅支持 compact_text 的模型开放，当前以模型目录为准。',
     notes: ['model、input 必填；可选 instructions、previous_response_id、reasoning。'],
-    body: { model: 'gpt-6-luna', input: [{ role: 'user', content: '请记住项目的关键决定。' }] },
+    body: {
+      model: 'codex-gpt-6-luna',
+      input: [{ role: 'user', content: '请记住项目的关键决定。' }],
+    },
     response: {
       id: 'resp_compact_example',
       object: 'response.compaction',

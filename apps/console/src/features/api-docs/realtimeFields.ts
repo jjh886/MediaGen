@@ -1,7 +1,15 @@
 import { fields, output } from './schema'
 
 export const realtimeRequest = fields(
-  [['model', 'string', '是', '—', '实时模型 ID，例如 gpt-realtime-2.1 或 grok-voice-latest。']],
+  [
+    [
+      'model',
+      'string',
+      '是',
+      '—',
+      '实时模型 ID，例如 codex-gpt-realtime-2.1 或 grok-voice-latest。',
+    ],
+  ],
   'query'
 ).concat(
   fields(
@@ -137,7 +145,7 @@ export const realtimeResponse = output([
 ])
 export const liveRequest = fields([
   ['session', 'object', '是', '—', 'Live 会话配置。'],
-  ['session.model', 'string', '是', '—', '具备 Live WebRTC 能力的模型，如 gpt-live-1。'],
+  ['session.model', 'string', '是', '—', '具备 Live WebRTC 能力的模型，如 codex-gpt-live-1。'],
   ['transport', 'object', '是', '—', 'WebRTC 传输配置。'],
   ['transport.type', 'string', '是', 'webrtc', '当前 Live 接口仅支持 webrtc。'],
   ['transport.sdp', 'string', '是', '—', '浏览器生成的完整 SDP offer，必须以 v=0 开头。'],

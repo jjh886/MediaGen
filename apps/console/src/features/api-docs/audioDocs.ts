@@ -40,10 +40,10 @@ export const audioDocs: ApiExample[] = [
   {
     group: '实时语音',
     method: 'WS',
-    path: '/v1/realtime?model=gpt-realtime-2.1',
+    path: '/v1/realtime?model=codex-gpt-realtime-2.1',
     title: '实时双向语音',
     description:
-      'Codex 使用 gpt-realtime-2.1，Grok 使用 grok-voice-latest。音频片段在 JSON 事件内以 Base64 传输。',
+      'Codex 使用 codex-gpt-realtime-2.1，Grok 使用 grok-voice-latest。音频片段在 JSON 事件内以 Base64 传输。',
     notes: [
       '握手请求头 Authorization: Bearer API_KEY；model 为查询参数。',
       'session.update：配置 instructions、output_modalities、audio.input/output、tools、tool_choice。',
@@ -76,16 +76,16 @@ export const audioDocs: ApiExample[] = [
       description:
         '私有 Live 通道，需要模型声明的设备环境与权限；普通实时语音请使用 /v1/realtime。/v1/live/sessions 返回 JSON；/v1/live 为 SDP 文本兼容通道。',
       notes: [
-        'session.model=gpt-live-1；必须传入浏览器生成的完整 SDP offer，两条路径的请求包装不同。',
+        'session.model=codex-gpt-live-1；必须传入浏览器生成的完整 SDP offer，两条路径的请求包装不同。',
       ],
       status: path === '/v1/live/sessions' ? 201 : 200,
       body:
         path === '/v1/live/sessions'
           ? {
-              session: { model: 'gpt-live-1' },
+              session: { model: 'codex-gpt-live-1' },
               transport: { type: 'webrtc', sdp: '<完整 SDP offer>' },
             }
-          : { session: { model: 'gpt-live-1' }, sdp: '<完整 SDP offer>' },
+          : { session: { model: 'codex-gpt-live-1' }, sdp: '<完整 SDP offer>' },
       response:
         path === '/v1/live/sessions'
           ? {
