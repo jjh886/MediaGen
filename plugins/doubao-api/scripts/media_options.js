@@ -8,7 +8,7 @@ const DOUBAO_MEDIA_MODELS = {
 }
 
 function doubaoMediaOptions(ctx, session, kind, saved) {
-  const selected = DOUBAO_MEDIA_MODELS[ctx.model_id]
+  const selected = DOUBAO_MEDIA_MODELS[String(ctx.model_id).replace(/^doubao-api-/, 'doubao-')]
   if (!selected) throw new Error('invalid_input: 必须指定具体的豆包生成模型')
   if (selected.kind !== kind) throw new Error('invalid_input: 生成类型与模型不一致')
   const requested = ctx.generation_options?.model

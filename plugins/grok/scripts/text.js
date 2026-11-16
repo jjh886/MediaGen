@@ -87,6 +87,7 @@ function grokTextCapabilities(id, catalog = {}) {
 
 function grokText(ctx, auth, request, publish = true) {
   const body = JSON.parse(JSON.stringify(request))
+  body.model = ctx.model_capabilities?.upstream_model || body.model
   if (Array.isArray(body.input)) body.input = body.input.map(grokInputItem)
   // metadata 由公共 Responses 存储层保存，上游 CLI 接口不接受此字段。
   delete body.metadata
@@ -117,6 +118,7 @@ function grokText(ctx, auth, request, publish = true) {
       timeout_ms: 600000,
     },
     (event) => {
+      if (event.response?.model === body.model) event.response.model = request.model
       if (event.type === 'response.output_item.done' && Number.isInteger(event.output_index))
         items.set(event.output_index, event.item)
       if (['response.completed', 'response.incomplete'].includes(event.type)) {

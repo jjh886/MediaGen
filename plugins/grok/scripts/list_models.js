@@ -11,10 +11,14 @@ function main(ctx) {
           !/imagine|voice|transcri|tts|stt/i.test(item.id)
       )
       .map((item) => ({
-        model_id: item.id.trim(),
+        model_id: item.id.trim().startsWith('grok-') ? item.id.trim() : 'grok-' + item.id.trim(),
+        aliases: [item.id.trim()],
         display_name: item.name || item.id.trim(),
         task_kind: 'text',
-        capabilities: grokTextCapabilities(item.id.trim(), item),
+        capabilities: {
+          ...grokTextCapabilities(item.id.trim(), item),
+          upstream_model: item.id.trim(),
+        },
       })),
   }
 }

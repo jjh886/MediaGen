@@ -89,7 +89,8 @@ function grokHeaders(ctx, auth, build = false) {
       'x-authenticateresponse': 'authenticate-response',
     })
     if (auth.user_id) headers['x-grok-user-id'] = auth.user_id
-    if (ctx.request?.model) headers['x-grok-model-override'] = ctx.request.model
+    if (ctx.request?.model)
+      headers['x-grok-model-override'] = ctx.model_capabilities?.upstream_model || ctx.request.model
     const cache = String(
       ctx.request?.options?.session_key || ctx.request?.prompt_cache_key || ''
     ).trim()

@@ -28,10 +28,10 @@ function geminiAccountProfile(identity, status) {
   return { ...identity, tier }
 }
 
-const GEMINI_PROFILE_ARGS = [
-  ['me'],
-  [[['person.photo', 'person.name', 'person.email']], null, [1, 7]],
-]
+// 登录检测与凭据采集会在同一页面重复执行，避免在页面顶层声明常量。
+function geminiProfileArgs() {
+  return [['me'], [[['person.photo', 'person.name', 'person.email']], null, [1, 7]]]
+}
 
 function geminiAccountDetails(identity, data) {
   const person = data?.[0]?.find((entry) => entry?.[0] === 'me')?.[2]
@@ -151,7 +151,7 @@ async function geminiBrowserAccount() {
     try {
       Object.assign(
         account,
-        geminiAccountDetails(identity, await rpc('o30O0e', GEMINI_PROFILE_ARGS))
+        geminiAccountDetails(identity, await rpc('o30O0e', geminiProfileArgs()))
       )
     } catch (_) {
       /* 资料接口失败不覆盖已确认身份。 */

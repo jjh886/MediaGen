@@ -7,7 +7,7 @@ function main(ctx) {
     try {
       Object.assign(
         account,
-        geminiAccountDetails(session.auth, geminiRpc(session, 'o30O0e', GEMINI_PROFILE_ARGS))
+        geminiAccountDetails(session.auth, geminiRpc(session, 'o30O0e', geminiProfileArgs()))
       )
     } catch (_) {
       /* 头像读取失败时保留原资料。 */
