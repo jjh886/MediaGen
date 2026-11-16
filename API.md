@@ -54,14 +54,13 @@ Authorization: Bearer local
 
 ## GET /v1/models
 
-返回当前可用模型列表，包含插件真实模型，也包含 OpenAI 兼容别名，例如：
+返回当前可用的正式模型 ID。ID 以插件名开头，目录中的 ChatGPT 对话模型按网页名称展示。
 
 ```text
-gpt-image-2
-gpt-image-1.5
-gpt-image-1
-gpt-image-1-mini
-chatgpt-image-latest
+chatgpt-gpt-6
+chatgpt-gpt-5.6-sol
+codex-gpt-6.1-sol
+codex-gpt-image-2
 ```
 
 示例：
@@ -77,12 +76,11 @@ curl http://127.0.0.1:18080/v1/models
   "object": "list",
   "data": [
     {
-      "id": "gpt-image-1",
+      "id": "codex-gpt-image-2",
       "object": "model",
-      "owned_by": "openai",
-      "display_name": "gpt-image-1",
-      "platform": "chatgpt",
-      "alias": true
+      "owned_by": "codex",
+      "display_name": "GPT Image 2",
+      "task_kind": "image"
     }
   ]
 }
@@ -99,7 +97,7 @@ curl http://127.0.0.1:18080/v1/images/generations \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer local' \
   -d '{
-    "model": "gpt-image-1",
+    "model": "codex-gpt-image-2",
     "prompt": "A clean product photo of a glass water bottle on a white desk",
     "size": "1024x1024",
     "quality": "high",
@@ -154,7 +152,7 @@ curl -N http://127.0.0.1:18080/v1/images/generations \
   -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' \
   -d '{
-    "model": "gpt-image-1",
+    "model": "codex-gpt-image-2",
     "prompt": "A minimal blue cube on a white background",
     "size": "1024x1024",
     "quality": "low",
@@ -169,7 +167,7 @@ MediaGen 的最终完成事件保持 OpenAI 图片流风格，同时额外增加
 
 ```text
 event: image_generation.started
-data: {"type":"image_generation.started","request_id":"...","model":"gpt-image-1"}
+data: {"type":"image_generation.started","request_id":"...","model":"codex-gpt-image-2"}
 
 event: image_generation.queued
 data: {"type":"image_generation.queued","request_id":"...","queued":0,"ahead":0,"queue_position":1,"active":0,"max_concurrent":64}
@@ -210,7 +208,7 @@ data: {"type":"image_generation.completed","b64_json":"...","created_at":1779695
 curl http://127.0.0.1:18080/v1/images/edits \
   -H 'Content-Type: application/json' \
   -d '{
-    "model": "gpt-image-1",
+    "model": "codex-gpt-image-2",
     "prompt": "Keep the product, change the background to a clean kitchen counter",
     "images": [
       {
@@ -226,7 +224,7 @@ curl http://127.0.0.1:18080/v1/images/edits \
 
 ```bash
 curl http://127.0.0.1:18080/v1/images/edits \
-  -F model=gpt-image-1 \
+  -F model=codex-gpt-image-2 \
   -F prompt='Change the background to a clean kitchen counter' \
   -F image='@/absolute/path/input.png' \
   -F size=1024x1024 \
