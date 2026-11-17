@@ -1,6 +1,37 @@
 use crate::ServerState;
 use serde_json::{json, Value};
 
+pub(crate) fn retain_current_input(request: &mut Value) {
+    if !request["options"]["platform_session"].is_object() {
+        return;
+    }
+    let start = request["options"]["session_input_start"]
+        .as_u64()
+        .unwrap_or(0) as usize;
+    let Some(input) = request["input"].as_array_mut() else {
+        return;
+    };
+    if start == 0 || start >= input.len() {
+        return;
+    }
+    if !input[..start].iter().any(|item| {
+        item["content"]
+            .as_array()
+            .is_some_and(|parts| parts.iter().any(|part| part["file_id"].is_string()))
+    }) {
+        return;
+    }
+    let mut context = input[..start]
+        .iter()
+        .filter(|item| matches!(item["role"].as_str(), Some("system" | "developer")))
+        .cloned()
+        .collect::<Vec<_>>();
+    let context_len = context.len();
+    context.extend(input.drain(start..));
+    *input = context;
+    request["options"]["session_input_start"] = json!(context_len);
+}
+
 pub(crate) async fn resolve(
     state: &ServerState,
     key: &str,

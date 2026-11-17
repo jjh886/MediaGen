@@ -247,10 +247,12 @@ pub(crate) async fn write_session(
         return Ok(());
     }
     let payload = json!({"account_id":account,"task_id":task,"cursor":cursor,"response_anchor":response_anchor(response)});
-    if payload.to_string().len() > 65536 {
+    let serialized = payload.to_string();
+    // 上游续聊 token 可超过 64 KiB，完整保留并限制单份会话最多 10 MiB。
+    if serialized.len() > 10 << 20 {
         return Err("平台会话信息过大".into());
     }
-    let encrypted = state.credential_cipher.encrypt(&payload.to_string())?;
+    let encrypted = state.credential_cipher.encrypt(&serialized)?;
     crate::account_login_credentials::write_private_file(
         &state
             .file_root

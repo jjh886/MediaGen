@@ -77,6 +77,11 @@ impl JsFlowRunner {
         find_result: fn(&[Value]) -> Option<Value>,
         result_label: &str,
     ) -> Result<Value, String> {
+        let _workspace_use = crate::upload_cleanup::workspace_use(
+            &account.profile_dir,
+            context["task_id"].as_str().unwrap_or(""),
+        )
+        .await;
         let workspace = crate::server_plugin_host::recovery_workspace(
             &account.profile_dir,
             context["task_id"].as_str().unwrap_or(""),

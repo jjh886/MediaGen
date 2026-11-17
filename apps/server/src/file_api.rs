@@ -28,6 +28,8 @@ pub(crate) struct FileRecord {
     pub mime_type: String,
     #[serde(default)]
     pub owner_hash: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub used_by: Vec<String>,
 }
 
 pub async fn upload_file(
@@ -303,6 +305,7 @@ async fn save_upload(root: &Path, upload: UploadInput, owner_hash: String) -> Ht
         purpose: upload.purpose,
         mime_type: upload.mime_type,
         owner_hash,
+        used_by: Vec::new(),
     };
     let target = content_path(root, &id);
     if tokio::fs::rename(&upload.path, &target).await.is_err() {
@@ -352,28 +355,24 @@ pub(crate) async fn read_record_for_owner(
     }
 }
 
-async fn read_record_path(path: &Path) -> Result<FileRecord, String> {
+pub(crate) async fn read_record_path(path: &Path) -> Result<FileRecord, String> {
     let content = tokio::fs::read_to_string(path)
         .await
         .map_err(|err| err.to_string())?;
     serde_json::from_str(&content).map_err(|err| err.to_string())
 }
 
-async fn write_record(root: &Path, record: &FileRecord) -> Result<(), String> {
+pub(crate) async fn write_record(root: &Path, record: &FileRecord) -> Result<(), String> {
     let content = serde_json::to_vec_pretty(record).map_err(|err| err.to_string())?;
-    tokio::fs::write(
-        metadata_path(root, &record.id),
-        [&content[..], b"\n"].concat(),
-    )
-    .await
-    .map_err(|err| err.to_string())
+    crate::account_login_credentials::write_private_file(&metadata_path(root, &record.id), &content)
+        .await
 }
 
 pub(crate) fn content_path(root: &Path, id: &str) -> PathBuf {
     root.join(format!("{id}.bin"))
 }
 
-fn metadata_path(root: &Path, id: &str) -> PathBuf {
+pub(crate) fn metadata_path(root: &Path, id: &str) -> PathBuf {
     root.join(format!("{id}.json"))
 }
 

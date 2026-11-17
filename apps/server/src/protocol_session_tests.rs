@@ -53,9 +53,11 @@ async fn chat_window_keeps_platform_cursor_across_http_turns_and_server_restart(
             .join("scripts/text.js");
         std::fs::write(script,r#"function main(ctx){
       const previous=ctx.request.options?.platform_session;
+      const token='cursor-'.repeat(163840);
+      if(previous && previous.token!==token) throw new Error('session cursor was truncated');
       const id=previous?.conversation_id || ('session-'+ctx.request.options.session_key);
       const round=(previous?.round || 0)+1;
-      const response={id:'resp_'+ctx.request_id,object:'response',status:'completed',model:ctx.request.model,metadata:{platform_session:{conversation_id:id,round}},output:[{id:'answer',type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:id+'|'+round,annotations:[]}]}]};
+      const response={id:'resp_'+ctx.request_id,object:'response',status:'completed',model:ctx.request.model,metadata:{platform_session:{conversation_id:id,round,token}},output:[{id:'answer',type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:id+'|'+round,annotations:[]}]}]};
       host.emit({type:'response.created',response:{...response,output:[],metadata:{}}});
       host.emit({type:'response.output_text.delta',item_id:'answer',delta:id+'|'+round});
       host.emit({type:'response.completed',response});
@@ -98,6 +100,7 @@ async fn chat_window_keeps_platform_cursor_across_http_turns_and_server_restart(
             let text = if stream {
                 let raw = String::from_utf8(bytes.to_vec()).unwrap();
                 assert!(!raw.contains("platform_session"));
+                assert!(!raw.contains("cursor-cursor-"));
                 let events = raw
                     .lines()
                     .filter_map(|line| line.strip_prefix("data: "))
@@ -121,6 +124,7 @@ async fn chat_window_keeps_platform_cursor_across_http_turns_and_server_restart(
             } else {
                 let body: Value = serde_json::from_slice(&bytes).unwrap();
                 assert!(body["metadata"].get("platform_session").is_none());
+                assert!(!body.to_string().contains("cursor-cursor-"));
                 if mode == "chat" {
                     body["choices"][0]["message"]["content"].as_str()
                 } else {
@@ -140,6 +144,35 @@ async fn chat_window_keeps_platform_cursor_across_http_turns_and_server_restart(
         }
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[actix_web::test]
+async fn oversized_session_update_preserves_previous_cursor() {
+    use crate::conversation_affinity::{read_session, write_session};
+    let state = crate::protocol_api_tests::state();
+    let root = state.store.path.parent().unwrap().to_owned();
+    let response =
+        json!({"metadata":{"platform_session":{"conversation_id":"original","token":"cursor"}}});
+    write_session(&state, "session", "account", "first", None, &response)
+        .await
+        .unwrap();
+    let previous = read_session(&state, "session").unwrap().unwrap();
+    let oversized = json!({"metadata":{"platform_session":{"conversation_id":"next","token":"x".repeat(10 << 20)}}});
+    assert_eq!(
+        write_session(
+            &state,
+            "session",
+            "account",
+            "next",
+            Some("first"),
+            &oversized
+        )
+        .await
+        .unwrap_err(),
+        "平台会话信息过大"
+    );
+    assert_eq!(read_session(&state, "session").unwrap(), Some(previous));
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[actix_web::test]

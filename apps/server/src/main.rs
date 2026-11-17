@@ -91,6 +91,7 @@ mod store_persistence;
 mod store_weixin;
 mod store_weixin_query;
 mod system_control;
+mod upload_cleanup;
 mod value_utils;
 mod video_api;
 mod video_api_response;
@@ -170,6 +171,7 @@ async fn main() -> std::io::Result<()> {
     let state = web::Data::new(build_state(&config).map_err(std::io::Error::other)?);
     realtime_api::recover_sessions(state.clone());
     generation_queue::start_worker(state.clone());
+    upload_cleanup::start_worker(state.clone());
     video_creation::recover_pending(state.clone());
     account_status_refresh::start_worker(state.clone());
     weixin::start_workers(state.clone());

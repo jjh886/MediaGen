@@ -22,6 +22,8 @@ pub(crate) async fn run_plugin(
         .ok_or("插件目录不存在")?
         .join("scripts");
     let mut context = json!({"account":account,"account_id":account.id,"profile_dir":account.profile_dir,"request":request,"request_id":request_id,"task_id":request_id,"scripts_dir":scripts.to_string_lossy(),"platform_config":state.store.settings().platform_generation_config(&manifest.platform_id),"model_capabilities":capabilities});
+    let _workspace_use =
+        crate::upload_cleanup::workspace_use(&account.profile_dir, request_id).await;
     let temporary = request_id
         .is_empty()
         .then(tempfile::tempdir)
@@ -32,11 +34,6 @@ pub(crate) async fn run_plugin(
     } else {
         crate::server_plugin_host::recovery_workspace(&account.profile_dir, request_id)?
     };
-    if flow_name == "generate_text"
-        && context["model_capabilities"]["attachment_transport"] == "workspace"
-    {
-        crate::protocol_files::materialize(state, &mut context["request"], &workspace).await?;
-    }
     context["workspace_dir"] = json!(workspace);
     let replay_events = events.clone();
     let host = ServerPluginHost::new_for_account(account)
@@ -61,6 +58,11 @@ pub(crate) async fn run_plugin(
             result["terminal_event"] = json!({"type":if result["response"]["status"] == "incomplete" {"response.incomplete"} else {"response.completed"},"response":result["response"]});
         }
         return Ok(result);
+    }
+    if flow_name == "generate_text"
+        && context["model_capabilities"]["attachment_transport"] == "workspace"
+    {
+        crate::protocol_files::materialize(state, &mut context["request"], &workspace).await?;
     }
     let execution = async {
         let mut results = Vec::new();

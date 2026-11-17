@@ -15,12 +15,15 @@ use crate::video_request::{validate_video_capabilities, OpenAiVideoRequest};
 use crate::ServerState;
 
 struct AuthorizedVideoRequest {
+    task_id: String,
+    upload_use: crate::upload_cleanup::UploadUse,
     body: OpenAiVideoRequest,
     caller_key: String,
     owner_hash: String,
 }
 
 struct VideoSubmission {
+    upload_use: crate::upload_cleanup::UploadUse,
     body: OpenAiVideoRequest,
     caller_key: String,
     task_id: String,
@@ -59,6 +62,15 @@ async fn authorize_video_request(
     let mut body = parse_video_request(request, payload)
         .await
         .map_err(api_error_response)?;
+    let task_id = format!("video_{}", Uuid::new_v4().simple());
+    let upload_use = crate::upload_cleanup::register(
+        state,
+        &task_id,
+        &caller_key,
+        &serde_json::to_value(&body).expect("video request serialization"),
+    )
+    .await
+    .map_err(|_| openai_error(400, "invalid_file_id", "文件不存在、已清理或无权访问"))?;
     let owner_hash = hash_secret(&caller_key);
     crate::video_file_refs::resolve_openai_video_file_refs(
         &state.file_root,
@@ -69,6 +81,8 @@ async fn authorize_video_request(
     .map_err(api_error_response)?;
     body.validate().map_err(api_error_response)?;
     Ok(AuthorizedVideoRequest {
+        task_id,
+        upload_use,
         body,
         caller_key,
         owner_hash,
@@ -80,6 +94,8 @@ fn prepare_video_submission(
     authorized: AuthorizedVideoRequest,
 ) -> Result<VideoSubmission, HttpResponse> {
     let AuthorizedVideoRequest {
+        task_id,
+        upload_use,
         mut body,
         caller_key,
         owner_hash,
@@ -89,7 +105,7 @@ fn prepare_video_submission(
         .video_task_queue
         .reserve_with_limit(settings.video_task_queue_limit, "视频")
         .map_err(|message| openai_error(429, "queue_full", &message))?;
-    let task_id = format!("video_{}", Uuid::new_v4().simple());
+
     let context = state
         .store
         .with_account_dispatch(|| {
@@ -126,6 +142,7 @@ fn prepare_video_submission(
         .store
         .add_task_event(&task_id, "info", "视频任务进入队列".to_string());
     Ok(VideoSubmission {
+        upload_use,
         body,
         caller_key,
         task_id,
@@ -138,6 +155,7 @@ fn prepare_video_submission(
 
 fn spawn_video_submission(state: web::Data<ServerState>, submission: VideoSubmission) -> Value {
     let VideoSubmission {
+        upload_use,
         body,
         caller_key,
         task_id,
@@ -147,6 +165,7 @@ fn spawn_video_submission(state: web::Data<ServerState>, submission: VideoSubmis
         response,
     } = submission;
     actix_web::rt::spawn(async move {
+        let _upload_use = upload_use;
         let _permit = reservation.activate_with_concurrency(concurrency).await;
         run_recoverable_video(&state, body, caller_key, task_id, first_account_id).await;
     });
@@ -182,8 +201,10 @@ async fn run_recoverable_video(
                     .add_task_event(&id, "info", "等待恢复原视频任务".into());
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             }
-            Err((_, _, message)) => {
-                state.store.fail_task(&id, message);
+            Err((_, code, message)) => {
+                state
+                    .store
+                    .fail_task(&id, format!("generation_failed: {code}: {message}"));
                 break;
             }
         }
@@ -295,9 +316,20 @@ mod tests {
             let body: OpenAiVideoRequest =
                 serde_json::from_value(serde_json::json!({"model":"fake-video","prompt":"原请求"}))
                     .unwrap();
+            let task_id = format!("video_{}", Uuid::new_v4().simple());
+            let upload_use = crate::upload_cleanup::register(
+                &state,
+                &task_id,
+                "video-key",
+                &serde_json::json!({}),
+            )
+            .await
+            .unwrap();
             let submission = prepare_video_submission(
                 &state,
                 AuthorizedVideoRequest {
+                    task_id,
+                    upload_use,
                     body,
                     caller_key: "video-key".into(),
                     owner_hash: hash_secret("video-key"),

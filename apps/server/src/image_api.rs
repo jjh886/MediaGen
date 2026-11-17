@@ -89,12 +89,32 @@ async fn handle_image_request(
     caller_key: Option<String>,
     request_id: String,
 ) -> HttpResponse {
-    let owner_hash = caller_key.as_deref().map(hash_secret).unwrap_or_default();
-    if let Err((status, code, message)) =
-        crate::image_file_refs::resolve_openai_file_refs(&state.file_root, &mut body, &owner_hash)
-            .await
+    let _upload_use = match crate::upload_cleanup::register(
+        &state,
+        &request_id,
+        caller_key.as_deref().unwrap_or_default(),
+        &serde_json::to_value(&body).expect("image request serialization"),
+    )
+    .await
     {
-        return openai_error(status, code, &message);
+        Ok(guard) => guard,
+        Err(_) => return openai_error(400, "invalid_file_id", "文件不存在、已清理或无权访问"),
+    };
+    let owner_hash = caller_key.as_deref().map(hash_secret).unwrap_or_default();
+    if !state
+        .store
+        .task_by_id(&request_id)
+        .is_some_and(|task| task.status == "completed")
+    {
+        if let Err((status, code, message)) = crate::image_file_refs::resolve_openai_file_refs(
+            &state.file_root,
+            &mut body,
+            &owner_hash,
+        )
+        .await
+        {
+            return openai_error(status, code, &message);
+        }
     }
     if let Err((status, code, message)) = body.validate(endpoint) {
         return openai_error(status, code, &message);

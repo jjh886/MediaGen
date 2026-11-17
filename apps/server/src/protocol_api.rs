@@ -115,9 +115,6 @@ pub(crate) async fn execute(
         }
     }
 
-    if body["async"] == true && !context.queued {
-        return crate::generation_queue::enqueue_text(state, key, body, endpoint, context).await;
-    }
     let local = context
         .local_previous
         .as_deref()
@@ -181,18 +178,36 @@ pub(crate) async fn execute(
     } else {
         None
     };
-    if let Err(message) =
-        crate::protocol_files::resolve(&state, &key, &mut payload, &capabilities).await
-    {
-        return error(400, "invalid_file_id", &message);
+    // 上游已保存的前文无需再次解析/上传附件；保留系统指令和本轮增量。
+    crate::protocol_files::retain_current_input(&mut payload);
+    let upload_use =
+        match crate::upload_cleanup::register(&state, &context.task_id, &key, &payload).await {
+            Ok(guard) => guard,
+            Err(_) => return error(400, "invalid_file_id", "文件不存在、已清理或无权访问"),
+        };
+    if body["async"] == true && !context.queued {
+        return crate::generation_queue::enqueue_text(state, key, body, endpoint, context).await;
     }
-    if let Err(message) =
-        crate::protocol_attachments::prepare(&state, &key, &mut payload, &capabilities).await
-    {
-        return error(400, "invalid_attachment", &message);
-    }
-    if let Err(message) = crate::protocol_request::validate_capabilities(&payload, &capabilities) {
-        return error(400, "unsupported_parameter", &message);
+    let already_completed = state
+        .store
+        .task_by_id(&context.task_id)
+        .is_some_and(|task| task.status == "completed");
+    if !already_completed {
+        if let Err(message) =
+            crate::protocol_files::resolve(&state, &key, &mut payload, &capabilities).await
+        {
+            return error(400, "invalid_file_id", &message);
+        }
+        if let Err(message) =
+            crate::protocol_attachments::prepare(&state, &key, &mut payload, &capabilities).await
+        {
+            return error(400, "invalid_attachment", &message);
+        }
+        if let Err(message) =
+            crate::protocol_request::validate_capabilities(&payload, &capabilities)
+        {
+            return error(400, "unsupported_parameter", &message);
+        }
     }
     let store_response = endpoint == "responses" && body["store"] != false;
     let previous_response_id = body["previous_response_id"].clone();
@@ -207,10 +222,6 @@ pub(crate) async fn execute(
     } else {
         None
     };
-    let already_completed = state
-        .store
-        .task_by_id(&task_id)
-        .is_some_and(|task| task.status == "completed");
     let (mut account, lease) = match crate::protocol_task::reserve_affinity_wait(
         &state,
         &manifest,
@@ -263,6 +274,7 @@ pub(crate) async fn execute(
     let is_chat = endpoint == "chat";
     let response_model_id = model_id.clone();
     let mut job = AbortJob(tokio::spawn(async move {
+        let _upload_use = upload_use;
         let _lease = lease;
         let _session_lock = session_lock;
         let execution = run_with_failover(
