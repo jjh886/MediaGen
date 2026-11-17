@@ -78,10 +78,33 @@ pub(crate) async fn delete(
     let Some(value) = stored(&state, &key, &path) else {
         return error(404, "response_not_found", "响应不存在或未保存");
     };
-    if let Some(task_id) = value["task_id"].as_str() {
-        state
+    let locks = crate::plugin_locks::PluginLocks::default();
+    if let Some(session) = value["conversation_session_id"].as_str() {
+        if let Err(message) = locks.acquire(&format!("conversation:{session}")).await {
+            return error(409, "conversation_busy", &message);
+        }
+        let retained = state
             .store
-            .complete_task(task_id, json!({"status":"deleted"}));
+            .list_tasks(None)
+            .iter()
+            .filter(|task| Some(task.id.as_str()) != value["task_id"].as_str())
+            .filter_map(|task| {
+                task.result_data
+                    .as_ref()
+                    .and_then(|data| serde_json::from_str::<Value>(data).ok())
+            })
+            .any(|data| data["conversation_session_id"] == session && data["response"].is_object());
+        if !retained {
+            if let Err(message) = crate::conversation_replay::remove(&state, session).await {
+                return error(500, "conversation_cleanup_failed", &message);
+            }
+        }
+    }
+    if let Some(task_id) = value["task_id"].as_str() {
+        state.store.complete_task(
+            task_id,
+            json!({"status":"deleted","conversation_session_id":value["conversation_session_id"]}),
+        );
     }
     HttpResponse::Ok().json(json!({"id":path.as_str(),"object":"response.deleted","deleted":true}))
 }

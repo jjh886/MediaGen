@@ -114,7 +114,7 @@ async fn saved_history_survives_until_session_deleted_and_unused_upload_is_kept(
 }
 
 #[actix_web::test]
-async fn native_session_continues_without_resolving_deleted_attachment() {
+async fn native_session_retains_attachment_for_account_migration() {
     let state = crate::protocol_api_tests::state();
     let id = upload(&state).await;
     task(&state, "native");
@@ -140,7 +140,7 @@ async fn native_session_continues_without_resolving_deleted_attachment() {
         json!({"conversation_session_id":"session","response":response}),
     );
     sweep(&state).await.unwrap();
-    assert!(!file_api::content_path(&state.file_root, &id).exists());
+    assert!(file_api::content_path(&state.file_root, &id).exists());
     let mut input = json!({"input":[
         {"role":"system","content":"instructions"},
         {"role":"user","content":[{"type":"input_file","file_id":id}]},

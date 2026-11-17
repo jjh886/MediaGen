@@ -35,6 +35,13 @@ pub(crate) async fn execute(
             .and_then(|error| error.split_once(": "))
         {
             let status = match code {
+                "insufficient_quota"
+                    if body["previous_response_id"].is_string()
+                        || body["metadata"]["session_id"].is_string()
+                        || body["metadata"]["duanju_thread_id"].is_string() =>
+                {
+                    None
+                }
                 "insufficient_quota" => Some(429),
                 "no_available_account_for_model" => Some(403),
                 "conversation_unavailable"
@@ -128,7 +135,6 @@ pub(crate) async fn execute(
     if let Err(message) = crate::protocol_storage::previous_input(&state, &key, &mut payload) {
         return error(400, "invalid_previous_response", &message);
     }
-    let stored_input = crate::protocol_storage::input_items(&payload["input"]);
     if payload
         .get("options")
         .is_some_and(|value| !value.is_object())
@@ -139,6 +145,7 @@ pub(crate) async fn execute(
         options.remove("platform_session");
         options.remove("session_input_start");
         options.remove("session_key");
+        options.remove("migrate_account");
     }
     let (mut affinity_id, mut preferred) = crate::conversation_affinity::identify(
         &state,
@@ -157,6 +164,7 @@ pub(crate) async fn execute(
         endpoint,
         &context.task_id,
     );
+    let mut complete_history = true;
     let session_lock = if let Some(id) = session_id.as_ref() {
         affinity_id = id.clone();
         let locks = crate::plugin_locks::PluginLocks::default();
@@ -165,6 +173,24 @@ pub(crate) async fn execute(
         }
         match crate::conversation_affinity::read_session(&state, &affinity_id) {
             Ok(Some(saved)) => {
+                if !state
+                    .store
+                    .task_by_id(&context.task_id)
+                    .is_some_and(|task| task.status == "completed")
+                {
+                    complete_history = match crate::conversation_replay::restore(
+                        &state,
+                        &affinity_id,
+                        &saved,
+                        &mut payload,
+                        body["previous_response_id"].is_string(),
+                    ) {
+                        Ok(complete) => complete,
+                        Err(message) => {
+                            return error(409, "conversation_context_unavailable", &message)
+                        }
+                    };
+                }
                 preferred = crate::conversation_affinity::apply_cursor(&mut payload, &saved);
             }
             Ok(None) => {}
@@ -178,12 +204,42 @@ pub(crate) async fn execute(
     } else {
         None
     };
+    let migrating = match crate::conversation_replay::route(
+        &state,
+        &manifest,
+        &key,
+        &context.task_id,
+        &mut payload,
+        &mut preferred,
+        complete_history,
+    )
+    .await
+    {
+        Ok(migrating) => migrating,
+        Err(message) => {
+            let (status, code, message) = public_failure(&message);
+            return error(status, code, &message);
+        }
+    };
+    let stored_input = crate::protocol_storage::input_items(&payload["input"]);
+    let replay = (session_lock.is_some() && complete_history)
+        .then(|| crate::conversation_replay::fresh_request(&payload));
     // 上游已保存的前文无需再次解析/上传附件；保留系统指令和本轮增量。
     crate::protocol_files::retain_current_input(&mut payload);
     let upload_use =
         match crate::upload_cleanup::register(&state, &context.task_id, &key, &payload).await {
             Ok(guard) => guard,
-            Err(_) => return error(400, "invalid_file_id", "文件不存在、已清理或无权访问"),
+            Err(_) => {
+                return if migrating {
+                    error(
+                        409,
+                        "conversation_attachment_unavailable",
+                        "旧会话附件已清理，无法完整迁移，请重新上传附件",
+                    )
+                } else {
+                    error(400, "invalid_file_id", "文件不存在、已清理或无权访问")
+                }
+            }
         };
     if body["async"] == true && !context.queued {
         return crate::generation_queue::enqueue_text(state, key, body, endpoint, context).await;
@@ -196,7 +252,15 @@ pub(crate) async fn execute(
         if let Err(message) =
             crate::protocol_files::resolve(&state, &key, &mut payload, &capabilities).await
         {
-            return error(400, "invalid_file_id", &message);
+            return if migrating {
+                error(
+                    409,
+                    "conversation_attachment_unavailable",
+                    "旧会话附件已清理或无法读取，无法完整迁移，请重新上传附件",
+                )
+            } else {
+                error(400, "invalid_file_id", &message)
+            };
         }
         if let Err(message) =
             crate::protocol_attachments::prepare(&state, &key, &mut payload, &capabilities).await
@@ -287,6 +351,7 @@ pub(crate) async fn execute(
             &task_request_id,
             capabilities,
             &key,
+            replay,
         );
         let cancelled = async {
             loop {
@@ -317,12 +382,13 @@ pub(crate) async fn execute(
         }
         if let Ok(value) = &result {
             if _session_lock.is_some() && !already_completed {
-                if let Err(message) = crate::conversation_affinity::write_session(
+                if let Err(message) = crate::conversation_replay::save(
                     &task_state,
                     &affinity_id,
                     &account.id,
                     &task_id,
                     session_base.as_deref(),
+                    &json!(stored_input),
                     &value["response"],
                 )
                 .await
@@ -374,7 +440,7 @@ pub(crate) async fn execute(
                 }
                 task_state
                     .store
-                    .complete_task(&task_id, if store_response { json!({"task_id":task_id,"owner":crate::access_control::hash_secret(&key),"model_id":model.model_id,"input":stored_input,"conversation_session_id":session_id,"response":value["response"]}) } else { json!({"status":"completed"}) });
+                    .complete_task(&task_id, if store_response { json!({"task_id":task_id,"owner":crate::access_control::hash_secret(&key),"model_id":model.model_id,"input":stored_input,"conversation_session_id":session_id,"response":value["response"]}) } else { json!({"status":"completed","conversation_session_id":session_id}) });
             }
             Err(message) if message == "task_cancelled" => {}
             Err(message) => {

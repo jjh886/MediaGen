@@ -25,6 +25,7 @@ mod browser_sessions;
 mod callback_host;
 mod console_routes;
 mod conversation_affinity;
+mod conversation_replay;
 mod external_cdp;
 mod failure_strategy;
 mod file_api;

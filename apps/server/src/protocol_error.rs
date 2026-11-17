@@ -28,6 +28,16 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
             "no_available_account_for_model",
         ),
         ("insufficient_quota: ", 429, "insufficient_quota"),
+        (
+            "conversation_context_unavailable: ",
+            409,
+            "conversation_context_unavailable",
+        ),
+        (
+            "conversation_attachment_unavailable: ",
+            409,
+            "conversation_attachment_unavailable",
+        ),
     ] {
         if let Some(detail) = message.strip_prefix(prefix) {
             return (status, code, detail.to_string());

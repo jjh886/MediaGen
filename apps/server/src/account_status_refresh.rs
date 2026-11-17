@@ -312,6 +312,77 @@ mod tests {
     use mediagen_plugin_runtime::PluginLoader;
     use std::time::Duration;
 
+    #[actix_web::test]
+    async fn exhausted_shared_quota_waits_until_reset_and_other_accounts_keep_dispatching() {
+        let root = tempfile::tempdir().unwrap();
+        let state = server_state(root.path().into(), PluginLoader::empty());
+        state
+            .store
+            .insert_account(account_record("limited", "test", "Limited", ""));
+        state
+            .store
+            .insert_account(account_record("healthy", "test", "Healthy", ""));
+        super::apply_refresh_outcome(
+            &state,
+            "limited",
+            crate::account_login_check::AccountLoginCheckOutcome::Unavailable {
+                login_state: "cooldown".into(),
+                profile: crate::account_login::profile_from_value(&serde_json::json!({
+                    "logged_in":true,"quota_windows":[{"name":"5 小时额度","remaining_percent":0}]
+                })),
+                cooldown_seconds: Some(3600),
+                quota_task_kind: None,
+            },
+            &mut super::AccountRefreshSummary::default(),
+        );
+        for kind in ["text", "image", "video"] {
+            assert_eq!(
+                state
+                    .store
+                    .select_account_for_task("test", None, &[], kind, None)
+                    .unwrap()
+                    .id,
+                "healthy"
+            );
+            let account = state.store.account_by_id("limited").unwrap();
+            assert!(!crate::store_helpers::account_ready_for_kind(
+                &account,
+                &[],
+                kind
+            ));
+            assert!(crate::store_quota::account_can_wait_for_kind(
+                &account, kind
+            ));
+        }
+        assert_eq!(
+            state
+                .store
+                .account_by_id("limited")
+                .unwrap()
+                .policy
+                .quota_windows[0]["remaining_percent"],
+            0
+        );
+        state
+            .store
+            .accounts
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .find(|a| a.id == "limited")
+            .unwrap()
+            .cooldown_until =
+            Some((chrono::Utc::now() - chrono::Duration::seconds(1)).to_rfc3339());
+        state.store.release_expired_cooldowns();
+        let recovered = state.store.account_by_id("limited").unwrap();
+        assert_eq!(recovered.login_state, "available");
+        assert!(crate::store_helpers::account_ready_for_kind(
+            &recovered,
+            &[],
+            "text"
+        ));
+    }
+
     #[test]
     fn queued_binding_does_not_occupy_account_but_live_executor_does() {
         let state = server_state(

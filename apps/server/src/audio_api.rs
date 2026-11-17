@@ -77,6 +77,7 @@ pub(crate) async fn transcribe(
         &task_id,
         Value::Null,
         &key,
+        None,
     );
     let result = tokio::select! {
         result = execution => result,

@@ -69,6 +69,7 @@ async fn rate_limited_new_turn_can_failover_but_bound_conversation_keeps_account
                 "rate-limit-test",
                 Value::Null,
                 "key-a",
+                None,
             )
             .await;
             if continued || !available {

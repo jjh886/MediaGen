@@ -72,6 +72,9 @@ pub(crate) fn bound_account(
         }
         return Ok(Some(bound.into()));
     }
+    if requirements.is_some_and(|request| request["options"]["migrate_account"] == true) {
+        return Ok(None);
+    }
     Ok(original)
 }
 
@@ -234,14 +237,16 @@ pub(crate) async fn run_with_failover(
     manifest: &PluginManifest,
     account: &mut AccountRecord,
     flow: &str,
-    request: Value,
+    mut request: Value,
     events: Option<mpsc::Sender<Value>>,
     task_id: &str,
     capabilities: Value,
     key: &str,
+    replay: Option<Value>,
 ) -> Result<Value, String> {
     let mut excluded = Vec::new();
     let mut attempt = 0;
+    let mut _replay_upload_use = None;
     loop {
         let actual = crate::model_api::account_model(
             state,
@@ -310,7 +315,17 @@ pub(crate) async fn run_with_failover(
             attempt += 1;
             continue;
         }
-        if request["options"]["platform_session"].is_object() || !decision.should_failover() {
+        if !decision.should_failover() {
+            return result;
+        }
+        let migrate = request["options"]["platform_session"].is_object();
+        if migrate
+            && (replay.is_none()
+                || !(matches!(
+                    decision.category.as_str(),
+                    "account_rate_limited" | "quota_exhausted"
+                ) || message.contains("model_quota_exhausted")))
+        {
             return result;
         }
         excluded.push(account.id.clone());
@@ -373,6 +388,22 @@ pub(crate) async fn run_with_failover(
             }
             return result;
         };
+        if migrate {
+            let next_caps =
+                crate::model_api::account_model(state, manifest, &model.model_id, &next.id)
+                    .and_then(|model| model.extra.get("capabilities").cloned())
+                    .unwrap_or_else(|| capabilities.clone());
+            let (restored, guard) = Box::pin(crate::conversation_replay::prepare(
+                state,
+                key,
+                task_id,
+                replay.as_ref().unwrap(),
+                &next_caps,
+            ))
+            .await?;
+            request = restored;
+            _replay_upload_use = Some(guard);
+        }
         crate::media_execution::record_attempt_failure(
             state,
             &context,

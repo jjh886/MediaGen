@@ -53,6 +53,12 @@ pub(crate) async fn resolve(
             let record = crate::file_api::read_record_for_owner(&state.file_root, id, &owner)
                 .await
                 .map_err(|_| "文件不存在或无权访问".to_string())?;
+            let content = tokio::fs::metadata(crate::file_api::content_path(&state.file_root, id))
+                .await
+                .map_err(|_| "文件内容已清理或不存在".to_string())?;
+            if !content.is_file() || content.len() != record.bytes {
+                return Err("文件内容不完整或大小已变化".into());
+            }
             if capabilities["attachment_transport"] == "workspace" {
                 if !matches!(part["type"].as_str(), Some("input_file" | "input_image")) {
                     return Err("此输入类型不能引用 file_id".into());

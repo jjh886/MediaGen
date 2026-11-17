@@ -88,6 +88,7 @@ pub(crate) async fn transcribe(
             &task_id,
             Value::Null,
             key,
+            None,
         )
         .await;
         match result {

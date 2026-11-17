@@ -172,19 +172,14 @@ fn needs_history(state: &ServerState, id: &str) -> bool {
     else {
         return false;
     };
-    if !value["response"].is_object() {
-        return false;
+    if value["response"].is_object() {
+        return true;
     }
-    // 没有上游会话游标的 Responses 仍需原件续聊，删除保存的响应后再释放。
-    !value["conversation_session_id"]
+    value["conversation_session_id"]
         .as_str()
         .is_some_and(|session| {
             crate::conversation_affinity::read_session(state, session)
-                .ok()
-                .flatten()
-                .is_some_and(|saved| {
-                    saved["cursor"].is_object() && saved["response_anchor"].is_string()
-                })
+                .map_or(true, |saved| saved.is_some())
         })
 }
 
