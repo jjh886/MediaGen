@@ -1,11 +1,14 @@
 #[path = "protocol_ingress.rs"]
 mod ingress;
+#[path = "protocol_response.rs"]
+mod response;
+
 pub(crate) use ingress::{chat, compact, dispatch, responses, speech};
+pub(crate) use response::AbortJob;
 
 pub(crate) use crate::protocol_task::{run_plugin, run_with_failover};
 use crate::ServerState;
 use actix_web::{web, HttpResponse};
-use base64::prelude::{Engine as _, BASE64_STANDARD};
 use mediagen_core::TaskKind;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
@@ -337,7 +340,7 @@ pub(crate) async fn execute(
     let queued = context.queued;
     let is_chat = endpoint == "chat";
     let response_model_id = model_id.clone();
-    let mut job = AbortJob(tokio::spawn(async move {
+    let job = AbortJob(tokio::spawn(async move {
         let _upload_use = upload_use;
         let _lease = lease;
         let _session_lock = session_lock;
@@ -367,17 +370,10 @@ pub(crate) async fn execute(
         };
         let mut result =
             tokio::select! {result=execution=>result,_=cancelled=>Err("task_cancelled".into())};
-        if result.as_ref().is_ok_and(|value| {
-            if is_audio {
-                value["audio_base64"]
-                    .as_str()
-                    .is_none_or(|audio| BASE64_STANDARD.decode(audio).is_err())
-            } else {
-                value["response"]["id"].as_str().is_none()
-                    || !value["response"]["output"].is_array()
-                    || (streaming && value.get("terminal_event").is_none())
-            }
-        }) {
+        if result
+            .as_ref()
+            .is_ok_and(|value| response::invalid_upstream_response(value, is_audio, streaming))
+        {
             result = Err("invalid_upstream_response".into());
         }
         if let Ok(value) = &result {
@@ -480,58 +476,16 @@ pub(crate) async fn execute(
         }
         result
     }));
-    if streaming {
-        return crate::protocol_stream::response(
-            receiver,
-            job,
-            endpoint,
-            model_id,
-            body["stream_options"]["include_usage"] == true,
-            request_id,
-        )
-        .await;
-    }
-    drop(receiver);
-    match (&mut job.0).await {
-        Ok(Ok(result)) if endpoint == "speech" => {
-            let audio = result["audio_base64"]
-                .as_str()
-                .and_then(|value| BASE64_STANDARD.decode(value).ok());
-            match audio.filter(|value| !value.is_empty()) {
-                Some(audio) => HttpResponse::Ok()
-                    .insert_header(("x-request-id", request_id))
-                    .content_type(
-                        result["mime_type"]
-                            .as_str()
-                            .unwrap_or("application/octet-stream"),
-                    )
-                    .body(audio),
-                None => error(502, "invalid_audio", "上游没有返回有效音频"),
-            }
-        }
-        Ok(Ok(result)) => {
-            let response = if endpoint == "chat" {
-                crate::protocol_request::chat_response(&result["response"], &model_id)
-            } else {
-                result["response"].clone()
-            };
-            HttpResponse::Ok()
-                .insert_header(("x-request-id", request_id))
-                .json(response)
-        }
-        Ok(Err(message)) => {
-            let (status, code, public) = public_failure(&message);
-            error(status, code, &public)
-        }
-        Err(_) => error(500, "execution_failed", "请求执行中断"),
-    }
-}
-
-pub(crate) struct AbortJob(tokio::task::JoinHandle<Result<Value, String>>);
-impl Drop for AbortJob {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
+    response::respond(
+        job,
+        receiver,
+        streaming,
+        endpoint,
+        model_id,
+        body["stream_options"]["include_usage"] == true,
+        request_id,
+    )
+    .await
 }
 
 pub(crate) use crate::protocol_error::public_failure;
