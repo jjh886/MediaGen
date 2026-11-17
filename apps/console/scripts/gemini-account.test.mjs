@@ -167,7 +167,7 @@ describe('Gemini 登录身份和账号资料', () => {
     ])
     expect(context.geminiUsageWindows(")]}'\n" + usage())).toMatchObject([
       { remaining_percent: 73, reset_at: '2026-11-13T05:13:56.318Z' },
-      { remaining_percent: 72, reset_at: '2026-11-17T09:13:56.319Z' },
+      { remaining_percent: 71.886283, reset_at: '2026-11-17T09:13:56.319Z' },
     ])
     expect(
       context
@@ -198,6 +198,44 @@ describe('Gemini 登录身份和账号资料', () => {
       context.geminiAccountDetails({ user_id: identity.S06Grb }, data).avatar_url
     ).toBeUndefined()
   })
+  it('任一额度窗口耗尽就暂停调度，多个窗口耗尽取最晚恢复时间', () => {
+    const { context } = runtime()
+    const now = Date.parse('2026-11-17T06:00:00Z')
+    const quota = [
+      { name: '5 小时额度', remaining_percent: 0, reset_at: '2026-11-17T09:13:56.318Z' },
+      { name: '周额度', remaining_percent: 45, reset_at: '2026-11-20T06:00:00Z' },
+    ]
+    expect(context.geminiQuotaState(quota, now)).toMatchObject({
+      status: 'cooldown',
+      cooldown_seconds: 11637,
+    })
+    quota[1].remaining_percent = 0
+    expect(context.geminiQuotaState(quota, now).cooldown_seconds).toBe(3 * 86400)
+    delete quota[1].reset_at
+    expect(context.geminiQuotaState(quota, now)).not.toHaveProperty('cooldown_seconds')
+    quota[1].reset_at = '2026-11-16T00:00:00Z'
+    expect(context.geminiQuotaState(quota, now).status).toBe('cooldown')
+    expect(context.geminiQuotaState(quota, now)).not.toHaveProperty('cooldown_seconds')
+    quota.forEach((window) => {
+      window.remaining_percent = 100
+    })
+    expect(context.geminiQuotaState(quota, now).status).toBe('available')
+  })
+
+  it('显示百分比取整不能把仍有余额的账号判为耗尽', () => {
+    const { context } = runtime()
+    const windows = context.geminiUsageWindows(
+      usage([{ poolType: 'GXU_FIVE_HOURLY', percentageUsed: 0.999 }])
+    )
+    expect(windows[0].remaining_percent).toBeCloseTo(0.1)
+    expect(context.geminiQuotaState(windows).status).toBe('available')
+    expect(
+      context.geminiQuotaState(
+        context.geminiUsageWindows(usage([{ poolType: 'GXU_FIVE_HOURLY', percentageUsed: 1 }]))
+      ).status
+    ).toBe('cooldown')
+  })
+
   it('API 额度查询使用网页 Cookie 鉴权，失败时不能声称刷新成功', () => {
     const { context } = runtime()
     const session = {
@@ -225,9 +263,26 @@ describe('Gemini 登录身份和账号资料', () => {
       status: 'available',
       quota_windows: [
         { name: '5 小时额度', remaining_percent: 73 },
-        { name: '周额度', remaining_percent: 72 },
+        { name: '周额度', remaining_percent: 71.886283 },
       ],
     })
+    context.geminiRequest = () => ({
+      body_text: usage([
+        {
+          poolType: 'GXU_FIVE_HOURLY',
+          percentageUsed: 1,
+          gxu: { windowRefreshesAt: new Date(Date.now() + 3600000).toISOString() },
+        },
+        { poolType: 'GXU_WEEKLY', percentageUsed: 0.55 },
+      ]),
+    })
+    expect(context.main({})).toMatchObject({
+      status: 'cooldown',
+      logged_in: true,
+      cooldown_seconds: 3600,
+    })
+    context.geminiRequest = () => ({ body_text: usage() })
+    expect(context.main({}).status).toBe('available')
     context.geminiRequest = () => {
       throw new Error('temporary_unavailable: Gemini HTTP 403')
     }

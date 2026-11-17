@@ -97,7 +97,7 @@ function geminiUsageWindows(raw) {
       throw new Error('AUTH_INCONCLUSIVE: Gemini 用量窗口数据不完整')
     const window = {
       name: { GXU_FIVE_HOURLY: '5 小时额度', GXU_WEEKLY: '周额度' }[pool.poolType] || pool.poolType,
-      remaining_percent: Math.max(0, 100 - Math.round(used * 100)),
+      remaining_percent: Math.max(0, 100 - used * 100),
     }
     if (pool.gxu?.windowRefreshesAt) {
       const reset = Date.parse(pool.gxu.windowRefreshesAt)
@@ -106,6 +106,20 @@ function geminiUsageWindows(raw) {
     }
     return window
   })
+}
+
+function geminiQuotaState(windows, now = Date.now()) {
+  const exhausted = windows.filter((window) => window.remaining_percent === 0)
+  if (!exhausted.length)
+    return { status: 'available', reason: '身份已验证；当前用量来自 Gemini 网页额度' }
+  const resets = exhausted.map((window) => Date.parse(window.reset_at || ''))
+  // 任一耗尽窗口没有有效恢复时间时，等待下一次真实额度检查，不能编造期限。
+  const knownReset = resets.every((reset) => Number.isFinite(reset) && reset > now)
+  return {
+    status: 'cooldown',
+    reason: exhausted.map((window) => window.name).join('、') + '已耗尽，等待平台额度恢复',
+    ...(knownReset ? { cooldown_seconds: Math.ceil((Math.max(...resets) - now) / 1000) } : {}),
+  }
 }
 
 async function geminiBrowserAccount() {

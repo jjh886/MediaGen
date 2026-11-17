@@ -9,7 +9,7 @@ export const fileDocs: ApiExample[] = [
     notes: [
       'file：multipart 二进制文件，最大 50 MiB。',
       'purpose：assistants/vision 等受支持的用途，默认 assistants。',
-      '会话结束后自动清理已使用的上传文件；排队、执行、恢复及仍需原件续聊的会话会保留文件。清理后新会话须重新上传。',
+      '任务附件副本会自动清理；多轮会话的上传原件保留用于跨账号续聊，删除该会话所有已保存响应后释放。清理后的文件须重新上传。',
     ],
     form: ['purpose=vision', 'file=@reference.png'],
     response: file,

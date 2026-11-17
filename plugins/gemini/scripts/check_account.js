@@ -26,9 +26,8 @@ function main(ctx) {
     )
     return {
       logged_in: true,
-      status: 'available',
+      ...geminiQuotaState(quota),
       account,
-      reason: '身份已验证；当前用量来自 Gemini 网页统一额度',
       quota_windows: quota,
     }
   } catch (error) {
