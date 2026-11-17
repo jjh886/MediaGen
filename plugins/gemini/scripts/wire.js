@@ -148,6 +148,8 @@ function geminiWireEvent(value) {
   frame[26] = Array.isArray(data[27]?.[0]) ? geminiWireBase64(data[27][0]) : ''
   frame[31] = data[32]?.[0] === 1
   frame[42] = geminiWireText(data, 43)
+  const progress = geminiWireText(geminiWireMessage(geminiWireMessage(data, 7), 6), 1)
+  if (progress) frame[6] = [null, null, null, null, null, [progress]]
   frame[4] = []
   const visit = (fields, depth = 0) => {
     if (depth > 4) return

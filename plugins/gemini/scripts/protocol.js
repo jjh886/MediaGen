@@ -175,6 +175,7 @@ function geminiParseGeneration(raw, model) {
   const result = {
     text: '',
     reasoning: '',
+    reasoning_status: '',
     conversation_id: '',
     response_id: '',
     candidate_id: '',
@@ -189,6 +190,8 @@ function geminiParseGeneration(raw, model) {
     if (data[1]?.[0]) result.conversation_id = data[1][0]
     if (data[1]?.[1]) result.response_id = data[1][1]
     if (typeof data[26] === 'string') result.token = data[26]
+    const progress = data[6]?.[5]?.[0]
+    if (typeof progress === 'string' && progress.trim()) result.reasoning_status = progress.trim()
     for (const candidate of Array.isArray(data[4]) ? data[4] : []) {
       if (candidate?.[0]) result.candidate_id = candidate[0]
       if (typeof candidate?.[1]?.[0] === 'string') result.text = candidate[1][0]

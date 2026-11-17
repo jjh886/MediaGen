@@ -270,6 +270,89 @@ describe('Gemini API 插件', () => {
     expect(previous[10]).toEqual([bytes])
   })
 
+  it('解析独立阶段提示帧，不将会话 token 或其他字段当作思考内容', () => {
+    const { context } = runtime()
+    const encode = context.geminiWireEncode
+    let encoded = encode([
+      [7, encode([[6, encode([[1, 'Calculating the requested numerical sum']])]])],
+      [27, [255, 0, 128]],
+      [43, '3.1 Pro High'],
+    ])
+    for (const field of [4, 4, 1, 7, 2]) encoded = encode([[field, encoded]])
+    const { frame } = context.geminiWireEvent([context.geminiWireBase64(encoded)])
+    const result = context.geminiParseGeneration(
+      JSON.stringify([['wrb.fr', null, JSON.stringify(frame)]]),
+      {}
+    )
+    expect(result.reasoning_status).toBe('Calculating the requested numerical sum')
+    expect(result.reasoning).toBe('')
+    expect(result.text).toBe('')
+    expect(result.actual_model_name).toBe('3.1 Pro High')
+  })
+
+  it('确认受理即发出处理中事件，阶段提示和摘要在正文前实时推送且不重复', () => {
+    const { context, host } = runtime()
+    const events = []
+    host.emit.mockImplementation((event) => events.push(JSON.parse(JSON.stringify(event))))
+    context.apiSessionRead = () => ({})
+    context.geminiInitialize = (session) => session
+    context.geminiModel = () => ({ id: 'gemini-3.1-pro', name: '3.1 Pro', tool: 0 })
+    context.geminiReferences = () => []
+    context.geminiChannelGenerate = (_session, _model, _payload, onFrame) => {
+      const receipt = Array(43).fill(null)
+      receipt[1] = ['c_current', 'r_current']
+      onFrame(receipt)
+      expect(events.map((event) => event.type)).toEqual([
+        'response.created',
+        'response.in_progress',
+      ])
+      for (const title of ['计算数值总和', '计算数值总和', '核验计算结果']) {
+        const frame = Array(43).fill(null)
+        frame[6] = [null, null, null, null, null, [title]]
+        onFrame(frame)
+        expect(events.at(-1).item.type).toBe('reasoning')
+      }
+      const candidate = Array(38).fill(null)
+      candidate[0] = 'rc_current'
+      candidate[1] = ['']
+      candidate[37] = [['核对整除条件与求和范围。']]
+      const frame = Array(43).fill(null)
+      frame[4] = [candidate]
+      onFrame(frame)
+      expect(events.filter((event) => event.type === 'response.output_text.delta')).toEqual([])
+      expect(events.some((event) => event.delta === '核对整除条件与求和范围。')).toBe(true)
+      candidate[1] = ['201003']
+      onFrame(frame)
+    }
+    const result = context.main({ request: { model: 'gemini-3.1-pro', input: '计算并核验' } })
+    const thoughts = events.filter(
+      (event) => event.type === 'response.reasoning_summary_text.delta'
+    )
+    expect(thoughts.map((event) => event.delta)).toEqual([
+      '计算数值总和',
+      '\n核验计算结果',
+      '核对整除条件与求和范围。',
+    ])
+    expect(result.response.output_text).toBe('201003')
+    expect(result.response.output.filter((item) => item.type === 'reasoning')).toHaveLength(2)
+    expect(result.response.output.every((item) => item.status === 'completed')).toBe(true)
+  })
+
+  it('确认受理前额度错误不提前输出，保留现有自动换号机制', () => {
+    const { context, host } = runtime()
+    context.apiSessionRead = () => ({})
+    context.geminiInitialize = (session) => session
+    context.geminiModel = () => ({ id: 'gemini-3.1-pro', tool: 0 })
+    context.geminiReferences = () => []
+    context.geminiChannelGenerate = () => {
+      throw new Error('quota_exhausted: unavailable')
+    }
+    expect(() => context.main({ request: { model: 'gemini-3.1-pro', input: '测试' } })).toThrow(
+      'quota_exhausted'
+    )
+    expect(host.emit).not.toHaveBeenCalled()
+  })
+
   it('生成请求的第 31 字段使用网页的 packed enum 编码，不嵌套消息', () => {
     const { context } = runtime()
     const payload = context.geminiPayload('', { mode: 1, think: 1, tool: 0 }, [], null)

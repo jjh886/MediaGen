@@ -30,6 +30,7 @@ function geminiGenerate(session, model, prompt, files, previous, ratio, onResult
       text: next.text || result?.text || '',
       actual_model_name: next.actual_model_name || result?.actual_model_name || '',
       reasoning: next.reasoning || result?.reasoning || '',
+      reasoning_status: next.reasoning_status || result?.reasoning_status || '',
       conversation_id: next.conversation_id || result?.conversation_id || '',
       response_id: next.response_id || result?.response_id || '',
       candidate_id: next.candidate_id || result?.candidate_id || '',

@@ -14,6 +14,7 @@ function main(ctx) {
         )
   const requestedModel = request.model
   const writer = apiTextCreateResponseWriter(request)
+  const progress = []
   let started = false
   const emit = (result) => {
     const reported = result.actual_model_name || ''
@@ -26,9 +27,20 @@ function main(ctx) {
           .replace(/[^a-z0-9.]+/g, '-')
           .replace(/^-+|-+$/g, '')
     if (actualId) writer.request.model = actualId
-    if (!started && (result.text || result.reasoning)) {
+    if (
+      !started &&
+      (result.text ||
+        result.reasoning ||
+        result.reasoning_status ||
+        (result.conversation_id && result.response_id))
+    ) {
       apiTextStartResponse(writer)
       started = true
+    }
+    // 仅转发上游阶段提示；摘要尚未生成时也能展示真实进度。
+    if (result.reasoning_status && progress.at(-1) !== result.reasoning_status) {
+      progress.push(result.reasoning_status)
+      apiTextUpdateReasoning(writer, 'thinking-progress', progress.join('\n\n'), false)
     }
     if (result.reasoning) apiTextUpdateReasoning(writer, 'thinking', result.reasoning, false)
     if (result.text.startsWith(writer.text))
@@ -130,6 +142,8 @@ function main(ctx) {
     if (!started) apiTextStartResponse(writer)
     if (writer.reasoning_items?.thinking)
       apiTextUpdateReasoning(writer, 'thinking', result.reasoning || '', true)
+    if (writer.reasoning_items?.['thinking-progress'])
+      apiTextUpdateReasoning(writer, 'thinking-progress', '', true)
     if (request.session_key)
       writer.metadata = {
         ...writer.metadata,
