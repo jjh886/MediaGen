@@ -16,6 +16,57 @@
 
 已保存平台会话游标的请求严格绑定原账号。原账号并发占满时排队；登录失效、模型不可用或无授权时返回错误，不会把旧会话交给其他账号。首次请求遇到 `account_model_unavailable` 时，可在尚未提交上游的前提下切换支持同一型号的账号，不会自动换模型。
 
+## 按原请求编号查询回执
+
+`GET /v1/response-requests/{request_id}` 是 MediaGen 的只读接口。它返回**一次已登记生成请求**的状态和结果。短剧等调用方可在收到第一帧之前就保存请求编号；断流或重启后，仍能用同一编号找回原轮回复。
+
+### 提交与查询
+
+先从 `GET /v1/models` 选择当前账号可用的文本模型。对每个新模型请求创建一个 UUID，并把它与业务轮次一起保存。首次提交时同时传入下面两个请求头。支持 HTTP `POST /v1/responses` 的普通 JSON 和 SSE，`async=true` 的任务请使用队列返回的 `taskId` 查询 `GET /api/v2/generation-tasks/{task_id}`。
+
+```sh
+REQUEST_ID=$(uuidgen)
+curl -N "$BASE_URL/v1/responses" \
+  -H "Authorization: Bearer $MEDIAGEN_API_KEY" \
+  -H "X-Client-Request-Id: $REQUEST_ID" \
+  -H 'X-MediaGen-Receipt: 1' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"doubao-api-text","input":"请总结本集剧情","stream":true,"store":false}'
+```
+
+断流后直接查询已保存的 `REQUEST_ID`。使用提交时的 API Key。查询不会调用模型，也不会切换到会话的最新一轮。
+
+```sh
+curl "$BASE_URL/v1/response-requests/$REQUEST_ID" \
+  -H "Authorization: Bearer $MEDIAGEN_API_KEY"
+```
+
+成功查询返回 HTTP 200，包含 `request_id`、`status` 和 `response`。
+
+| status      | response                                  | 调用方处理                                                                          |
+| ----------- | ----------------------------------------- | ----------------------------------------------------------------------------------- |
+| `running`   | `null`                                    | 稍后用原编号查询。                                                                  |
+| `completed` | 该次调用的 Responses 对象                 | 核对原请求与业务轮次后读取 `response.output`；上游提供的用量位于 `response.usage`。 |
+| `failed`    | 有上游响应对象时返回该对象，否则为 `null` | 保留原轮已显示的内容，仅将该请求标记为失败。                                        |
+| `expired`   | `null`                                    | 结果已超过回执保留期，使用业务端已保存的原轮记录。                                  |
+
+无效 UUID 返回 400，无效 API Key 返回 401。未登记、旧版请求或其他 API Key 的编号返回 404；刚断流时的 404 也可能发生在登记前，不能据此判定可以重新生成。重复登记同一调用方的原编号返回 409 `request_already_registered`，继续用 GET 核对。回执存储暂时不可读时，GET 返回 500 `receipt_unavailable`。
+
+### 插件范围与保存位置
+
+当前注册的 Gemini、ChatGPT、豆包、DeepSeek、Codex、Grok 文本插件都走上述公共入口。直接发送到 Chat Completions、图片、视频或音频端点的请求各自使用对应端点的协议。
+
+| 插件          | 当前文本插件读取上游历史的能力                                           |
+| ------------- | ------------------------------------------------------------------------ |
+| Gemini        | 用平台会话编号查询历史，再按上游回复编号查找原轮；本次历史查询范围有限。 |
+| ChatGPT、豆包 | 可以读取平台会话，并用原用户消息、父节点或回复关联定位相关消息。         |
+| DeepSeek      | 可以读取平台会话历史，并按已记录的助手消息编号查找回复。                 |
+| Codex、Grok   | 可以复用插件已完成的检查点；当前文本插件没有提供独立的上游历史查询流程。 |
+
+回执查询读取 MediaGen 服务端登记的结果。显式开启回执时，服务端将原请求号与调用方绑定，并将该次终态响应加密保留 24 小时。过期后仍保留编号以防重复生成。客户端为恢复只需保存请求号和业务轮次，无需额外缓存整段会话。
+
+`store` 控制的是按模型返回的 `response_id` 读取 `GET /v1/responses/{response_id}`。即使设置 `store=false`，显式开启的短期回执仍可按原请求编号查询。平台会话编号、MediaGen 响应编号和调用方请求编号分别用于不同查询；同一会话可以包含多次生成。
+
 ## 用量与模型预算
 
 Responses 的实际用量位于 `usage`，流式请求应读取 `response.completed` 或 `response.incomplete` 中的 `response.usage`；Chat Completions 流式用量需开启 `stream_options.include_usage`。上游没有提供用量时保持缺失或 `null`，不能按文本长度估算结算，也不应因此重新生成。
@@ -90,7 +141,7 @@ data: [DONE]
 
 客户端应独立读取标题，不要拼入 `choices[].delta.content`。有 `include_usage` 时，结束帧之后还可能有用量帧，再出现 `[DONE]`。
 
-标题读取最多尝试 3 次，每次网络请求超时 3 秒，遇到默认或空标题时等待 500 毫秒再试；异常直接停止标题读取。标题无效或读取失败不会让正文任务失败，而是省略插件标题字段。`store=true` 的 Responses 会保留标题，查询须使用同一 API Key；`store=false` 无法事后查询。
+标题读取最多尝试 3 次，每次网络请求超时 3 秒，遇到默认或空标题时等待 500 毫秒再试；异常直接停止标题读取。标题无效或读取失败不会让正文任务失败，而是省略插件标题字段。`store=true` 的 Responses 会保留标题，查询须使用同一 API Key。`store=false` 时按响应 ID 查询返回 404；显式登记的请求仍可按原请求编号读取短期回执。
 
 `conversation_id` 属于平台会话信息，不能替代 MediaGen 的 `resp_*` 响应 ID；续接仍使用 `previous_response_id`。当前没有独立的重命名或查询平台标题接口。
 
