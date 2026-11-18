@@ -2,6 +2,8 @@
 
 本文档面向接入 MediaGen 桌面端本地服务的应用。接口整体按 OpenAI Image API 风格设计，接入方可以把 MediaGen 当作一个本机的 OpenAI 兼容图片服务使用。
 
+当前服务端文本接口的鉴权、插件范围和断流恢复示例见[按原请求编号查询回执](docs/api/openai-api.md#按原请求编号查询回执)。该接口要求提交和查询使用同一有效 API Key。
+
 ## 基础地址
 
 MediaGen 默认只监听本机地址：
@@ -44,10 +46,10 @@ http://127.0.0.1:18089
 
 ## 鉴权说明
 
-本地 API 当前不校验 `Authorization`，但为了兼容 OpenAI SDK 和第三方应用，可以照常传：
+调用当前 MediaGen 服务的模型和回执接口时，请在控制台创建 API Key，并通过请求头传入。后续示例里的 `local` 代表调用方配置的密钥。
 
 ```http
-Authorization: Bearer local
+Authorization: Bearer <你的 MediaGen API Key>
 ```
 
 真正的平台账号、Cookie、额度和排队逻辑由 MediaGen 桌面端内部管理。
