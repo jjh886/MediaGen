@@ -4,10 +4,15 @@ use base64::prelude::{Engine as _, BASE64_STANDARD};
 use serde_json::Value;
 use tokio::sync::mpsc;
 
-pub(crate) struct AbortJob(pub(super) tokio::task::JoinHandle<Result<Value, String>>);
+pub(crate) struct AbortJob {
+    pub(super) handle: tokio::task::JoinHandle<Result<Value, String>>,
+    pub(super) detach: bool,
+}
 impl Drop for AbortJob {
     fn drop(&mut self) {
-        self.0.abort();
+        if !self.detach {
+            self.handle.abort();
+        }
     }
 }
 
@@ -44,7 +49,7 @@ pub(super) async fn respond(
         .await;
     }
     drop(receiver);
-    match (&mut job.0).await {
+    match (&mut job.handle).await {
         Ok(Ok(result)) if endpoint == "speech" => {
             let audio = result["audio_base64"]
                 .as_str()

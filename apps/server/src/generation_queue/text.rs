@@ -97,9 +97,15 @@ pub(super) async fn run(
     {
         return Err((400, "invalid_request".into(), "文本任务上下文无效".into()));
     }
-    let response =
-        crate::protocol_api::execute(state, request.context, request.body, &request.endpoint, key)
-            .await;
+    let response = crate::protocol_api::execute(
+        state,
+        request.context,
+        request.body,
+        &request.endpoint,
+        key,
+        None,
+    )
+    .await;
     let status = response.status().as_u16();
     let bytes = actix_web::body::to_bytes(response.into_body())
         .await

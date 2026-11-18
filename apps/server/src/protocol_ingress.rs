@@ -91,6 +91,31 @@ pub(crate) async fn dispatch(
         Err(_) => return error(400, "invalid_json", "请求体不是有效 JSON"),
     };
     let key = crate::routes::api_key_from_request(&request).unwrap_or_default();
-    let context = crate::request_identity::ProtocolRequest::from_http(&request, &key, &body);
-    execute(state, context, body, endpoint, key).await
+    let mut context = crate::request_identity::ProtocolRequest::from_http(&request, &key, &body);
+    if endpoint == "responses"
+        && request
+            .headers()
+            .get("x-mediagen-receipt")
+            .is_some_and(|v| v == "1")
+    {
+        if body["async"] == true {
+            return error(400, "invalid_request", "异步请求使用生成任务回执");
+        }
+        let Some(id) = request
+            .headers()
+            .get("x-client-request-id")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| uuid::Uuid::parse_str(v).ok())
+        else {
+            return error(400, "invalid_request_id", "恢复请求需要 UUID");
+        };
+        context.task_id = format!("receipt_{}", context.task_id);
+        // 连接可在排队或返回响应头之前断开，已受理的调用仍应运行到终态。
+        return actix_web::rt::spawn(async move {
+            execute(state, context, body, "responses", key, Some(id)).await
+        })
+        .await
+        .unwrap_or_else(|_| error(500, "execution_failed", "请求执行中断"));
+    }
+    execute(state, context, body, endpoint, key, None).await
 }

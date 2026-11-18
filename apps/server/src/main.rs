@@ -78,6 +78,7 @@ mod realtime_api;
 mod realtime_primary;
 mod realtime_transport;
 mod request_identity;
+mod request_receipts;
 mod routes;
 mod server_plugin_host;
 mod settings;
@@ -353,6 +354,10 @@ fn configure_openai_routes(cfg: &mut web::ServiceConfig) {
     cfg.route(
         "/v1/audio/translations",
         web::post().to(audio_api::transcribe),
+    );
+    cfg.route(
+        "/v1/response-requests/{id}",
+        web::get().to(request_receipts::lookup),
     );
     cfg.route(
         "/v1/responses/{response_id}",

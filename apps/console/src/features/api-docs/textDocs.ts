@@ -53,7 +53,10 @@ export const textDocs: ApiExample[] = [
     path: '/v1/responses',
     title: '生成文本 / 多模态响应',
     description: '支持同步 JSON 和 SSE，续接、工具调用、结构化输出依插件能力而定。',
-    notes: textNotes,
+    notes: [
+      ...textNotes,
+      '断流恢复可在提交时传 X-MediaGen-Receipt: 1 及 X-Client-Request-Id: <UUID>。先把 UUID 与本轮业务记录绑定；之后用同一 API Key 按编号查询。',
+    ],
     body: {
       model: 'codex-gpt-6-luna',
       input: '请用一句话介绍你自己。',
@@ -135,6 +138,22 @@ export const textDocs: ApiExample[] = [
       object: 'response.compaction',
       output: [{ type: 'compaction', encrypted_content: '<上游返回的不透明内容>' }],
     },
+  },
+  {
+    group: '文本',
+    method: 'GET',
+    path: '/v1/response-requests/{request_id}',
+    title: '按原请求编号查询回执',
+    description:
+      '读取已登记的一次文本 Responses 请求，适用于所有文本插件。断流后可查询状态与原轮回复。',
+    notes: [
+      '使用提交时的 API Key 和原请求 UUID。running 时稍后再查；completed 时读取 response.output，并按原请求编号回填。',
+      'failed 时保留已显示的内容；expired 表示回执已过期。服务端加密保留单次终态响应 24 小时，store=false 也可显式开启。',
+      '400 表示编号无效，401 表示密钥无效，404 表示当前密钥下未找到登记，500 表示回执暂不可读。重复登记返回 409 request_already_registered，继续查询原编号。',
+      'async=true 的请求请按队列 taskId 查询。',
+      'Gemini、ChatGPT、Doubao 和 DeepSeek 可在部分恢复流程中读取上游历史。Codex、Grok 的文本插件使用已完成的检查点。此接口统一读取服务端回执，仅凭会话编号无法确认原轮。',
+    ],
+    response: { request_id: '82b3e6cb-b0d9-4b08-9a18-289ebca7cd97', status: 'completed', response },
   },
   {
     group: '文本',

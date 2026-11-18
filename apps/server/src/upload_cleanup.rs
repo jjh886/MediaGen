@@ -184,6 +184,9 @@ fn needs_history(state: &ServerState, id: &str) -> bool {
 }
 
 pub(crate) async fn sweep(state: &ServerState) -> std::io::Result<()> {
+    if let Err(message) = crate::request_receipts::expire(state).await {
+        tracing::warn!(%message, "请求回执清理失败");
+    }
     let mut entries = match tokio::fs::read_dir(&state.file_root).await {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),

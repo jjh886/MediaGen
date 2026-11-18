@@ -22,41 +22,13 @@ pub(crate) async fn execute(
     body: Value,
     endpoint: &str,
     key: String,
+    receipt_id: Option<uuid::Uuid>,
 ) -> HttpResponse {
     if let Err(message) = crate::protocol_request::validate_request(&body, endpoint) {
         return error(400, "invalid_request", &message);
     }
-    // 同一逻辑请求的确定失败直接重放，调用端重连不能反复消耗上游请求。
-    if let Some(task) = state
-        .store
-        .task_by_id(&context.task_id)
-        .filter(|task| task.status == "failed")
-    {
-        if let Some((code, message)) = task
-            .error_message
-            .as_deref()
-            .and_then(|error| error.split_once(": "))
-        {
-            let status = match code {
-                "insufficient_quota"
-                    if body["previous_response_id"].is_string()
-                        || body["metadata"]["session_id"].is_string()
-                        || body["metadata"]["duanju_thread_id"].is_string() =>
-                {
-                    None
-                }
-                "insufficient_quota" => Some(429),
-                "no_available_account_for_model" => Some(403),
-                "conversation_unavailable"
-                | "recovery_exhausted"
-                | "generation_failed"
-                | "proxy_unavailable" => Some(409),
-                _ => None,
-            };
-            if let Some(status) = status {
-                return error(status, code, message);
-            }
-        }
+    if let Some(response) = crate::protocol_error::replay_failure(&state, &context.task_id, &body) {
+        return response;
     }
     let model_id = body["model"].as_str().unwrap_or_default().to_string();
     crate::model_api::refresh_before_dispatch(&state, &model_id, &key).await;
@@ -281,10 +253,23 @@ pub(crate) async fn execute(
     let metadata = body.get("metadata").cloned().unwrap_or(json!({}));
     let request_id = context.request_id;
     let task_id = context.task_id;
+    let recoverable = receipt_id.is_some();
+    if let Some(id) = receipt_id {
+        match crate::request_receipts::reserve(&state, &key, &id.to_string(), &task_id).await {
+            Ok(true) => {}
+            Ok(false) => return error(409, "request_already_registered", "请查询原请求回执"),
+            Err(_) => return error(503, "receipt_unavailable", "无法登记请求"),
+        }
+    }
     let session_base = if session_lock.is_some() {
         match crate::conversation_affinity::begin_session(&state, &affinity_id, &task_id).await {
             Ok(base) => base,
-            Err(message) => return error(409, "conversation_recovery_failed", &message),
+            Err(message) => {
+                if recoverable {
+                    crate::request_receipts::fail(&state, &task_id).await;
+                }
+                return error(409, "conversation_recovery_failed", &message);
+            }
         }
     } else {
         None
@@ -307,23 +292,10 @@ pub(crate) async fn execute(
     {
         Ok(value) => value,
         Err(message) => {
-            if message.starts_with("no_available_account_for_model:")
-                || message.starts_with("insufficient_quota:")
-            {
-                let (status, code, message) = public_failure(&message);
-                return error(status, code, &message);
+            if recoverable {
+                crate::request_receipts::fail(&state, &task_id).await;
             }
-            let code = if message.contains("等待") {
-                "account_queue_timeout"
-            } else {
-                "account_unavailable"
-            };
-            let mut response = error(429, code, &message);
-            response.headers_mut().insert(
-                actix_web::http::header::RETRY_AFTER,
-                actix_web::http::header::HeaderValue::from_static("30"),
-            );
-            return response;
+            return crate::protocol_error::account_reservation_failure(&message);
         }
     };
     let streaming = body["stream"] == true && endpoint != "speech";
@@ -331,6 +303,19 @@ pub(crate) async fn execute(
         crate::conversation_affinity::remember(&state.store, &affinity_id, &account.id);
     }
     let (sender, receiver) = mpsc::channel(8);
+    // HTTP 消费者断开后仍排空事件，让插件完成原调用并保存最终回执。
+    let sender = if streaming && recoverable {
+        let (events, mut drain) = mpsc::channel(8);
+        let out = sender.clone();
+        tokio::spawn(async move {
+            while let Some(event) = drain.recv().await {
+                let _ = out.send(event).await;
+            }
+        });
+        events
+    } else {
+        sender
+    };
     let events = streaming.then_some(sender.clone());
     let task_state = state.clone();
     let task_request_id = task_id.clone();
@@ -340,7 +325,7 @@ pub(crate) async fn execute(
     let queued = context.queued;
     let is_chat = endpoint == "chat";
     let response_model_id = model_id.clone();
-    let job = AbortJob(tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         let _upload_use = upload_use;
         let _lease = lease;
         let _session_lock = session_lock;
@@ -403,6 +388,24 @@ pub(crate) async fn execute(
                 if value["terminal_event"]["response"].is_object() {
                     value["terminal_event"]["response"] = value["response"].clone();
                 }
+            }
+        }
+        if recoverable {
+            if let Ok(value) = &result {
+                let response = &value["response"];
+                let status = if response["status"] == "completed" {
+                    "completed"
+                } else {
+                    "failed"
+                };
+                if let Err(message) =
+                    crate::request_receipts::finish(&task_state, &task_id, status, Some(response))
+                        .await
+                {
+                    tracing::error!(%message, "恢复回执写入失败");
+                }
+            } else {
+                crate::request_receipts::fail(&task_state, &task_id).await;
             }
         }
         if queued {
@@ -475,7 +478,11 @@ pub(crate) async fn execute(
             let _=sender.send(json!({"type":"error","status":status,"error":{"type":error_kind(status),"code":code,"message":public,"param":null}})).await;
         }
         result
-    }));
+    });
+    let job = AbortJob {
+        handle,
+        detach: recoverable,
+    };
     response::respond(
         job,
         receiver,

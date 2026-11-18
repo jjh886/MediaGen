@@ -143,6 +143,21 @@ function endpointContract(doc: ApiExample): ApiContract {
         ])
       )
     )
+  if (path === '/v1/response-requests/{request_id}')
+    return contract(
+      [],
+      output([
+        ['request_id', 'string', '是', '—', '首次提交时登记的 UUID。'],
+        ['status', 'string', '是', '—', 'running、completed、failed 或 expired。'],
+        [
+          'response',
+          'object | null',
+          '是',
+          'null',
+          'completed 返回原 Responses 对象；failed 可能包含上游终态对象；running 和 expired 返回 null。',
+        ],
+      ]).concat(prefix(responseFields, 'response.'))
+    )
   if (path === '/v1/responses/{response_id}')
     return contract([], doc.method === 'DELETE' ? deletion('response.deleted') : responseFields)
   if (path.startsWith('/v1/images/'))
@@ -335,6 +350,8 @@ function endpointContract(doc: ApiExample): ApiContract {
 }
 export function describeContract(doc: ApiExample): ApiContract {
   const schema = endpointContract(doc)
+  const receiptSupported =
+    doc.path === '/v1/responses' && doc.method === 'POST' && doc.status !== 202
   const headers = fields(
     [
       [
@@ -349,11 +366,28 @@ export function describeContract(doc: ApiExample): ApiContract {
         'string',
         '否',
         '未设置',
-        '1–512 个可打印 ASCII 字符，用于调用方追踪。',
+        receiptSupported
+          ? '追踪编号；启用回执时必填，须为每次新生成分配一个 UUID。'
+          : '1–512 个可打印 ASCII 字符，用于调用方追踪。',
       ],
     ],
     'header'
   )
+  if (receiptSupported)
+    headers.push(
+      ...fields(
+        [
+          [
+            'X-MediaGen-Receipt',
+            'string',
+            '否',
+            '未启用',
+            '传 1 启用本次请求的短期回执，支持 JSON 和 SSE。',
+          ],
+        ],
+        'header'
+      )
+    )
   if (doc.method === 'POST')
     headers.push(
       ...fields(

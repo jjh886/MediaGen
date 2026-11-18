@@ -1,5 +1,5 @@
 use actix_web::HttpResponse;
-use serde_json::json;
+use serde_json::{json, Value};
 
 pub(crate) fn error(status: u16, code: &str, message: &str) -> HttpResponse {
     let kind = error_kind(status);
@@ -18,6 +18,56 @@ pub(crate) fn error_kind(status: u16) -> &'static str {
         500..=599 => "server_error",
         _ => "invalid_request_error",
     }
+}
+
+// 同一逻辑请求的确定失败直接重放，调用端重连不能反复消耗上游请求。
+pub(crate) fn replay_failure(
+    state: &crate::ServerState,
+    task_id: &str,
+    body: &Value,
+) -> Option<HttpResponse> {
+    let task = state
+        .store
+        .task_by_id(task_id)
+        .filter(|task| task.status == "failed")?;
+    let (code, message) = task.error_message.as_deref()?.split_once(": ")?;
+    let status = match code {
+        "insufficient_quota"
+            if body["previous_response_id"].is_string()
+                || body["metadata"]["session_id"].is_string()
+                || body["metadata"]["duanju_thread_id"].is_string() =>
+        {
+            return None
+        }
+        "insufficient_quota" => 429,
+        "no_available_account_for_model" => 403,
+        "conversation_unavailable"
+        | "recovery_exhausted"
+        | "generation_failed"
+        | "proxy_unavailable" => 409,
+        _ => return None,
+    };
+    Some(error(status, code, message))
+}
+
+pub(crate) fn account_reservation_failure(message: &str) -> HttpResponse {
+    if message.starts_with("no_available_account_for_model:")
+        || message.starts_with("insufficient_quota:")
+    {
+        let (status, code, message) = public_failure(message);
+        return error(status, code, &message);
+    }
+    let code = if message.contains("等待") {
+        "account_queue_timeout"
+    } else {
+        "account_unavailable"
+    };
+    let mut response = error(429, code, message);
+    response.headers_mut().insert(
+        actix_web::http::header::RETRY_AFTER,
+        actix_web::http::header::HeaderValue::from_static("30"),
+    );
+    response
 }
 
 pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
