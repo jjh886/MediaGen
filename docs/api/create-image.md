@@ -34,7 +34,7 @@ MediaGen 的图片生成接口按 OpenAI Image API 的响应结构返回结果�
 
 - `reasoning_effort: optional string`
 
-  MediaGen 扩展思考深度参数，支持 JSON 和 multipart 图片请求。仅接受目标模型 `capabilities.reasoning.efforts` 声明的值，原样传给插件；未声明支持或指定了无效档位时返回 `400 unsupported_parameter`，不会自动降档或换模型。例如 `chatgpt-image-gpt-5-6` 支持 `none / min / standard / extended / max`，`chatgpt-image-gpt-6-pro` 当前仅声明 `standard`。Codex 图片模型不支持该参数，即使传 `none` 也会拒绝。省略时沿用模型或平台现有默认行为。
+  MediaGen 扩展思考深度参数，支持 JSON 和 multipart 图片请求。仅接受目标模型 `capabilities.reasoning.efforts` 声明的值，原样传给插件；未声明支持或指定了无效档位时返回 `400 unsupported_parameter`，不会自动降档或换模型。使用 `chatgpt-image` 时请省略此参数，思考深度在控制台的 ChatGPT 生成配置中设置。Codex 图片模型不支持该参数，即使传 `none` 也会拒绝。省略时沿用模型或平台现有默认行为。
 
 - `quality: optional "low" or "medium" or "high" or "auto"`
 
