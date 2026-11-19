@@ -93,13 +93,22 @@ pub(crate) async fn lookup(
     let request = id.clone();
     let row = web::block(move || -> Result<Option<Value>, String> {
         let db = db(&state.file_root).map_err(|_| "读取请求回执失败")?;
-        let row = db.query_row(
-            "SELECT CASE WHEN expires<=unixepoch() THEN 'expired' ELSE status END,
+        let read = || db.query_row(
+            "SELECT task,CASE WHEN expires<=unixepoch() THEN 'expired' ELSE status END,
              CASE WHEN expires>unixepoch() THEN result END FROM receipts WHERE owner=?1 AND request=?2",
             params![owner, id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)),
-        ).optional().map_err(|_| "读取请求回执失败")?;
-        let Some((status, encrypted)) = row else { return Ok(None) };
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?)),
+        ).optional().map_err(|_| "读取请求回执失败");
+        let Some((task, mut status, mut encrypted)) = read()? else { return Ok(None) };
+        // 服务重启或执行器退出可先结束任务，来不及写入回执。只修正原调用方的原任务。
+        if status == "running" && state.store.tasks.lock().unwrap_or_else(|e| e.into_inner())
+            .iter().any(|t| t.id == task && matches!(t.status.as_str(), "failed" | "cancelled")) {
+            db.execute("UPDATE receipts SET status='failed' WHERE owner=?1 AND request=?2 AND task=?3 AND status='running' AND expires>unixepoch()",
+                params![owner,id,task]).map_err(|_| "请求回执核对失败")?;
+            let Some((_, confirmed, result)) = read()? else { return Ok(None) };
+            status = confirmed;
+            encrypted = result;
+        }
         let response = encrypted.map(|v| {
             let clear = state.credential_cipher.decrypt(&v)?;
             serde_json::from_str::<Value>(&clear).map_err(|_| "请求回执损坏".to_string())
@@ -214,6 +223,34 @@ mod tests {
         assert_eq!(receipt["status"], "completed");
         assert_eq!(receipt["response"], original);
         assert_eq!(test::call_service(&app, get("key-b")).await.status(), 404);
+        // 模拟重启打断了回执写入，但任务表保存了确定的失败。
+        let db_conn = db(&state.file_root).unwrap();
+        let task: String = db_conn
+            .query_row("SELECT task FROM receipts WHERE request=?1", [&id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        state
+            .store
+            .fail_task(&task, "请求中断或客户端取消".into())
+            .unwrap();
+        db_conn
+            .execute(
+                "UPDATE receipts SET status='running',result=NULL WHERE request=?1",
+                [&id],
+            )
+            .unwrap();
+        let failed: Value = test::call_and_read_body_json(&app, get("key-a")).await;
+        assert_eq!(failed["status"], "failed");
+        assert!(failed["response"].is_null());
+        assert_eq!(test::call_service(&app, submit()).await.status(), 409);
+        assert_eq!(
+            db_conn
+                .query_row("SELECT status FROM receipts WHERE request=?1", [&id], |r| r
+                    .get::<_, String>(0))
+                .unwrap(),
+            "failed"
+        );
         db(&state.file_root)
             .unwrap()
             .execute("UPDATE receipts SET expires=0", [])
