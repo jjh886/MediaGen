@@ -276,7 +276,7 @@ describe('API 插件共同附件协议', () => {
       run(
         'geminiReferences({workspace_dir:"/workspace"},session,{input:[{attachments:Array(11).fill({})}]})'
       )
-    ).toThrow('最多10个')
+    ).toThrow('attachment_limit_exceeded: {"count":11,"limit":10}')
   })
 
   it('ChatGPT 文件路径音频分别转写，复用同一路径只转写一次', () => {

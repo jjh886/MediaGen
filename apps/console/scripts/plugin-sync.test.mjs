@@ -22,6 +22,13 @@ describe('新版插件装配与协议', () => {
 
   it('模型目录不再声明停用型号，保留无日期的图片型号和 Seedream 5', () => {
     const retired = [
+      'codex-gpt-6-sol',
+      'codex-gpt-6.1-sol',
+      'codex-gpt-image-2.5-flare',
+      'codex-gpt-image-2.5-sunburst',
+      'gemini-3.1-pro',
+      'gemini-3.5-flash-lite',
+      'gemini-auto',
       'gpt-image-1.5',
       'gpt-image-1-chatgpt',
       'gpt-image-2.5-sunburst-2026-09-08',
@@ -33,14 +40,19 @@ describe('新版插件装配与协议', () => {
       'grok-build-0.1',
       'grok-imagine-image',
     ]
-    const ids = [chatgpt, codex, doubao, grok].flatMap((plugin) =>
+    const ids = [chatgpt, codex, gemini, doubao, grok].flatMap((plugin) =>
       plugin.models.flatMap((model) => [model.model_id, ...(model.aliases || [])])
     )
     for (const id of retired) expect(ids).not.toContain(id)
     expect(ids).toEqual(
       expect.arrayContaining([
-        'gpt-image-2.5-flare',
-        'gpt-image-2.5-sunburst',
+        'codex-gpt-6.2-sol',
+        'codex-gpt-6.2-astra',
+        'gpt-image-2.6-flare',
+        'gpt-image-2.6-sunburst',
+        'gemini-4-hydrogen',
+        'gemini-4-argon',
+        'gemini-4-carbon',
         'doubao-seedream-5-pro',
         'doubao-seedream-5-flash',
         'grok-4.7',
@@ -169,11 +181,11 @@ describe('新版插件装配与协议', () => {
     )
   })
 
-  it('Codex 目录和请求保持一致，6.1 不接受 none，fast 使用 priority', () => {
+  it('Codex 目录和请求保持一致，6.1 和 6.2 不接受 none，fast 使用 priority', () => {
     const models = [
-      'gpt-6.1-sol',
+      'gpt-6.2-sol',
       'gpt-6.1-terra',
-      'gpt-6-sol',
+      'gpt-6-luna',
       'gpt-5.5',
       'gpt-5.4',
       'gpt-4o',
@@ -184,7 +196,12 @@ describe('新版插件装配与协议', () => {
       default_reasoning_level: 'low',
     }))
     const run = scripts(
-      ['codex/scripts/auth.js', 'codex/scripts/text_responses.js', 'codex/scripts/list_models.js'],
+      [
+        'codex/scripts/auth.js',
+        'codex/scripts/request_input.js',
+        'codex/scripts/text_responses.js',
+        'codex/scripts/list_models.js',
+      ],
       {
         call: () => ({ ok: true, body: { models } }),
         tryCall: () => ({ success: true, data: { ok: true, body: { models } } }),
@@ -193,23 +210,23 @@ describe('新版插件装配与协议', () => {
     run('codexEnsureFreshAuth=()=>({tokens:{access_token:"test"}})')
     const discovered = run('main({}).models')
     expect(discovered.map((model) => model.model_id)).toEqual([
-      'codex-gpt-6.1-sol',
+      'codex-gpt-6.2-sol',
       'codex-gpt-6.1-terra',
-      'codex-gpt-6-sol',
+      'codex-gpt-6-luna',
     ])
     expect(discovered[0].capabilities.reasoning.efforts).toEqual(['low', 'ultra'])
     expect(discovered[1].capabilities.reasoning.efforts).toEqual(['low', 'ultra'])
     expect(discovered[2].capabilities.reasoning.efforts).toEqual(['none', 'low'])
     expect(
       run(
-        `codexNormalizeResponsesRequest({model:'gpt-6.1-sol',input:'你好',service_tier:'fast'},{}).payload.service_tier`
+        `codexNormalizeResponsesRequest({model:'gpt-6.2-sol',input:'你好',service_tier:'fast'},{}).payload.service_tier`
       )
     ).toBe('priority')
     expect(() =>
       run(`codexNormalizeResponsesRequest({model:'old-model',input:'你好'}, {})`)
     ).toThrow('unsupported_model')
     expect(() =>
-      run(`codexApplyReasoning({}, {}, {model:'gpt-6.1-sol',reasoning:{effort:'none'}})`)
+      run(`codexApplyReasoning({}, {}, {model:'gpt-6.2-sol',reasoning:{effort:'none'}})`)
     ).toThrow('invalid_input')
     const image = scripts(['codex/scripts/direct_images.js'])
     expect(image('codexImageModel({model_id:"codex"})')).toBe('gpt-image-2.5-flare')
@@ -277,11 +294,15 @@ describe('新版插件装配与协议', () => {
 
 describe('Codex 长上下文处理', () => {
   it('系统上下文只转换为 developer 一次，显式 instructions 保留', () => {
-    const run = scripts(['codex/scripts/auth.js', 'codex/scripts/text_responses.js'])
+    const run = scripts([
+      'codex/scripts/auth.js',
+      'codex/scripts/request_input.js',
+      'codex/scripts/text_responses.js',
+    ])
     const content = '材料'.repeat(540000)
     const payload = run('codexNormalizeResponsesRequest(request, {}).payload', {
       request: {
-        model: 'gpt-6-sol',
+        model: 'gpt-6-luna',
         instructions: '用户指定指令',
         input: [
           { role: 'system', content },
@@ -297,6 +318,7 @@ describe('Codex 长上下文处理', () => {
     const run = scripts(
       [
         'codex/scripts/auth.js',
+        'codex/scripts/request_input.js',
         'codex/scripts/text_responses.js',
         'codex/scripts/generate_text.js',
       ],

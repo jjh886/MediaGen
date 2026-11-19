@@ -842,6 +842,83 @@ describe('Gemini API 插件', () => {
     expect(context.main(input).response.output_text).toBe(output.output_text)
   })
 
+  it.each([
+    '正常文案',
+    '失败后恢复',
+    '再次失败',
+    '正文已输出',
+    '思考已输出',
+    '思考进度已输出',
+    '二次请求报错',
+  ])('只按真实失败标记和已输出内容决定是否重试：%s', (scenario) => {
+    const { context, host } = runtime()
+    const normal = '我无法提供这方面的帮助，因为我只是一个语言模型。'
+    const detail = 'Service failed.\n上游返回的完整原因。'
+    const input = { request: { model: 'gemini-4-hydrogen', input: '测试' } }
+    context.apiSessionRead = () => ({})
+    context.geminiInitialize = (session) => session
+    context.geminiModel = () => ({ id: input.request.model, mode: 1, think: 1, tool: 0 })
+    context.geminiReferences = vi.fn(() => [])
+    context.geminiHistory = () => null
+    let attempts = 0
+    context.geminiChannelGenerate = (_s, _m, _p, callback) => {
+      attempts++
+      const send = (text, marker, reasoning, progress) => {
+        const frame = Array(43).fill(null)
+        frame[1] = ['c_test', 'r_' + attempts]
+        const candidate = ['rc', [text]]
+        if (reasoning) candidate[37] = [[reasoning]]
+        if (progress) frame[6] = [null, null, null, null, null, [progress]]
+        frame[4] = [candidate]
+        frame[31] = marker
+        try {
+          callback(frame)
+        } catch (error) {
+          throw new Error('事件流回调异常：' + error.message)
+        }
+      }
+      if (scenario === '正常文案') return send(normal, false)
+      if (attempts === 2) {
+        if (scenario === '二次请求报错') throw new Error('invalid_input: 二次请求参数错误')
+        return send(scenario === '再次失败' ? detail : normal, scenario === '再次失败')
+      }
+      send(
+        scenario === '正文已输出' ? '第一段' : '',
+        false,
+        scenario === '思考已输出' ? '正在核对文件内容' : '',
+        scenario === '思考进度已输出' ? '正在读取文件' : ''
+      )
+      send(scenario.endsWith('已输出') ? detail : '', 1)
+    }
+    for (let i = 0; i < 2; i++) {
+      if (scenario === '正常文案' || scenario === '失败后恢复')
+        expect(context.main(input).response.output_text).toBe(normal)
+      else if (scenario === '二次请求报错')
+        expect(() => context.main(input)).toThrow('二次请求参数错误')
+      else {
+        let error
+        try {
+          context.main(input)
+        } catch (e) {
+          error = e
+        }
+        expect(context.geminiFailureReply(error)).toBe(detail)
+      }
+    }
+    expect(attempts).toBe(scenario === '正常文案' || scenario.endsWith('已输出') ? 1 : 2)
+    expect(context.geminiReferences).toHaveBeenCalledTimes(1)
+    const deltas = host.emit.mock.calls
+      .map(([e]) => (e.type === 'response.output_text.delta' ? e.delta : ''))
+      .join('')
+    expect(deltas).toBe(
+      scenario === '正常文案' || scenario === '失败后恢复'
+        ? normal
+        : scenario === '正文已输出'
+          ? '第一段'
+          : ''
+    )
+  })
+
   it('文本成功后保存结果，恢复同一个请求不再次消耗额度', () => {
     const { context, host } = runtime()
     context.apiSessionRead = () => ({})
