@@ -204,9 +204,9 @@ test('ChatGPT 图片逐请求思考深度覆盖默认值，账号不支持时拒
   for (const file of ['conversation.js', 'generate_image.js'])
     vm.runInContext(readFileSync(join(scripts, file), 'utf8'), ctx)
   const request = {
-    model_id: 'chatgpt-image-gpt-6-pro',
+    model_id: 'chatgpt-image',
     reasoning_effort: 'standard',
-    platform_config: { thinking_effort: 'extended' },
+    platform_config: { model: 'gpt-6-pro', thinking_effort: 'extended' },
     model_capabilities: { reasoning: { efforts: ['standard'], default_effort: 'standard' } },
   }
   const bootstrap = {

@@ -134,7 +134,7 @@ describe('ChatGPT API 文本协议', () => {
     ).toThrow('model_quota_exhausted')
   })
 
-  it('账号模型目录只暴露 5.6 及更新的正式型号，过滤旧模型和无效条目', () => {
+  it('账号模型目录只列有可用路由的两个对话入口，过滤其他型号和无效条目', () => {
     vm.runInContext(readFileSync(path.join(scriptDirectory, 'list_models.js'), 'utf8'), context)
     context.chatgptApiReadAuth = () => ({})
     context.chatgptApiRefreshSession = (auth) => auth
@@ -157,11 +157,10 @@ describe('ChatGPT API 文本协议', () => {
         ],
       },
     })
-    expect(
-      evaluate('main({})')
-        .models.filter((m) => !m.catalog_hidden)
-        .map((model) => model.model_id)
-    ).toEqual(['chatgpt-gpt-6', 'chatgpt-gpt-5.6-sol'])
+    expect(evaluate('main({})').models.map((model) => model.model_id)).toEqual([
+      'chatgpt-gpt-6',
+      'chatgpt-gpt-5.6-sol',
+    ])
   })
   it('只按上游明确列出的模型限额阻止请求，不扩大 reason 提示的作用范围', () => {
     const init = {

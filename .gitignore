@@ -23,6 +23,7 @@ coverage/
 .quality/
 .scannerwork/
 .semgrep-cache/
+.archify/
 
 # Documentation scratch space
 docs/*.bak

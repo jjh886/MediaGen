@@ -49,7 +49,7 @@ test('Codex 仅在实际 HTTP 成功时认为认证成功', () => {
 })
 
 test('Codex 文本附件保留文件身份及 Unicode 内容，二进制文档不改写', () => {
-  const ctx = context('codex', ['text_responses.js'], {
+  const ctx = context('codex', ['request_input.js', 'text_responses.js'], {
     call(action, params) {
       assert.equal(action, 'crypto.base64_decode_latin1')
       return { value: Buffer.from(params.text, 'base64').toString('latin1') }
@@ -283,10 +283,7 @@ test('模型目录只公布网页文本通道可执行的模型', () => {
   ctx.chatgptApiRequireOk = (value) => value
   const models = ctx.main({}).models
   assert.deepEqual(
-    Array.from(
-      models.filter((m) => !m.catalog_hidden),
-      (item) => item.model_id
-    ),
+    Array.from(models, (item) => item.model_id),
     ['chatgpt-gpt-5.6-sol']
   )
 })
@@ -319,7 +316,7 @@ test('图片用量只汇总完整的图片 token，缺失时不能编造', () =>
 })
 
 test('模型家族目录包含可路由的关闭思考与思考档位', () => {
-  const ctx = context('chatgpt', ['conversation.js'])
+  const ctx = context('chatgpt', ['conversation.js', 'model_picker.js'])
   const models = [
     { slug: 'gpt-5-6', thinking_efforts: [] },
     { slug: 'gpt-5-6-instant' },
@@ -329,11 +326,10 @@ test('模型家族目录包含可路由的关闭思考与思考档位', () => {
       default_thinking_effort: 'standard',
     },
   ]
-  assert.deepEqual(Array.from(ctx.chatgptApiDiscoveredReasoning(models[0], models).efforts), [
-    'none',
-    'standard',
-    'extended',
-  ])
+  assert.deepEqual(
+    Array.from(ctx.chatgptApiPickerOptions({ models }, { base: 'gpt-5-6' }).keys()),
+    ['none', 'standard', 'extended']
+  )
   assert.equal(ctx.chatgptApiModelSelection('gpt-5-6', 'none', models, {}).model, 'gpt-5-6-instant')
 })
 
@@ -370,30 +366,30 @@ test('ChatGPT 保活更新令牌时保留账号的会话指纹', () => {
 
 test('Codex 新模型原样路由，图片主控选择不改写图片模型', () => {
   const manifest = JSON.parse(readFileSync('plugins/codex/manifest.json', 'utf8'))
-  const text = context('codex', ['auth.js', 'text_responses.js'])
+  const text = context('codex', ['auth.js', 'request_input.js', 'text_responses.js'])
   const image = context('codex', ['generate_image.js'])
-  for (const id of ['gpt-6-sol', 'gpt-6-luna']) {
+  for (const id of ['gpt-6.2-sol', 'gpt-6-luna']) {
     const model = manifest.models.find((item) => item.model_id === 'codex-' + id)
     assert.ok(model.capabilities.reasoning.efforts.includes('low'))
     const result = text.codexNormalizeResponsesRequest(
-      { model: id, input: '你好', reasoning: { effort: 'none' } },
+      { model: id, input: '你好', reasoning: { effort: 'low' } },
       {}
     )
     assert.equal(result.payload.model, id)
-    assert.equal(result.payload.reasoning.effort, 'none')
+    assert.equal(result.payload.reasoning.effort, 'low')
     const payload = image.buildPayload({ platform_config: { image_control_model: id } }, '一朵花', {
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.6-flare',
       size: '1024x1024',
     })
     assert.equal(payload.model, id)
-    assert.equal(payload.tools[0].model, 'gpt-image-2')
+    assert.equal(payload.tools[0].model, 'gpt-image-2.6-flare')
     assert.ok(manifest.generation_settings.fields[0].options.some((option) => option.value === id))
   }
-  assert.equal(image.buildPayload({}, '花', { model: 'gpt-image-2' }).model, 'gpt-6-luna')
-  const sol = manifest.models.find((item) => item.model_id === 'codex-gpt-6-sol').capabilities
+  assert.equal(image.buildPayload({}, '花', { model: 'gpt-image-2.6-flare' }).model, 'gpt-6-luna')
+  const sol = manifest.models.find((item) => item.model_id === 'codex-gpt-6.2-sol').capabilities
     .pricing
   assert.equal(sol.input, 2)
-  assert.equal(sol.cached_input, 0.2)
+  assert.equal(sol.cached_input, 0.1)
   assert.equal(sol.output, 10)
   assert.equal(
     manifest.models.find((item) => item.model_id === 'codex-gpt-6-luna').capabilities.pricing
@@ -403,24 +399,28 @@ test('Codex 新模型原样路由，图片主控选择不改写图片模型', ()
 })
 
 test('Codex 发现保留新模型及账号能力，生成按目录校验权限', () => {
-  const models = ['gpt-6-sol', 'gpt-6-luna'].map((slug) => ({
+  const models = ['gpt-6.2-sol', 'gpt-6-luna'].map((slug) => ({
     slug,
     input_modalities: ['text', 'image'],
     context_window: 300000,
     max_context_window: 1050000,
-    supported_reasoning_levels: [{ effort: 'none' }, { effort: 'high' }],
-    default_reasoning_level: 'none',
+    supported_reasoning_levels: [{ effort: 'low' }, { effort: 'high' }],
+    default_reasoning_level: 'low',
   }))
   const host = {
     call: () => ({ ok: true, body: { models } }),
     tryCall: () => ({ success: true, data: { ok: true, body: { models } } }),
   }
-  const ctx = context('codex', ['auth.js', 'list_models.js', 'text_responses.js'], host)
+  const ctx = context(
+    'codex',
+    ['auth.js', 'list_models.js', 'request_input.js', 'text_responses.js'],
+    host
+  )
   ctx.codexEnsureFreshAuth = () => ({ tokens: { access_token: 'test' } })
   const discovered = ctx.main({}).models
   assert.equal(discovered.length, 2)
   assert.ok(discovered[0].capabilities.input_modalities.includes('file'))
-  assert.equal(discovered[0].capabilities.reasoning.default_effort, 'none')
+  assert.equal(discovered[0].capabilities.reasoning.default_effort, 'low')
   assert.equal(discovered[0].capabilities.max_context_window, 1050000)
   for (const model of discovered) {
     const { payload } = ctx.codexNormalizeResponsesRequest(
@@ -428,14 +428,14 @@ test('Codex 发现保留新模型及账号能力，生成按目录校验权限',
       {}
     )
     ctx.codexApplyReasoning({}, { tokens: { access_token: 'test' } }, payload)
-    assert.equal(payload.reasoning.effort, 'none')
+    assert.equal(payload.reasoning.effort, 'low')
   }
   assert.throws(
     () => ctx.codexApplyReasoning({}, {}, { model: 'unavailable' }),
-    /UNSUPPORTED_MODEL/
+    /account_model_unavailable/
   )
   assert.throws(
-    () => ctx.codexApplyReasoning({}, {}, { model: 'gpt-6-sol', reasoning: { effort: 'max' } }),
+    () => ctx.codexApplyReasoning({}, {}, { model: 'gpt-6.2-sol', reasoning: { effort: 'max' } }),
     /invalid_input/
   )
 })

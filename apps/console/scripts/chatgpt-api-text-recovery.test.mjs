@@ -83,7 +83,7 @@ beforeEach(() => {
 })
 
 const run = () =>
-  vm.runInContext(`main({ request: { input: '提取资产', model: 'gpt-5-6-instant' } })`, context)
+  vm.runInContext(`main({ request: { input: '提取资产', model: 'chatgpt-gpt-5.6-sol' } })`, context)
 
 describe('ChatGPT 文本提交与恢复', () => {
   it('新提交的 HTTP 429 保留具体额度原因和 Retry-After，不覆盖成通用限流', () => {
@@ -125,18 +125,19 @@ describe('ChatGPT 文本提交与恢复', () => {
     expect(stored.auth.model_limits).toEqual([])
   })
 
-  it('缓存的真实模型限额恢复前不再访问上游，恢复后继续正常调用', () => {
+  it('按账号目录解析型号后检查已缓存的限额，恢复前不初始化或提交会话', () => {
     const limit = { model_slug: 'gpt-5-6-instant', resets_after: '2099-11-10T16:51:45Z' }
     context.chatgptApiReadAuth = () => ({ auth: { model_limits: [limit] } })
     expect(run).toThrow('model_quota_exhausted')
-    expect(refresh).not.toHaveBeenCalled()
+    expect(context.chatgptApiInitializeConversation).not.toHaveBeenCalled()
+    expect(stream).not.toHaveBeenCalled()
     limit.resets_after = '2020-01-01T00:00:00Z'
     try {
       run()
     } catch (_) {
       /* 此测试只验证额度恢复后的请求准入。 */
     }
-    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(context.chatgptApiInitializeConversation).toHaveBeenCalledTimes(1)
   })
 
   it('所选模型受限时在上传前停止，保留安全换号边界和上游恢复时间', () => {
@@ -148,7 +149,7 @@ describe('ChatGPT 文本提交与恢复', () => {
     })
     expect(() =>
       vm.runInContext(
-        `main({request:{model:'gpt-5-6-instant',input:[{role:'user',content:[
+        `main({request:{model:'chatgpt-gpt-5.6-sol',input:[{role:'user',content:[
           {type:'input_text',text:'还原剧本'},
           {type:'input_file',file_data:'data:video/mp4;base64,AAAA',filename:'scene.mp4'}
         ]}]}})`,
@@ -170,7 +171,7 @@ describe('ChatGPT 文本提交与恢复', () => {
     })
     expect(() =>
       vm.runInContext(
-        `main({request:{model:'gpt-5-6-instant',input:'继续',options:{
+        `main({request:{model:'chatgpt-gpt-5.6-sol',input:'继续',options:{
           platform_session:{conversation_id:'original',parent_message_id:'parent'}
         }}})`,
         context
@@ -195,7 +196,7 @@ describe('ChatGPT 文本提交与恢复', () => {
     stream.mockReturnValueOnce({ ok: false, status: 429 })
     const continueRun = () =>
       vm.runInContext(
-        `main({request:{model:'gpt-5-6-instant',input:'继续',options:{
+        `main({request:{model:'chatgpt-gpt-5.6-sol',input:'继续',options:{
         session_key:'window',platform_session:{conversation_id:'original',parent_message_id:'parent'}
       }}})`,
         context
@@ -510,7 +511,7 @@ it('固定视频宿主策略只在当前执行启用，不污染后续普通对�
   expect(() =>
     vm.runInContext(
       `main({ fixed_video_analysis: true,
-    request: { input: '反推完整视频', model: 'gpt-5-6-instant' } })`,
+    request: { input: '反推完整视频', model: 'chatgpt-gpt-5.6-sol' } })`,
       context
     )
   ).toThrow('upstream_rate_limited')
@@ -576,7 +577,7 @@ it.each(['empty', 'complete', 'local_queue'])(
     const resume = () =>
       vm.runInContext(
         `main({ fixed_video_analysis: true,
-      request: { input: '反推原视频', model: 'gpt-5-6-instant' } })`,
+      request: { input: '反推原视频', model: 'chatgpt-gpt-5.6-sol' } })`,
         context
       )
     if (outcome === 'complete') expect(resume().response.output_text).toBe('已完成的完整反推稿')
@@ -612,7 +613,7 @@ it('固定视频在首次提交前保存等待起点，流中断后仍可恢复�
   expect(() =>
     vm.runInContext(
       `main({ fixed_video_analysis: true,
-    request: { input: '原视频', model: 'gpt-5-6-instant' } })`,
+    request: { input: '原视频', model: 'chatgpt-gpt-5.6-sol' } })`,
       context
     )
   ).toThrow('connection reset')

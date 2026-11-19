@@ -29,15 +29,20 @@ describe('ChatGPT 图片默认模型与参考图', () => {
     const run = scripts(['chatgpt/scripts/conversation.js', 'chatgpt/scripts/generate_image.js'])
     run(`bootstrap={'/backend-api/models':{models:[{slug:'gpt-6-pro'}]}};
       init={default_model_slug:'gpt-6-pro'}`)
-    expect(run(`chatgptApiGenerationConfig({model_id:'ChatGPT'},bootstrap,init).model`)).toBe(
+    expect(run(`chatgptApiGenerationConfig({model_id:'chatgpt-image'},bootstrap,init).model`)).toBe(
       'gpt-6-pro'
     )
-    expect(() => run(`chatgptApiGenerationConfig({model_id:'ChatGPT'},bootstrap,{})`)).toThrow(
-      '未返回默认模型'
-    )
+    expect(() =>
+      run(`chatgptApiGenerationConfig({model_id:'chatgpt-image'},bootstrap,{})`)
+    ).toThrow('未返回默认模型')
+    expect(() =>
+      run(
+        `chatgptApiGenerationConfig({model_id:'chatgpt-image',platform_config:{model:'missing'}},bootstrap,init)`
+      )
+    ).toThrow('不支持所选模型')
     expect(() =>
       run(`chatgptApiGenerationConfig({model_id:'chatgpt-image-missing'},bootstrap,init)`)
-    ).toThrow('不支持所选模型')
+    ).toThrow('unsupported_model')
   })
 
   it('本地路径参考图先上传，已上传文件复用，并保留混合顺序', () => {
@@ -179,7 +184,7 @@ describe('API 插件共同附件协议', () => {
       geminiCatalog=()=>[{id:'new-model',name:'New',efforts:['low']}];
       chatgptApiReadAuth=()=>({});chatgptApiRefreshSession=x=>x;
       chatgptApiRequest=()=>({body:{models:[{slug:'gpt-6'}]}});
-      chatgptApiRequireOk=x=>x;chatgptApiDiscoveredReasoning=()=>({})`)
+      chatgptApiRequireOk=x=>x`)
     expect(run('main({}).models[0].capabilities.file_extensions')).toEqual(extensions)
     expect(run('main({}).models[0].capabilities.attachment_transport')).toBe('workspace')
     expect(run('main({}).models[0].capabilities.attachment_limits')).toEqual(

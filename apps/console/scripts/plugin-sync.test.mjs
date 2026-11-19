@@ -13,11 +13,14 @@ describe('新版插件装配与协议', () => {
       for (const model of plugin.models)
         expect(model.model_id.startsWith(plugin.platform_id + '-')).toBe(true)
     }
-    expect(
-      chatgpt.models
-        .filter((m) => m.task_kind === 'text' && !m.catalog_hidden)
-        .map((m) => m.display_name)
-    ).toEqual(['GPT-6', 'GPT-5.6 Sol'])
+    expect(chatgpt.models.map((model) => model.model_id).sort()).toEqual([
+      'chatgpt-gpt-5.6-sol',
+      'chatgpt-gpt-6',
+      'chatgpt-image',
+      'chatgpt-speech',
+      'chatgpt-transcribe',
+    ])
+    expect(chatgpt.models.flatMap((model) => model.aliases || [])).toEqual([])
   })
 
   it('模型目录不再声明停用型号，保留无日期的图片型号和 Seedream 5', () => {
@@ -62,23 +65,23 @@ describe('新版插件装配与协议', () => {
     )
   })
 
-  it('ChatGPT 刷新目录不会重新引入 5.6 之前的文本型号', () => {
-    const retained = ['gpt-5-6', 'gpt-5-6-mini', 'gpt-5.6-pro', 'gpt-6-pro', 'gpt-6.1-sol']
-    const retired = ['gpt-3.5', 'gpt-4', 'gpt-4o', 'gpt-5', 'gpt-5-5', 'gpt-5.5-pro', 'o3']
-    const models = [...retained, ...retired, 'gpt-6-pro-wm', 'research'].map((slug) => ({ slug }))
+  it('ChatGPT 刷新后只发布可用的对话家族，旧 ID 和上游档位不作为模型发布', () => {
+    const models = [
+      'gpt-5-6',
+      'gpt-5-6-mini',
+      'gpt-6-pro',
+      'gpt-6.1-sol',
+      'gpt-4o',
+      'gpt-6-pro-wm',
+    ].map((slug) => ({ slug }))
     const run = scripts(['chatgpt/scripts/model_picker.js', 'chatgpt/scripts/list_models.js'])
     run(
-      'chatgptApiReadAuth=()=>({});chatgptApiRefreshSession=auth=>auth;chatgptApiRequireOk=value=>value;chatgptApiRequest=()=>({body:{models}});chatgptApiDiscoveredReasoning=()=>({})',
+      'chatgptApiReadAuth=()=>({});chatgptApiRefreshSession=auth=>auth;chatgptApiRequireOk=value=>value;chatgptApiRequest=()=>({body:{models}})',
       { models: [...models, {}, null] }
     )
-    expect(
-      run('main({}).models')
-        .filter((m) => !m.catalog_hidden)
-        .map((m) => m.model_id)
-    ).toEqual(['chatgpt-gpt-6', 'chatgpt-gpt-5.6-sol'])
-    expect(run('main({}).models').flatMap((m) => m.aliases)).toEqual(
-      expect.arrayContaining(retained)
-    )
+    const entries = run('main({}).models')
+    expect(entries.map((m) => m.model_id)).toEqual(['chatgpt-gpt-6', 'chatgpt-gpt-5.6-sol'])
+    expect(entries.flatMap((m) => m.aliases || [])).toEqual([])
   })
 
   it('两个网页版本按各自账号的预设选择实际模型，升级提示不可调用', () => {
@@ -109,14 +112,14 @@ describe('新版插件装配与协议', () => {
       chatgptApiRequest=()=>({ok:true,body:catalog})`,
       { catalog }
     )
-    const visible = () => run('main({}).models.filter(m=>!m.catalog_hidden)')
+    const visible = () => run('main({}).models')
     expect(visible().map((m) => [m.display_name, m.capabilities.reasoning.efforts])).toEqual([
       ['GPT-6', ['none', 'standard', 'extended', 'max', 'pro']],
       ['GPT-5.6 Sol', ['standard']],
     ])
     const select = (id, effort) =>
       run(
-        `var request={model:id,reasoning:{effort}};chatgptApiTextReasoning({}, {}, request, catalog);request`,
+        `var request={model:id,reasoning:{effort}};chatgptApiTextReasoning({}, request, catalog);request`,
         { id, effort }
       )
     expect(select('chatgpt-gpt-6', 'none')).toMatchObject({
@@ -134,7 +137,9 @@ describe('新版插件装配与协议', () => {
     expect(select('chatgpt-gpt-5.6-sol', 'standard').model).toBe('gpt-5-6-t-mini')
     presets[4].preset_type = 'upgrade'
     expect(visible()[0].capabilities.reasoning.efforts).not.toContain('pro')
-    expect(run("main({}).models.some(m=>m.aliases.includes('gpt-6-pro'))")).toBe(false)
+    for (const retired of ['gpt-6', 'gpt-6-pro', 'chatgpt-gpt-6-pro', 'chatgpt-gpt-5-6']) {
+      expect(() => select(retired)).toThrow('unsupported_model')
+    }
     expect(() => select('chatgpt-gpt-6', 'pro')).toThrow('account_model_unavailable')
     catalog.versions[0].enabled = false
     expect(visible()).toEqual([])

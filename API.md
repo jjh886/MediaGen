@@ -61,7 +61,8 @@ Authorization: Bearer <你的 MediaGen API Key>
 ```text
 chatgpt-gpt-6
 chatgpt-gpt-5.6-sol
-codex-gpt-6.1-sol
+codex-gpt-6.2-sol
+codex-gpt-6.2-astra
 codex-gpt-image-2
 ```
 
