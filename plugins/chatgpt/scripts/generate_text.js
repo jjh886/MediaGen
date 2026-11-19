@@ -20,7 +20,7 @@ function main(ctx) {
     !saved.conversation_id && saved.phase !== 'submitting' ? chatgptApiBootstrap(auth, false) : null
   let initialized
   if (!saved.conversation_id && saved.phase !== 'submitting') {
-    chatgptApiTextReasoning(ctx, auth, request, bootstrap['/backend-api/models'])
+    chatgptApiTextReasoning(auth, request, bootstrap['/backend-api/models'])
     chatgptApiAssertModelAvailable({ model_limits: storedAuth.auth?.model_limits }, request.model)
     initialized = chatgptApiInitializeConversation(auth)
     // 限额检查必须先于上传和提交，才能安全切换账号且不重复消耗上传额度。

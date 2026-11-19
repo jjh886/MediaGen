@@ -10,45 +10,18 @@ function main(ctx) {
   if (!Array.isArray(result.body?.models)) throw new Error('模型目录响应无效')
   const catalog = result.body
   const entries = []
-  const unavailablePro = new Set()
   for (const family of CHATGPT_CHAT_MODELS) {
     const routes = chatgptApiPickerOptions(catalog, family)
-    if (!routes.has('pro')) unavailablePro.add(family.base + '-pro')
     const base = catalog.models.find((m) => m?.slug === family.base)
     if (!routes.size && (!base || Array.isArray(catalog.versions))) continue
     entries.push({
       model_id: family.id,
       display_name: family.title,
-      aliases: base && family.id === 'chatgpt-' + base.slug ? [base.slug] : [],
       max_tokens: base?.max_tokens,
       reasoning: {
         efforts: [...routes.keys()],
         default_effort: routes.has('standard') ? 'standard' : undefined,
       },
-    })
-  }
-  // 旧调用和图片模型依赖仍可按账号的实际型号解析；对话目录只列网页家族。
-  for (const item of catalog.models) {
-    if (
-      typeof item?.slug !== 'string' ||
-      item.slug.endsWith('-wm') ||
-      unavailablePro.has(item.slug) ||
-      CHATGPT_CHAT_MODELS.some((f) => f.id === 'chatgpt-' + item.slug)
-    )
-      continue
-    const version = /^gpt-(\d+)(?:[.-](\d+))?(?:$|-)/.exec(item.slug)
-    if (
-      !version ||
-      !(Number(version[1]) > 5 || (Number(version[1]) === 5 && Number(version[2]) >= 6))
-    )
-      continue
-    entries.push({
-      model_id: 'chatgpt-' + item.slug,
-      display_name: item.title || item.slug,
-      aliases: [item.slug],
-      catalog_hidden: true,
-      max_tokens: item.max_tokens,
-      reasoning: chatgptApiDiscoveredReasoning(item, catalog.models),
     })
   }
   return {

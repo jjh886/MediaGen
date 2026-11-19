@@ -62,26 +62,19 @@ function main(ctx) {
 }
 
 function chatgptApiGenerationConfig(ctx, bootstrap, init) {
-  const legacy = ['chatgpt-image', 'ChatGPT', 'chatgpt', 'ChatGPT API', 'chatgpt-api'].includes(
-    ctx.model_id
-  )
-  const selected = String(
-    legacy
-      ? ctx.platform_config?.model || 'chatgpt-image-auto'
-      : ctx.model_id || 'chatgpt-image-auto'
-  ).trim()
-  let model = selected.startsWith('chatgpt-image-')
-    ? selected.slice('chatgpt-image-'.length)
-    : ['ChatGPT API', 'chatgpt-api'].includes(selected)
-      ? 'auto'
-      : selected
+  if (ctx.model_id !== 'chatgpt-image')
+    throw new Error('unsupported_model: ChatGPT 不支持此图片模型')
+  let model =
+    String(ctx.platform_config?.model || '')
+      .trim()
+      .replace(/^chatgpt-image-/, '') || 'auto'
   if (model === 'auto') {
     model = String(init?.default_model_slug || '').trim()
     if (!model) throw new Error('invalid_response: ChatGPT 未返回默认模型')
   }
   const selection = chatgptApiModelSelection(
     model,
-    ctx.reasoning_effort ?? (legacy ? ctx.platform_config?.thinking_effort : undefined),
+    ctx.reasoning_effort ?? ctx.platform_config?.thinking_effort,
     bootstrap?.['/backend-api/models']?.models,
     ctx.model_capabilities?.reasoning
   )

@@ -395,43 +395,31 @@ function chatgptApiResolveReasoning(model, requested, models, fallback) {
   return effort || capability?.default_effort || undefined
 }
 
-function chatgptApiTextReasoning(ctx, auth, request, modelCatalog) {
-  const family = CHATGPT_CHAT_MODELS.find((f) => f.id === request.model)
-  let response = modelCatalog ? { ok: true, body: modelCatalog } : undefined
-  try {
-    response ||= chatgptApiRequest(auth, 'GET', CHATGPT_MODELS_PATH, {
-      target_path: '/backend-api/models',
-      target_route: '/backend-api/models',
-      timeout_ms: 15000,
-    })
-  } catch (error) {
-    if (/^(?:verification_required|LOGIN_EXPIRED):/.test(String(error?.message || ''))) throw error
-    if (family || !ctx.model_capabilities?.reasoning) throw error
-  }
-  if (family) {
-    const catalog = chatgptApiRequireOk(response, '读取 ChatGPT 模型目录').body
-    if (!Array.isArray(catalog?.models)) throw new Error('invalid_response: ChatGPT 模型目录无效')
-    const routes = chatgptApiPickerOptions(catalog, family)
-    const effort = request.reasoning.effort
-    const route = effort
-      ? routes.get(effort)
-      : routes.get('standard') ||
-        (!Array.isArray(catalog.versions) && catalog.models.some((m) => m?.slug === family.base)
-          ? { model: family.base }
-          : routes.values().next().value)
-    if (!route) throw new Error('account_model_unavailable: 当前账号未提供所选网页模型或思考档位')
-    request.model = route.model
-    request.reasoning.effort = route.thinking_effort
-    return
-  }
-  const selection = chatgptApiModelSelection(
-    request.model.replace(/^chatgpt-(?=gpt-)/, ''),
-    request.reasoning.effort,
-    response?.body?.models,
-    ctx.model_capabilities?.reasoning
-  )
-  request.model = selection.model
-  request.reasoning.effort = selection.thinking_effort
+function chatgptApiTextReasoning(auth, request, modelCatalog) {
+  const family = CHATGPT_CHAT_MODELS.find((item) => item.id === request.model)
+  if (!family) throw new Error('unsupported_model: ChatGPT 不支持此对话模型')
+  const catalog =
+    modelCatalog ||
+    chatgptApiRequireOk(
+      chatgptApiRequest(auth, 'GET', CHATGPT_MODELS_PATH, {
+        target_path: '/backend-api/models',
+        target_route: '/backend-api/models',
+        timeout_ms: 15000,
+      }),
+      '读取 ChatGPT 模型目录'
+    ).body
+  if (!Array.isArray(catalog?.models)) throw new Error('invalid_response: ChatGPT 模型目录无效')
+  const routes = chatgptApiPickerOptions(catalog, family)
+  const effort = request.reasoning.effort
+  const route = effort
+    ? routes.get(effort)
+    : routes.get('standard') ||
+      (!Array.isArray(catalog.versions) && catalog.models.some((m) => m?.slug === family.base)
+        ? { model: family.base }
+        : routes.values().next().value)
+  if (!route) throw new Error('account_model_unavailable: 当前账号未提供所选网页模型或思考档位')
+  request.model = route.model
+  request.reasoning.effort = route.thinking_effort
 }
 
 // 一个型号入口包含即时与思考模式；网页请求 ID 的区别只在插件内处理。
@@ -465,25 +453,4 @@ function chatgptApiModelSelection(model, requested, models, fallback) {
     model,
     thinking_effort: chatgptApiResolveReasoning(model, effort, models, capability),
   }
-}
-
-function chatgptApiDiscoveredReasoning(item, models) {
-  const levels = (value) =>
-    (value?.thinking_efforts || [])
-      .map((level) => (typeof level === 'string' ? level : level.thinking_effort))
-      .filter(Boolean)
-  const family = chatgptApiModelFamily(item.slug)
-  if (!family)
-    return {
-      efforts: item.configurable_thinking_effort === false ? [] : levels(item),
-      default_effort: item.default_thinking_effort,
-    }
-  const instant = models.find((model) => model?.slug === family.instant)
-  const thinking = models.find((model) => model?.slug === family.thinking)
-  const efforts = [
-    ...(instant ? ['none'] : []),
-    ...(thinking ? (family.fixed ? ['standard'] : levels(thinking)) : []),
-  ]
-  const preferred = thinking?.default_thinking_effort || (thinking ? 'standard' : 'none')
-  return { efforts, default_effort: efforts.includes(preferred) ? preferred : efforts[0] }
 }
