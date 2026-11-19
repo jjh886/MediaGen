@@ -41,9 +41,11 @@ pub(crate) fn replay_failure(
         }
         "insufficient_quota" => 429,
         "no_available_account_for_model" => 403,
+        "attachment_limit_exceeded" => 400,
         "conversation_unavailable"
         | "recovery_exhausted"
         | "generation_failed"
+        | "upstream_generation_failed"
         | "proxy_unavailable" => 409,
         _ => return None,
     };
@@ -71,6 +73,31 @@ pub(crate) fn account_reservation_failure(message: &str) -> HttpResponse {
 }
 
 pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
+    if let Some(details) = structured_failure(message, "attachment_limit_exceeded") {
+        let text = match (details["count"].as_u64(), details["limit"].as_u64()) {
+            (Some(count), Some(limit)) if count > limit && limit > 0 => format!(
+                "本次请求包含 {count} 个附件，超过上游单次 {limit} 个的限制；请仅提交本轮新增附件，或分批提交"
+            ),
+            _ => "附件数量超过上游单次限制，请减少本轮附件或分批提交".into(),
+        };
+        return (400, "attachment_limit_exceeded", text);
+    }
+    if let Some(details) = structured_failure(message, "upstream_generation_failed") {
+        let reason = details["message"]
+            .as_str()
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
+        let text = reason.map_or_else(
+            || "上游返回了生成失败标记，但未提供具体原因；完整失败帧已保留供排查".into(),
+            |text| {
+                format!(
+                    "上游未完成本次生成，返回原因：{}",
+                    sanitize_error(text).chars().take(2000).collect::<String>()
+                )
+            },
+        );
+        return (409, "upstream_generation_failed", text);
+    }
     for (prefix, status, code) in [
         (
             "no_available_account_for_model: ",
@@ -246,6 +273,19 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
     } else {
         (502, "upstream_error", "上游请求未成功完成".into())
     }
+}
+
+// JS 异常后会附加堆栈，只读取错误码后的首个 JSON 对象，不向客户端回显堆栈。
+fn structured_failure(message: &str, code: &str) -> Option<Value> {
+    let (_, details) = message.split_once(&format!("{code}: "))?;
+    Some(
+        serde_json::Deserializer::from_str(details)
+            .into_iter::<Value>()
+            .next()
+            .and_then(Result::ok)
+            .filter(Value::is_object)
+            .unwrap_or(Value::Null),
+    )
 }
 
 pub(crate) fn record_failure(

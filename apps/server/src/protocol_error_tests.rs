@@ -1,6 +1,32 @@
 use super::public_failure;
 
 #[test]
+fn structured_provider_errors_explain_limits_and_preserve_safe_refusal_text() {
+    let (status, code, text) = public_failure("SAFE_RETRY:plugin.run_js JS 错误: Error: attachment_limit_exceeded: {\"count\":15,\"limit\":10}\n at geminiReferences (eval_script:90:1)");
+    assert_eq!((status, code), (400, "attachment_limit_exceeded"));
+    assert!(text.contains("15 个附件") && text.contains("10 个"));
+    assert!(!text.contains("eval_script"));
+    let (status, code, text) = public_failure("plugin.run_js JS 错误: Error: upstream_generation_failed: {\"message\":\"我只是一个语言模型，不具备这方面的信息或能力，因此没法帮到你。\",\"model\":\"3.5 Flash-Lite\",\"marker\":\"frame[31]\"}\n at main (eval_script:1:1)");
+    assert_eq!((status, code), (409, "upstream_generation_failed"));
+    assert!(text.contains("不具备这方面的信息或能力"));
+    assert!(!text.contains("eval_script") && !text.contains("frame[31]"));
+    let (_, _, redacted) =
+        public_failure("upstream_generation_failed: {\"message\":\"denied token=private-secret\"}");
+    assert!(!redacted.contains("private-secret"));
+    for message in [
+        "upstream_generation_failed: {}",
+        "upstream_generation_failed: malformed",
+    ] {
+        assert!(public_failure(message).2.contains("未提供具体原因"));
+    }
+    assert!(
+        !public_failure("attachment_limit_exceeded: {\"count\":-1,\"limit\":0}")
+            .2
+            .contains("-1")
+    );
+}
+
+#[test]
 fn input_validation_is_not_misreported_as_model_capability_failure() {
     let raw = "SAFE_RETRY:plugin.run_js JS 错误: Error: invalid_input: 附件文件名无效\n    at apiTextResponsesMedia (eval_script:2240:17)\nprivate-detail";
     let (status, code, public) = public_failure(raw);

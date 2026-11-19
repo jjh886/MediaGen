@@ -724,17 +724,82 @@ describe('Gemini API 插件', () => {
     context.geminiChannelGenerate = (_s, _m, _i, callback) => {
       const frame = Array(43).fill(null)
       frame[31] = true
+      frame[4] = [['rc_failed', ['我只是一个语言模型，不具备这方面的信息或能力，因此没法帮到你。']]]
+      frame[42] = '3.5 Flash-Lite'
+      frame[26] = 'private-session-token'
       callback(frame)
     }
     expect(() =>
       context.geminiGenerate({}, { mode: 1, think: 1, tool: 0 }, 'test', [], null)
     ).toThrow('frame[31]')
     expect(host.checkpoint().phase).toBe('failed')
+    expect(host.checkpoint().failure_frame[26]).toBe('private-session-token')
+    expect(host.checkpoint().error).toContain('不具备这方面的信息或能力')
+    expect(host.checkpoint().error).not.toContain('private-session-token')
+    expect(host.checkpoint().failure_context).toMatchObject({
+      prompt_chars: 4,
+      attachment_count: 0,
+      continued: false,
+    })
     context.geminiInitialize = vi.fn()
     expect(() => context.main({ request: { model: 'gemini-3.8-flash', input: 'test' } })).toThrow(
       'frame[31]'
     )
     expect(context.geminiInitialize).not.toHaveBeenCalled()
+  })
+
+  it('空失败帧只查询当前轮次的拒绝原因，查询失败仍保持终态且不重新生成', () => {
+    for (const lookupFails of [false, true]) {
+      const { context, host } = runtime()
+      const turn = [['c_current', 'r_current'], null, null, [[['rc', ['上游拒绝原因']]]]]
+      context.geminiRpc = vi.fn(() => {
+        if (lookupFails) throw new Error('lookup timeout')
+        return [
+          [[['c_current', 'r_old'], null, null, [[['rc_old', ['旧回答不能串到本轮']]]]], turn],
+        ]
+      })
+      context.geminiChannelGenerate = vi.fn((_s, _m, _i, callback) => {
+        const frame = Array(43).fill(null)
+        frame[1] = ['c_current', 'r_current']
+        frame[31] = true
+        callback(frame)
+      })
+      expect(() => context.geminiGenerate({}, { mode: 1 }, 'test', [], null)).toThrow(
+        lookupFails ? 'upstream_generation_failed' : '上游拒绝原因'
+      )
+      expect(host.checkpoint().phase).toBe('failed')
+      expect(host.checkpoint().error).not.toContain('旧回答')
+      expect(context.geminiRpc).toHaveBeenCalledTimes(1)
+      expect(context.geminiChannelGenerate).toHaveBeenCalledTimes(1)
+      if (lookupFails) expect(host.checkpoint().failure_lookup_error).toBe('lookup timeout')
+      else expect(host.checkpoint().failure_history).toEqual(turn)
+    }
+  })
+
+  it('超出上游附件数量时返回实际数量，不启动文件上传', () => {
+    const { context } = runtime()
+    context.geminiUpload = vi.fn()
+    const attachments = Array.from({ length: 15 }, (_, index) => ({ name: `${index}.txt` }))
+    expect(() => context.geminiReferences({}, {}, { input: [{ attachments }] })).toThrow(
+      'attachment_limit_exceeded: {"count":15,"limit":10}'
+    )
+    expect(context.geminiUpload).not.toHaveBeenCalled()
+  })
+
+  it('保留失败响应的原始二进制帧用于加密诊断，不把拒绝正文当作成功答案', () => {
+    const { context } = runtime()
+    let bytes = context.geminiWireEncode([[32, 1]])
+    for (const field of [4, 4, 1, 7, 2]) bytes = context.geminiWireEncode([[field, bytes]])
+    const raw = context.geminiWireBase64(bytes)
+    const decoded = context.geminiWireEvent([raw])
+    expect(decoded.failure_wire).toBe(raw)
+    expect(decoded.frame[31]).toBe(true)
+    expect(() =>
+      context.geminiParseGeneration(
+        JSON.stringify([['wrb.fr', null, JSON.stringify(decoded.frame)]]),
+        {}
+      )
+    ).toThrow('upstream_generation_failed')
   })
 
   it('采用上游实际降级结果，正文保持原样，流式和结果都返回真实模型', () => {

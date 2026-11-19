@@ -286,6 +286,8 @@ async fn terminal_errors_replay_without_reexecuting_the_plugin() {
             "conversation_unavailable: original missing",
             "recovery_exhausted: timed out",
             "generation_failed: upstream failed",
+            "upstream_generation_failed: {\"message\":\"无法处理此请求\"}",
+            "attachment_limit_exceeded: {\"count\":15,\"limit\":10}",
             "ProxyConnect: unexpected end of file",
             "model_quota_exhausted; resets_at=2099-11-10T16:51:45Z",
         ] {
@@ -333,6 +335,8 @@ async fn terminal_errors_replay_without_reexecuting_the_plugin() {
                         response.status().as_u16(),
                         if failure.starts_with("model_quota") {
                             429
+                        } else if failure.starts_with("attachment_limit_exceeded") {
+                            400
                         } else {
                             409
                         }

@@ -13,6 +13,8 @@ async fn permission_and_zero_quota_stop_queue_without_becoming_safety_errors() {
     for (status, code) in [
         (403, "account_permission_denied"),
         (429, "insufficient_quota"),
+        (400, "attachment_limit_exceeded"),
+        (409, "upstream_generation_failed"),
     ] {
         let id = uuid::Uuid::new_v4().to_string();
         let (task, job) = super::super::queued_image_records(

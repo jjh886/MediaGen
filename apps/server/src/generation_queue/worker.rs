@@ -131,7 +131,10 @@ async fn finish_execution(
         return;
     }
     if let Err((_, code, message)) = &result {
-        if task.task_kind == "text"
+        if matches!(
+            code.as_str(),
+            "upstream_generation_failed" | "attachment_limit_exceeded"
+        ) || task.task_kind == "text"
             && matches!(
                 code.as_str(),
                 "no_available_account_for_model"

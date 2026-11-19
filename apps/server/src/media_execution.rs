@@ -328,6 +328,7 @@ pub(crate) async fn handle_attempt_failure<'a>(
                 | "invalid_request"
                 | "permission_denied"
                 | "insufficient_quota"
+                | "upstream_failure"
         ) {
             record_attempt_failure(state, context, &decision, task_label);
             return Ok(Some(fail_task(state, context, &decision)));
@@ -378,6 +379,13 @@ pub(crate) fn fail_task(
     ensure_task_not_cancelled(state, &context.task_id)?;
     let message = crate::protocol_error::sanitize_error(&decision.formatted_message());
     state.store.fail_task(&context.task_id, message.clone());
+    let failure = crate::protocol_error::public_failure(&decision.original_message);
+    if matches!(
+        failure.1,
+        "upstream_generation_failed" | "attachment_limit_exceeded"
+    ) {
+        return Err(failure);
+    }
     let (status, code) = decision.response_error();
     if code == "insufficient_quota" {
         return Err((
@@ -441,7 +449,8 @@ mod recovery_tests {
             .unwrap()
             .clone();
         manifest.extra.insert("failure_strategy".into(),serde_json::json!([
-            {"contains_any":["denied-test"],"category":"permission_denied","retry_action":"failover"}
+            {"contains_any":["denied-test"],"category":"permission_denied","retry_action":"failover"},
+            {"contains_any":["upstream_generation_failed"],"category":"upstream_failure","retry_action":"fail"}
         ]));
         let account = state.store.account_by_id("video-account").unwrap();
         let model = manifest.models[0].clone();
@@ -461,7 +470,31 @@ mod recovery_tests {
             account,
             task_id: "original-task".into(),
         };
-        for (message, expected) in [("network timeout", 503), ("denied-test", 403)] {
+        for (message, expected, detail) in [
+            (
+                "attachment_limit_exceeded: {\"count\":15,\"limit\":10}",
+                400,
+                "15 个附件",
+            ),
+            (
+                "upstream_generation_failed: {\"message\":\"无法完成请求\"}",
+                409,
+                "无法完成请求",
+            ),
+        ] {
+            let decision = classify_failure(&manifest, message);
+            let error = fail_task(&state, &context, &decision).unwrap_err();
+            assert_eq!(error.0, expected);
+            assert!(error.2.contains(detail));
+        }
+        for (message, expected) in [
+            ("network timeout", 503),
+            ("denied-test", 403),
+            (
+                "upstream_generation_failed: {\"message\":\"无法完成请求\"}",
+                409,
+            ),
+        ] {
             let mut excluded = vec![];
             let result = handle_attempt_failure(
                 &state,

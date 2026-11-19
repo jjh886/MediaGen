@@ -157,6 +157,8 @@ fn terminal(state: &ServerState, id: &str) -> bool {
                                 | "conversation_unavailable"
                                 | "recovery_exhausted"
                                 | "generation_failed"
+                                | "upstream_generation_failed"
+                                | "attachment_limit_exceeded"
                                 | "proxy_unavailable"
                         )
                     }))
