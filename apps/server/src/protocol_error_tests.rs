@@ -10,6 +10,15 @@ fn structured_provider_errors_explain_limits_and_preserve_safe_refusal_text() {
     assert_eq!((status, code), (409, "upstream_generation_failed"));
     assert!(text.contains("不具备这方面的信息或能力"));
     assert!(!text.contains("eval_script") && !text.contains("frame[31]"));
+    let long = "测试正文".repeat(800);
+    assert_eq!(
+        public_failure(&format!(
+            "upstream_generation_failed: {}",
+            serde_json::json!({"message":long})
+        ))
+        .2,
+        long
+    );
     let (_, _, redacted) =
         public_failure("upstream_generation_failed: {\"message\":\"denied token=private-secret\"}");
     assert!(!redacted.contains("private-secret"));

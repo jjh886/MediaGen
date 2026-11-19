@@ -368,7 +368,7 @@ mod stop_tests {
             let server = tokio::spawn(async move {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let mut request = [0; 4096];
-                socket.read(&mut request).await.unwrap();
+                assert!(socket.read(&mut request).await.unwrap() > 0);
                 socket
                     .write_all(
                         format!(
@@ -407,7 +407,7 @@ mod stop_tests {
             let server = tokio::spawn(async move {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let mut request = [0; 4096];
-                socket.read(&mut request).await.unwrap();
+                assert!(socket.read(&mut request).await.unwrap() > 0);
                 socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nConnection: close\r\n\r\n15\n[[1,[\"ready\"]]]\n").as_bytes()).await.unwrap();
                 pending.await.unwrap();
             });
@@ -441,7 +441,7 @@ mod stop_tests {
             let server = tokio::spawn(async move {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let mut bytes = [0; 4096];
-                socket.read(&mut bytes).await.unwrap();
+                assert!(socket.read(&mut bytes).await.unwrap() > 0);
                 socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{raw}", raw.len()).as_bytes()).await.unwrap();
             });
             let host = ServerPluginHost::new_with_metadata(String::new(), &HashMap::new());

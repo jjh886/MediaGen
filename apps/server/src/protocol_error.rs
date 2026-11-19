@@ -89,12 +89,7 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
             .filter(|text| !text.is_empty());
         let text = reason.map_or_else(
             || "上游返回了生成失败标记，但未提供具体原因；完整失败帧已保留供排查".into(),
-            |text| {
-                format!(
-                    "上游未完成本次生成，返回原因：{}",
-                    sanitize_error(text).chars().take(2000).collect::<String>()
-                )
-            },
+            sanitize_error,
         );
         return (409, "upstream_generation_failed", text);
     }

@@ -294,8 +294,12 @@ pub(crate) fn chat_to_responses(body: &Value) -> Result<Value, String> {
     }
     if let Some(format) = body.get("response_format") {
         request["text"] = if format["type"] == "json_schema" {
-            let mut schema = format["json_schema"].clone();
-            schema["type"] = json!("json_schema");
+            let mut schema = format["json_schema"]
+                .as_object()
+                .ok_or("response_format.json_schema 必须是对象")?
+                .clone();
+            schema.insert("type".into(), json!("json_schema"));
+            schema.entry("strict").or_insert(json!(false));
             json!({"format":schema})
         } else {
             json!({"format":format})
@@ -374,6 +378,14 @@ pub(crate) fn chat_usage(usage: &Value) -> Value {
 }
 
 pub(crate) fn validate_capabilities(body: &Value, capabilities: &Value) -> Result<(), String> {
+    if let (Some(tier), Some(tiers)) = (
+        body["service_tier"].as_str(),
+        capabilities["service_tiers"].as_array(),
+    ) {
+        if !tiers.contains(&json!(tier.trim().to_ascii_lowercase())) {
+            return Err("当前模型不支持此 service_tier".into());
+        }
+    }
     if let Some(speed) = body.get("speed").filter(|v| !v.is_null()) {
         let speed = speed.as_f64().ok_or("speed 必须是数字")?;
         if capabilities["speed"]["minimum"]

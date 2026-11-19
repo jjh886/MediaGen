@@ -1,5 +1,23 @@
 use super::*;
 #[test]
+fn chat_json_schema_defaults_to_non_strict_and_preserves_explicit_mode() {
+    for strict in [None, Some(false), Some(true)] {
+        let mut schema = json!({"name":"result","schema":{"type":"object"}});
+        if let Some(value) = strict {
+            schema["strict"] = json!(value);
+        }
+        let body =
+            json!({"messages":[],"response_format":{"type":"json_schema","json_schema":schema}});
+        let result = chat_to_responses(&body).unwrap();
+        schema["strict"] = json!(strict.unwrap_or(false));
+        schema["type"] = json!("json_schema");
+        assert_eq!(result["text"]["format"], schema);
+    }
+    let malformed =
+        json!({"messages":[],"response_format":{"type":"json_schema","json_schema":"invalid"}});
+    assert!(chat_to_responses(&malformed).is_err());
+}
+#[test]
 fn chat_attachments_preserve_audio_bytes_and_reject_non_object_files() {
     let body = json!({"model":"test","messages":[{"role":"user","content":[
         {"type":"input_audio","input_audio":{"format":"mp3","data":"YWJj"}},
@@ -68,4 +86,14 @@ fn capability_validation_checks_actual_account_modalities_efforts_and_formats() 
         assert!(validate_capabilities(&request, &capabilities).is_err());
     }
     assert!(validate_capabilities(&json!({"voice":"voice","response_format":"wav","reasoning":{"effort":"high"},"input":[{"content":[{"type":"input_image","image_url":"data:image/png;base64,AAAA"}]}]}),&capabilities).is_ok());
+}
+
+#[test]
+fn service_tier_is_checked_against_the_selected_account() {
+    let request = json!({"service_tier":" UltraFast "});
+    let fast = json!({"service_tiers":["priority"]});
+    let both = json!({"service_tiers":["priority","ultrafast"]});
+    assert!(validate_capabilities(&request, &fast).is_err());
+    assert!(validate_capabilities(&request, &both).is_ok());
+    assert!(validate_capabilities(&request, &json!({})).is_ok());
 }

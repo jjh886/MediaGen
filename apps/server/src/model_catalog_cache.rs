@@ -278,6 +278,7 @@ pub(super) fn merge_capabilities(variants: &[Value]) -> Value {
         "endpoints",
         "voices",
         "response_formats",
+        "service_tiers",
         "image_sources",
     ] {
         let mut values = Vec::new();
