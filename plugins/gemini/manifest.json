@@ -3,6 +3,12 @@
   "adapter_mode": "api",
   "failure_strategy": [
     {
+      "contains_any": ["upstream_generation_failed"],
+      "category": "upstream_failure",
+      "retry_action": "fail",
+      "usage_consumed": false
+    },
+    {
       "contains_any": ["ProxyConnect", "SOCKS error", "tunnel error"],
       "category": "proxy_unavailable",
       "retry_action": "failover",
@@ -31,6 +37,7 @@
       "contains_any": [
         "missing_input",
         "invalid_input",
+        "attachment_limit_exceeded",
         "unsupported_speed",
         "unsupported_instructions",
         "unsupported_voice",

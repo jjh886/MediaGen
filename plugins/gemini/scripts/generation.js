@@ -7,8 +7,43 @@ function geminiGenerate(session, model, prompt, files, previous, ratio, onResult
   geminiChannelGenerate(session, model, payload, (frame) => {
     const current = host.checkpoint() || {}
     if (frame[31] === true || frame[31] === 1) {
-      const error = 'generation_failed: Gemini 上游明确返回生成失败标记 frame[31]'
-      host.checkpoint({ ...current, phase: 'failed', error })
+      const failureContext = {
+        requested_model: model.id,
+        prompt_chars: prompt.length,
+        attachment_count: files.length,
+        continued: Boolean(previous),
+      }
+      let error = geminiGenerationFailure(frame, failureContext)
+      host.checkpoint({
+        ...current,
+        conversation_id: frame[1]?.[0] || current.conversation_id,
+        response_id: frame[1]?.[1] || current.response_id,
+        phase: 'failed',
+        error,
+        failure_frame: frame,
+        failure_context: failureContext,
+      })
+      // 失败通知可能没有正文，只读查询相同轮次补全原因，不重新提交生成。
+      const failed = host.checkpoint()
+      if (
+        !frame[4]?.some((candidate) => candidate?.[1]?.[0]) &&
+        failed.response_id &&
+        failed.conversation_id
+      ) {
+        try {
+          const history = geminiHistory(session, failed)
+          if (history) {
+            error = geminiGenerationFailure(frame, {
+              ...failureContext,
+              message: history.text,
+              model: history.actual_model_name,
+            })
+            host.checkpoint({ ...failed, error, failure_history: history.turn })
+          }
+        } catch (lookupError) {
+          host.checkpoint({ ...failed, failure_lookup_error: String(lookupError.message) })
+        }
+      }
       throw new Error(error)
     }
     if (frame[1]?.[0] && frame[1]?.[1])

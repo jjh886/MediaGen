@@ -160,7 +160,7 @@ function main(ctx) {
     return output
   } catch (error) {
     if (
-      /^(conversation_unavailable|recovery_exhausted|generation_failed):/.test(
+      /^(conversation_unavailable|recovery_exhausted|generation_failed|upstream_generation_failed):/.test(
         String(error.message)
       )
     )

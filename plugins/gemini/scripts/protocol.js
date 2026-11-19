@@ -171,6 +171,17 @@ function geminiPayload(prompt, model, files, previous, ratio) {
   return inner
 }
 
+function geminiGenerationFailure(frame, context = {}) {
+  const message = (Array.isArray(frame[4]) ? frame[4] : [])
+    .map((candidate) => candidate?.[1]?.[0])
+    .filter((text) => typeof text === 'string' && text.trim())
+    .join('\n')
+  return (
+    'upstream_generation_failed: ' +
+    JSON.stringify({ message, model: frame[42] || '', marker: 'frame[31]', ...context })
+  )
+}
+
 function geminiParseGeneration(raw, model) {
   const result = {
     text: '',
@@ -185,8 +196,7 @@ function geminiParseGeneration(raw, model) {
   for (const { data } of geminiFrames(raw)) {
     if (!Array.isArray(data)) continue
     result.frames.push(data)
-    if (data[31] === true || data[31] === 1)
-      throw new Error('generation_failed: Gemini 上游明确返回生成失败标记 frame[31]')
+    if (data[31] === true || data[31] === 1) throw new Error(geminiGenerationFailure(data))
     if (data[1]?.[0]) result.conversation_id = data[1][0]
     if (data[1]?.[1]) result.response_id = data[1][1]
     if (typeof data[26] === 'string') result.token = data[26]

@@ -174,5 +174,9 @@ function geminiWireEvent(value) {
         }
   }
   for (const bytes of data[5] || []) visit(geminiWireDecode(bytes))
-  return { frame, done: candidate[1]?.[0] === 1 }
+  return {
+    frame,
+    done: candidate[1]?.[0] === 1,
+    ...(frame[31] ? { failure_wire: value[0] } : {}),
+  }
 }

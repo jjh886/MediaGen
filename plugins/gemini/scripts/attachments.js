@@ -87,7 +87,10 @@ function geminiReferences(ctx, session, request) {
       }
     }
   }
-  if (attachments.length > 10) throw new Error('invalid_input: Gemini 同一提示最多10个附件')
+  if (attachments.length > 10)
+    throw new Error(
+      'attachment_limit_exceeded: ' + JSON.stringify({ count: attachments.length, limit: 10 })
+    )
   return attachments.map((attachment, index) =>
     geminiUpload(
       session,

@@ -222,6 +222,9 @@ function geminiChannelGenerate(session, model, inner, onFrame) {
       }
       const candidate = value?.[0]?.[1]?.[6]?.[0]
       const frame = decoded?.frame || candidate?.[3]?.[3]
+      // 原始失败帧只进入加密检查点，不把会话 token 写进日志或返回客户端。
+      if (decoded?.failure_wire)
+        host.checkpoint({ ...host.checkpoint(), failure_wire: decoded.failure_wire })
       if (Array.isArray(frame)) onFrame(frame)
       if ((decoded?.done || candidate?.[0] === 1) && !closing) {
         geminiChannelPost(session, channel, 2, geminiWireEncode([[4, geminiWireEncode([[1, 1]])]]))
