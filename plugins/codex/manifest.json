@@ -48,184 +48,18 @@
       }
     },
     {
-      "model_id": "codex-gpt-image-2.5-flare",
-      "display_name": "GPT Image 2.5 Flare",
-      "task_kind": "image",
-      "aliases": ["gpt-image-2.5-flare", "codex"],
-      "alias_priority": 40,
-      "capabilities": {
-        "reasoning": {
-          "efforts": []
-        },
-        "input_modalities": ["text", "image"],
-        "output_modalities": ["image"],
-        "endpoints": ["/v1/images/generations", "/v1/images/edits"],
-        "response_formats": ["png", "jpeg", "webp"],
-        "parameter_values": {
-          "quality": ["auto", "low", "medium", "high", "xhigh", "max"]
-        },
-        "pricing": {
-          "currency": "USD",
-          "unit": "1M image tokens",
-          "input": 8.0,
-          "output": 30.0,
-          "reference_rates": {
-            "cache_read_input_image_token_cost": 2e-6,
-            "cache_read_input_token_cost": 1.25e-6,
-            "input_cost_per_image_token": 8e-6,
-            "input_cost_per_token": 5e-6,
-            "output_cost_per_image_token": 3e-5,
-            "output_cost_per_token": 0
-          },
-          "cached_input": 1.25
-        },
-        "input_types": ["text", "image"]
-      }
-    },
-    {
-      "model_id": "codex-gpt-image-2.5-sunburst",
-      "display_name": "GPT Image 2.5 Sunburst",
-      "task_kind": "image",
-      "aliases": ["gpt-image-2.5-sunburst"],
-      "alias_priority": 40,
-      "capabilities": {
-        "reasoning": {
-          "efforts": []
-        },
-        "input_modalities": ["text", "image"],
-        "output_modalities": ["image"],
-        "endpoints": ["/v1/images/generations", "/v1/images/edits"],
-        "response_formats": ["png", "jpeg", "webp"],
-        "parameter_values": {
-          "quality": ["auto", "low", "medium", "high", "xhigh", "max"]
-        },
-        "pricing": {
-          "currency": "USD",
-          "unit": "1M image tokens",
-          "input": 8.0,
-          "output": 30.0,
-          "reference_rates": {
-            "cache_read_input_image_token_cost": 2e-6,
-            "cache_read_input_token_cost": 1.25e-6,
-            "input_cost_per_image_token": 8e-6,
-            "input_cost_per_token": 5e-6,
-            "output_cost_per_image_token": 3e-5,
-            "output_cost_per_token": 0
-          },
-          "cached_input": 1.25
-        },
-        "input_types": ["text", "image"]
-      }
-    },
-    {
-      "model_id": "codex-gpt-image-2",
-      "display_name": "GPT Image 2",
-      "task_kind": "image",
-      "aliases": ["gpt-image-2"],
-      "alias_priority": 40,
-      "capabilities": {
-        "reasoning": {
-          "efforts": []
-        },
-        "input_modalities": ["text", "image"],
-        "output_modalities": ["image"],
-        "endpoints": ["/v1/images/generations", "/v1/images/edits"],
-        "response_formats": ["png", "jpeg", "webp"],
-        "parameter_values": {
-          "quality": ["auto", "low", "medium", "high"]
-        },
-        "pricing": {
-          "currency": "USD",
-          "unit": "1M image tokens",
-          "input": 8.0,
-          "output": 30.0,
-          "reference_rates": {
-            "cache_read_input_image_token_cost": 2e-6,
-            "cache_read_input_token_cost": 1.25e-6,
-            "input_cost_per_image_token": 8e-6,
-            "input_cost_per_token": 5e-6,
-            "output_cost_per_image_token": 3e-5,
-            "output_cost_per_token": 1e-5
-          },
-          "cached_input": 1.25
-        },
-        "input_types": ["text", "image"]
-      }
-    },
-    {
-      "model_id": "codex-gpt-6.1-terra",
-      "display_name": "GPT-6.1 Terra",
+      "model_id": "codex-gpt-6.2-sol",
+      "display_name": "GPT-6.2 Sol",
       "task_kind": "text",
-      "aliases": ["gpt-6.1-terra"],
+      "aliases": ["gpt-6.2-sol"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
           "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
           "default_effort": "low"
         },
-        "tool_calling": true,
-        "input_modalities": ["text", "image", "file"],
-        "output_modalities": ["text"],
-        "endpoints": ["/v1/responses", "/v1/chat/completions", "/v1/responses/compact"],
-        "streaming": true,
-        "input_schema": {
-          "type": "object",
-          "required": ["model", "input"],
-          "properties": {
-            "model": {
-              "type": "string"
-            },
-            "input": {
-              "oneOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array"
-                }
-              ]
-            },
-            "stream": {
-              "type": "boolean"
-            },
-            "instructions": {
-              "type": "string"
-            },
-            "reasoning": {
-              "type": "object"
-            }
-          }
-        },
-        "unsupported_parameters": [
-          "temperature",
-          "top_p",
-          "presence_penalty",
-          "frequency_penalty",
-          "max_output_tokens",
-          "stop",
-          "logprobs",
-          "top_logprobs",
-          "logit_bias",
-          "seed",
-          "prediction",
-          "audio",
-          "modalities"
-        ],
-        "transports": ["http", "websocket"],
-        "input_types": ["text", "image"]
-      }
-    },
-    {
-      "model_id": "codex-gpt-6.1-sol",
-      "display_name": "GPT-6.1 Sol",
-      "task_kind": "text",
-      "aliases": ["gpt-6.1-sol"],
-      "alias_priority": 40,
-      "capabilities": {
-        "reasoning": {
-          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
-          "default_effort": "low"
-        },
+        "context_window": 500000,
+        "max_context_window": 872000,
         "tool_calling": true,
         "input_modalities": ["text", "image", "file"],
         "output_modalities": ["text"],
@@ -307,16 +141,18 @@
       }
     },
     {
-      "model_id": "codex-gpt-6-astra",
-      "display_name": "GPT-6 Astra",
+      "model_id": "codex-gpt-6.2-astra",
+      "display_name": "GPT-6.2 Astra",
       "task_kind": "text",
-      "aliases": ["gpt-6-astra"],
+      "aliases": ["gpt-6.2-astra"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "default_effort": "medium"
+          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "default_effort": "low"
         },
+        "context_window": 272000,
+        "max_context_window": 872000,
         "tool_calling": true,
         "input_modalities": ["text", "image", "file"],
         "output_modalities": ["text"],
@@ -369,36 +205,44 @@
         "pricing": {
           "currency": "USD",
           "unit": "1M tokens",
-          "input": 10.0,
-          "output": 50.0,
+          "input": 8,
+          "output": 40,
           "reference_rates": {
-            "input_cost_per_token": 1e-5,
-            "output_cost_per_token": 5e-5,
-            "cache_read_input_token_cost": 1e-6,
-            "cache_creation_input_token_cost": 1.25e-5,
-            "input_cost_per_token_priority": 2e-5,
-            "output_cost_per_token_priority": 0.0001,
-            "cache_read_input_token_cost_priority": 2e-6,
-            "cache_creation_input_token_cost_priority": 2.5e-5,
+            "cache_creation_input_token_cost": 1e-5,
+            "cache_creation_input_token_cost_batches": 5e-6,
+            "cache_creation_input_token_cost_flex": 5e-6,
+            "cache_creation_input_token_cost_priority": 2e-5,
+            "cache_read_input_token_cost": 4e-7,
+            "cache_read_input_token_cost_flex": 2e-7,
+            "cache_read_input_token_cost_priority": 8e-7,
+            "input_cost_per_token": 8e-6,
+            "input_cost_per_token_batches": 4e-6,
+            "input_cost_per_token_flex": 4e-6,
+            "input_cost_per_token_priority": 1.6e-5,
             "long_context_input_token_threshold": 272000,
-            "long_context_input_cost_multiplier": 2,
-            "long_context_output_cost_multiplier": 1.5
+            "long_context_input_cost_multiplier": 2.0,
+            "long_context_output_cost_multiplier": 1.5,
+            "output_cost_per_token": 4e-5,
+            "output_cost_per_token_batches": 2e-5,
+            "output_cost_per_token_flex": 2e-5,
+            "output_cost_per_token_priority": 8e-5,
+            "cache_read_input_token_cost_batches": 2e-7
           },
-          "cached_input": 1.0
+          "cached_input": 0.4
         },
         "input_types": ["text", "image"]
       }
     },
     {
-      "model_id": "codex-gpt-6-sol",
-      "display_name": "GPT-6 Sol",
+      "model_id": "codex-gpt-6.1-terra",
+      "display_name": "GPT-6.1 Terra",
       "task_kind": "text",
-      "aliases": ["gpt-6-sol"],
+      "aliases": ["gpt-6.1-terra"],
       "alias_priority": 40,
       "capabilities": {
         "reasoning": {
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "default_effort": "medium"
+          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "default_effort": "low"
         },
         "tool_calling": true,
         "input_modalities": ["text", "image", "file"],
@@ -449,36 +293,6 @@
           "modalities"
         ],
         "transports": ["http", "websocket"],
-        "context_window": 1050000,
-        "max_output_tokens": 128000,
-        "pricing": {
-          "currency": "USD",
-          "unit": "1M tokens",
-          "input": 2.0,
-          "output": 10.0,
-          "reference_rates": {
-            "cache_creation_input_token_cost": 2.5e-6,
-            "cache_creation_input_token_cost_batches": 1.25e-6,
-            "cache_creation_input_token_cost_flex": 1.25e-6,
-            "cache_creation_input_token_cost_priority": 5e-6,
-            "cache_read_input_token_cost": 2e-7,
-            "cache_read_input_token_cost_flex": 1e-7,
-            "cache_read_input_token_cost_priority": 4e-7,
-            "input_cost_per_token": 2e-6,
-            "input_cost_per_token_batches": 1e-6,
-            "input_cost_per_token_flex": 1e-6,
-            "input_cost_per_token_priority": 4e-6,
-            "long_context_input_token_threshold": 272000,
-            "long_context_input_cost_multiplier": 2.0,
-            "long_context_output_cost_multiplier": 1.5,
-            "output_cost_per_token": 1e-5,
-            "output_cost_per_token_batches": 5e-6,
-            "output_cost_per_token_flex": 5e-6,
-            "output_cost_per_token_priority": 2e-5,
-            "cache_read_input_token_cost_batches": 1e-7
-          },
-          "cached_input": 0.2
-        },
         "input_types": ["text", "image"]
       }
     },
@@ -571,276 +385,6 @@
             "cache_read_input_token_cost_batches": 5e-9
           },
           "cached_input": 0.01
-        },
-        "input_types": ["text", "image"]
-      }
-    },
-    {
-      "model_id": "codex-gpt-5.6-sol",
-      "display_name": "GPT-5.6 Sol",
-      "task_kind": "text",
-      "aliases": ["gpt-5.6-sol"],
-      "alias_priority": 40,
-      "capabilities": {
-        "reasoning": {
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "default_effort": "low"
-        },
-        "tool_calling": true,
-        "input_modalities": ["text", "image", "file"],
-        "output_modalities": ["text"],
-        "endpoints": ["/v1/responses", "/v1/chat/completions", "/v1/responses/compact"],
-        "streaming": true,
-        "input_schema": {
-          "type": "object",
-          "required": ["model", "input"],
-          "properties": {
-            "model": {
-              "type": "string"
-            },
-            "input": {
-              "oneOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array"
-                }
-              ]
-            },
-            "stream": {
-              "type": "boolean"
-            },
-            "instructions": {
-              "type": "string"
-            },
-            "reasoning": {
-              "type": "object"
-            }
-          }
-        },
-        "unsupported_parameters": [
-          "temperature",
-          "top_p",
-          "presence_penalty",
-          "frequency_penalty",
-          "max_output_tokens",
-          "stop",
-          "logprobs",
-          "top_logprobs",
-          "logit_bias",
-          "seed",
-          "prediction",
-          "audio",
-          "modalities"
-        ],
-        "transports": ["http", "websocket"],
-        "pricing": {
-          "currency": "USD",
-          "unit": "1M tokens",
-          "input": 5.0,
-          "output": 30.0,
-          "reference_rates": {
-            "cache_creation_input_token_cost": 6.25e-6,
-            "cache_creation_input_token_cost_batches": 3.125e-6,
-            "cache_creation_input_token_cost_flex": 3.125e-6,
-            "cache_creation_input_token_cost_priority": 1.25e-5,
-            "cache_read_input_token_cost": 5e-7,
-            "cache_read_input_token_cost_flex": 2.5e-7,
-            "cache_read_input_token_cost_priority": 1e-6,
-            "input_cost_per_token": 5e-6,
-            "input_cost_per_token_batches": 2.5e-6,
-            "input_cost_per_token_flex": 2.5e-6,
-            "input_cost_per_token_priority": 1e-5,
-            "long_context_input_token_threshold": 272000,
-            "long_context_input_cost_multiplier": 2.0,
-            "long_context_output_cost_multiplier": 1.5,
-            "output_cost_per_token": 3e-5,
-            "output_cost_per_token_batches": 1.5e-5,
-            "output_cost_per_token_flex": 1.5e-5,
-            "output_cost_per_token_priority": 6e-5
-          },
-          "cached_input": 0.5
-        },
-        "input_types": ["text", "image"]
-      }
-    },
-    {
-      "model_id": "codex-gpt-5.6-terra",
-      "display_name": "GPT-5.6 Terra",
-      "task_kind": "text",
-      "aliases": ["gpt-5.6-terra"],
-      "alias_priority": 40,
-      "capabilities": {
-        "reasoning": {
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "default_effort": "medium"
-        },
-        "tool_calling": true,
-        "input_modalities": ["text", "image", "file"],
-        "output_modalities": ["text"],
-        "endpoints": ["/v1/responses", "/v1/chat/completions", "/v1/responses/compact"],
-        "streaming": true,
-        "input_schema": {
-          "type": "object",
-          "required": ["model", "input"],
-          "properties": {
-            "model": {
-              "type": "string"
-            },
-            "input": {
-              "oneOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array"
-                }
-              ]
-            },
-            "stream": {
-              "type": "boolean"
-            },
-            "instructions": {
-              "type": "string"
-            },
-            "reasoning": {
-              "type": "object"
-            }
-          }
-        },
-        "unsupported_parameters": [
-          "temperature",
-          "top_p",
-          "presence_penalty",
-          "frequency_penalty",
-          "max_output_tokens",
-          "stop",
-          "logprobs",
-          "top_logprobs",
-          "logit_bias",
-          "seed",
-          "prediction",
-          "audio",
-          "modalities"
-        ],
-        "transports": ["http", "websocket"],
-        "pricing": {
-          "currency": "USD",
-          "unit": "1M tokens",
-          "input": 2.0,
-          "output": 12.0,
-          "reference_rates": {
-            "cache_creation_input_token_cost": 2.5e-6,
-            "cache_creation_input_token_cost_batches": 1.25e-6,
-            "cache_creation_input_token_cost_flex": 1.25e-6,
-            "cache_creation_input_token_cost_priority": 5e-6,
-            "cache_read_input_token_cost": 2e-7,
-            "cache_read_input_token_cost_flex": 1e-7,
-            "cache_read_input_token_cost_priority": 4e-7,
-            "input_cost_per_token": 2e-6,
-            "input_cost_per_token_batches": 1e-6,
-            "input_cost_per_token_flex": 1e-6,
-            "input_cost_per_token_priority": 4e-6,
-            "long_context_input_token_threshold": 272000,
-            "long_context_input_cost_multiplier": 2.0,
-            "long_context_output_cost_multiplier": 1.5,
-            "output_cost_per_token": 1.2e-5,
-            "output_cost_per_token_batches": 6e-6,
-            "output_cost_per_token_flex": 6e-6,
-            "output_cost_per_token_priority": 2.4e-5
-          },
-          "cached_input": 0.2
-        },
-        "input_types": ["text", "image"]
-      }
-    },
-    {
-      "model_id": "codex-gpt-5.6-luna",
-      "display_name": "GPT-5.6 Luna",
-      "task_kind": "text",
-      "aliases": ["gpt-5.6-luna"],
-      "alias_priority": 40,
-      "capabilities": {
-        "reasoning": {
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
-          "default_effort": "medium"
-        },
-        "tool_calling": true,
-        "input_modalities": ["text", "image", "file"],
-        "output_modalities": ["text"],
-        "endpoints": ["/v1/responses", "/v1/chat/completions", "/v1/responses/compact"],
-        "streaming": true,
-        "input_schema": {
-          "type": "object",
-          "required": ["model", "input"],
-          "properties": {
-            "model": {
-              "type": "string"
-            },
-            "input": {
-              "oneOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array"
-                }
-              ]
-            },
-            "stream": {
-              "type": "boolean"
-            },
-            "instructions": {
-              "type": "string"
-            },
-            "reasoning": {
-              "type": "object"
-            }
-          }
-        },
-        "unsupported_parameters": [
-          "temperature",
-          "top_p",
-          "presence_penalty",
-          "frequency_penalty",
-          "max_output_tokens",
-          "stop",
-          "logprobs",
-          "top_logprobs",
-          "logit_bias",
-          "seed",
-          "prediction",
-          "audio",
-          "modalities"
-        ],
-        "transports": ["http", "websocket"],
-        "pricing": {
-          "currency": "USD",
-          "unit": "1M tokens",
-          "input": 0.2,
-          "output": 1.2,
-          "reference_rates": {
-            "cache_creation_input_token_cost": 2.5e-7,
-            "cache_creation_input_token_cost_batches": 1.25e-7,
-            "cache_creation_input_token_cost_flex": 1.25e-7,
-            "cache_creation_input_token_cost_priority": 5e-7,
-            "cache_read_input_token_cost": 2e-8,
-            "cache_read_input_token_cost_flex": 1e-8,
-            "cache_read_input_token_cost_priority": 4e-8,
-            "input_cost_per_token": 2e-7,
-            "input_cost_per_token_batches": 1e-7,
-            "input_cost_per_token_flex": 1e-7,
-            "input_cost_per_token_priority": 4e-7,
-            "long_context_input_token_threshold": 272000,
-            "long_context_input_cost_multiplier": 2.0,
-            "long_context_output_cost_multiplier": 1.5,
-            "output_cost_per_token": 1.2e-6,
-            "output_cost_per_token_batches": 6e-7,
-            "output_cost_per_token_flex": 6e-7,
-            "output_cost_per_token_priority": 2.4e-6
-          },
-          "cached_input": 0.02
         },
         "input_types": ["text", "image"]
       }
@@ -1008,6 +552,12 @@
       "usage_consumed": false
     },
     {
+      "contains_any": ["account_model_unavailable"],
+      "category": "account_model_unavailable",
+      "retry_action": "failover",
+      "usage_consumed": false
+    },
+    {
       "contains_any": ["invalid", "bad request", "unsupported"],
       "category": "invalid_request",
       "retry_action": "fail",
@@ -1128,7 +678,7 @@
       "steps": [
         {
           "action": "plugin.run_js",
-          "script_files": ["auth.js", "text_responses.js", "generate_text.js"],
+          "script_files": ["auth.js", "request_input.js", "text_responses.js", "generate_text.js"],
           "timeout_ms": 14400000,
           "save_as": "result"
         }
@@ -1156,7 +706,7 @@
       "steps": [
         {
           "action": "plugin.run_js",
-          "script_files": ["auth.js", "text_responses.js", "compact_text.js"],
+          "script_files": ["auth.js", "request_input.js", "text_responses.js", "compact_text.js"],
           "timeout_ms": 600000
         }
       ]
@@ -1185,6 +735,14 @@
         "default": "gpt-6-luna",
         "hint": "优先选择账号支持的模型。参考 API 价格不代表订阅额度的实际扣减。",
         "options": [
+          {
+            "value": "gpt-6.2-sol",
+            "label": "GPT-6.2 Sol · 输入 $2 / 输出 $10 每百万 Token"
+          },
+          {
+            "value": "gpt-6.2-astra",
+            "label": "GPT-6.2 Astra · 输入 $8 / 输出 $40 每百万 Token"
+          },
           {
             "value": "gpt-6.1-terra",
             "label": "GPT-6.1 Terra"
@@ -1222,6 +780,6 @@
     ],
     "notice": "新模型是否可用取决于当前 Codex 账号授权。默认使用 GPT-6 Luna，可按账号支持情况切换。"
   },
-  "version": "1.4.2",
+  "version": "1.5.0",
   "schema_version": 1
 }

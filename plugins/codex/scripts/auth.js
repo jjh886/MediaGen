@@ -322,7 +322,7 @@ function codexFirstNonEmpty(values) {
   }
   return ''
 }
-const CODEX_UPSTREAM_VERSION = '0.160.0'
+const CODEX_UPSTREAM_VERSION = '0.169.0'
 // 浏览器版本是 Chrome 版本，不能冒充 Codex 协议版本；系统身份跟随账号配置。
 function codexAuthHeaders(ctx) {
   const os = String(ctx?.browser_os || ctx?.account?.browser_os || '')
@@ -365,12 +365,32 @@ function codexUpstreamHeaders(accessToken, accountId, accept, ctx) {
 }
 
 function codexSupportedTextModel(model) {
-  return /^gpt-(?:6\.1-(?:sol|terra)|6-(?:astra|sol|luna)|5\.6-(?:sol|terra|luna))$/.test(model)
+  return /^gpt-(?:6\.2-(?:sol|astra)|6\.1-(?:sol|terra)|6-(?:astra|sol|luna)|5\.6-(?:sol|terra|luna))$/.test(
+    model
+  )
 }
 
 function codexSupportedEffort(effort, model) {
-  const efforts = /^gpt-6\.1-(?:sol|terra)$/.test(model)
+  const efforts = /^gpt-6\.(?:2-(?:sol|astra)|1-(?:sol|terra))$/.test(model)
     ? ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
     : ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
   return efforts.includes(effort)
+}
+
+function codexServiceTiers(model, accountTier) {
+  if (!['gpt-6.2-sol', 'gpt-6.2-astra'].includes(model?.slug)) return undefined
+  const tiers = ['auto', 'default', 'flex', 'scale', 'fast', 'priority']
+  const plan = String(accountTier || '')
+    .toLowerCase()
+    .replace(/[\s_-]/g, '')
+  const granted =
+    Array.isArray(model.service_tiers) &&
+    model.service_tiers.some((tier) => tier?.id === 'ultrafast')
+  if (
+    granted ||
+    plan === 'promax' ||
+    (model.slug === 'gpt-6.2-sol' && ['pro', 'chatgptpro'].includes(plan))
+  )
+    tiers.push('ultrafast')
+  return tiers
 }

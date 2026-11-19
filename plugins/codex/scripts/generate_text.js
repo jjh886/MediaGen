@@ -6,16 +6,19 @@ function main(ctx) {
   codexApplyReasoning(ctx, auth, normalized.payload)
   host.checkpoint({ phase: 'submitting' })
   let execution = codexExecuteResponses(auth, normalized.payload, ctx)
-  if ((execution.status >= 400 && execution.status < 500) || execution.contextRejected) {
+  if (!execution.outputStarted && !execution.response && execution.status === 401) {
     host.checkpoint({ phase: 'ready' })
-  }
-  if (!execution.response && execution.status === 401) {
     auth = codexRefreshAuth(ctx, auth, '文本接口返回 401')
     host.checkpoint({ phase: 'submitting' })
     execution = codexExecuteResponses(auth, normalized.payload, ctx)
-    if ((execution.status >= 400 && execution.status < 500) || execution.contextRejected) {
-      host.checkpoint({ phase: 'ready' })
-    }
+  }
+  if (
+    !execution.outputStarted &&
+    ((execution.status >= 400 && execution.status < 500) ||
+      execution.contextRejected ||
+      execution.rejectedBeforeOutput)
+  ) {
+    host.checkpoint({ phase: 'ready' })
   }
   if (execution.error || !execution.response) {
     throw new Error(execution.error || 'temporary_unavailable: Codex Responses 缺少完成事件')

@@ -56,6 +56,17 @@ function codexNormalizeResponsesRequest(value, platformConfig) {
   payload.store = false
   payload.stream = true
   for (const field of CODEX_UNSUPPORTED_RESPONSE_FIELDS) delete payload[field]
+  if (
+    ['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'].includes(
+      payload.model
+    ) &&
+    codexReasoningEffort(payload.reasoning?.effort) !== 'none'
+  ) {
+    delete payload.logprobs
+    delete payload.top_logprobs
+    if (Array.isArray(payload.include))
+      payload.include = payload.include.filter((field) => field !== 'message.output_text.logprobs')
+  }
   codexEnsureReasoningEncryptedContent(payload)
   if (!String(payload.instructions || '').trim()) {
     payload.instructions =
@@ -88,7 +99,11 @@ function codexApplyReasoning(ctx, auth, payload) {
   const models = codexHttpSucceeded(response) && response.data.body?.models
   const model = Array.isArray(models) && models.find((item) => item.slug === payload.model)
   if (Array.isArray(models) && !model) {
-    throw new Error('UNSUPPORTED_MODEL: 当前 Codex 账号不支持模型 ' + payload.model)
+    throw new Error('account_model_unavailable: 当前 Codex 账号不支持模型 ' + payload.model)
+  }
+  const tiers = model && codexServiceTiers(model, ctx.account?.tier)
+  if (payload.service_tier === 'ultrafast' && tiers && !tiers.includes('ultrafast')) {
+    throw new Error('account_model_unavailable: 当前账号不支持此模型的 ultrafast 档位')
   }
   if (model && Array.isArray(model.supported_reasoning_levels)) {
     capability = {
@@ -96,7 +111,7 @@ function codexApplyReasoning(ctx, auth, payload) {
       default_effort: model.default_reasoning_level,
     }
   }
-  // 模型目录与生成接口档位不完全一致；Responses 接口实测拒绝 ultra。
+  // 只使用插件和账号目录共同支持的档位。
   if (capability) {
     capability = {
       ...capability,
@@ -116,94 +131,6 @@ function codexApplyReasoning(ctx, auth, payload) {
   if (effort) payload.reasoning = { ...payload.reasoning, effort }
   else if (payload.reasoning) delete payload.reasoning.effort
   codexEnsureReasoningEncryptedContent(payload)
-}
-
-function codexNormalizeResponsesInput(value) {
-  if (typeof value === 'string') {
-    if (!value.trim()) throw new Error('missing_input: Codex Responses request 缺少 input。')
-    return [{ type: 'message', role: 'user', content: value }]
-  }
-  if (!Array.isArray(value) || !value.length) {
-    throw new Error('missing_input: Codex Responses request 缺少 input。')
-  }
-  return value.map((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new Error('invalid_input: Codex Responses input 项必须是对象。')
-    }
-    const next = { ...item }
-    if (!next.type && next.role) next.type = 'message'
-    if (next.type === 'message' && next.role === 'tool') {
-      return {
-        type: 'function_call_output',
-        call_id: String(next.tool_call_id || next.call_id || ''),
-        output: codexResponsesText(next.content),
-      }
-    }
-    if (next.type === 'message' && Array.isArray(next.content))
-      next.content = next.content.map(codexNormalizeTextFile)
-    return next
-  })
-}
-
-function codexNormalizeTextFile(part) {
-  if (part?.type !== 'input_file' || typeof part.file_data !== 'string') return part
-  const match = part.file_data.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/)
-  const name = String(part.filename || 'attachment.txt')
-  const mime = String(match?.[1] || part.mime_type || '').toLowerCase()
-  const textExtension =
-    /\.(txt|md|csv|json|py|js|jsx|ts|tsx|go|rs|java|c|cpp|h|cs|php|rb|sh|sql|html|css|xml|yaml|yml|toml|log)$/i
-  if (
-    !mime.startsWith('text/') &&
-    !['application/json', 'application/xml', 'application/javascript'].includes(mime) &&
-    !(!mime && textExtension.test(name))
-  )
-    return part
-  const encoded = match ? match[2] : part.file_data
-  const bytes = host.call('crypto.base64_decode_latin1', { text: encoded }).value
-  let text
-  try {
-    text = decodeURIComponent(
-      Array.from(bytes, (char) => '%' + char.charCodeAt(0).toString(16).padStart(2, '0')).join('')
-    )
-  } catch (_) {
-    throw new Error('invalid_input: Codex 文本附件必须使用有效 UTF-8 编码')
-  }
-  // 上游直接接收纯文本文件时会丢失文件身份；显式保留文件名和内容，仍作为用户数据。
-  return {
-    type: 'input_text',
-    text: '附件内容（以下 JSON 为文件数据）：\n' + JSON.stringify({ filename: name, text }),
-  }
-}
-
-function codexPromoteSystemInstructions(payload) {
-  const input = []
-  for (const item of payload.input) {
-    if (item.type === 'message' && item.role === 'system') {
-      // 系统消息按上游支持的 developer 角色发送一次；不能同时复制到
-      // instructions，否则长任务既重复消耗上下文，也会命中该字段的字符上限。
-      input.push({ ...item, role: 'developer' })
-    } else {
-      input.push(item)
-    }
-  }
-  payload.input = input
-}
-
-function codexNormalizeFunctionTools(payload) {
-  if (payload.tools === undefined) return
-  if (!Array.isArray(payload.tools)) throw new Error('invalid_input: tools 必须是数组。')
-  payload.tools = payload.tools.map((tool) => {
-    if (!tool || typeof tool !== 'object') throw new Error('invalid_input: tool 必须是对象。')
-    if (tool.type !== 'function' || !tool.function) return tool
-    const fn = tool.function
-    return {
-      type: 'function',
-      name: fn.name,
-      description: fn.description,
-      parameters: fn.parameters || {},
-      strict: fn.strict === true,
-    }
-  })
 }
 
 function codexNormalizeFunctionChoice(payload) {
@@ -232,6 +159,9 @@ function codexExecuteResponses(auth, payload, ctx) {
   const completedItems = new Map()
   let terminalError = ''
   let streamedText = ''
+  let outputStarted = false
+  let rejectedBeforeOutput = false
+  const prelude = []
   const result = host.stream(
     'http.sse_request',
     {
@@ -245,9 +175,45 @@ function codexExecuteResponses(auth, payload, ctx) {
       timeout_ms: 3 * 60 * 60 * 1000,
     },
     (event) => {
+      if (terminalError) return null
       const type = String(event?.type || '')
       if (event.response?.model && ctx?.request?.model?.startsWith('codex-'))
         event.response.model = 'codex-' + event.response.model.replace(/^codex-/, '')
+      if (type === 'response.failed' || type === 'error') {
+        const error = event.response?.error || event.error || event
+        terminalError = codexResponsesHttpError({ body: error })
+        rejectedBeforeOutput =
+          !outputStarted &&
+          [
+            'insufficient_quota',
+            'usage_limit_reached',
+            'rate_limit_exceeded',
+            'server_is_overloaded',
+          ].includes(error.code || error.type)
+        // 统一由协议层发送终态，否则客户端可能先收到失败，随后又收到切换账号后的响应。
+        return null
+      }
+      if (
+        !outputStarted &&
+        prelude.length < 16 &&
+        [
+          'response.created',
+          'response.queued',
+          'response.in_progress',
+          'response.metadata',
+          'codex.rate_limits',
+          'codex.response.metadata',
+          'keepalive',
+        ].includes(type)
+      ) {
+        prelude.push(event)
+        return null
+      }
+      if (!outputStarted) {
+        outputStarted = true
+        for (const pending of prelude) host.emit(pending)
+        prelude.length = 0
+      }
       if (
         type === 'response.output_item.done' &&
         event.item &&
@@ -269,11 +235,6 @@ function codexExecuteResponses(auth, payload, ctx) {
             .map(([, item]) => item)
         }
       }
-      if (type === 'response.failed') {
-        terminalError = codexResponsesError(event.response) || 'Codex 响应状态为 ' + type
-      }
-      if (type === 'error')
-        terminalError = String(event.message || event.error?.message || 'Codex 流返回错误')
       return event
     }
   )
@@ -290,7 +251,14 @@ function codexExecuteResponses(auth, payload, ctx) {
       terminalError
     )
   if (contextRejected) terminalError = 'invalid_input: context_length_exceeded: ' + terminalError
-  return { response: completed, error: terminalError, status, contextRejected }
+  return {
+    response: completed,
+    error: terminalError,
+    status,
+    contextRejected,
+    rejectedBeforeOutput,
+    outputStarted,
+  }
 }
 
 function codexResponsesOutputText(response) {
@@ -310,30 +278,33 @@ function codexResponsesOutputText(response) {
   return chunks.join('\n')
 }
 
-function codexResponsesError(response) {
-  if (!response || typeof response !== 'object') return ''
-  return String(response.error?.message || response.incomplete_details?.reason || '')
-}
-
 function codexResponsesHttpError(result) {
   const body = result?.body
+  const error = body?.response?.error || body?.error || body
   const detail =
-    body && typeof body === 'object'
-      ? body.error?.message || body.message || body.detail || JSON.stringify(body)
-      : result?.body_text
+    typeof error === 'object' && error !== null
+      ? error.message || (typeof error.detail === 'string' && error.detail)
+      : error || result?.body_text
   const status = Number(result?.status || 0)
-  const code =
-    body && typeof body === 'object'
-      ? String(body.error?.code || body.error?.type || body.code || '')
-      : ''
-  const message = String(detail || 'Codex Responses 请求失败')
-  const cooldownSeconds = codexResponsesCooldownSeconds(result)
+  const code = error?.code || (error?.type !== 'error' && error?.type)
+  const message = [code, detail].filter(Boolean).join(': ') || 'Codex Responses 请求失败'
+  const cooldownSeconds = codexResponsesCooldownSeconds({
+    body: error,
+    body_text: typeof body === 'object' && body !== null ? '' : result?.body_text,
+    headers: result?.headers,
+  })
   const cooldownSuffix = cooldownSeconds ? '; retry after ' + cooldownSeconds + ' seconds' : ''
-  if (codexResponsesQuotaLikeError(code + ' ' + message)) {
+  if (
+    code === 'usage_limit_reached' ||
+    code === 'insufficient_quota' ||
+    (code !== 'rate_limit_exceeded' && codexResponsesQuotaLikeError(message))
+  ) {
     return 'quota_exhausted: ' + (status ? 'HTTP ' + status + ': ' : '') + message + cooldownSuffix
   }
-  if (status === 429) {
-    return 'rate_limit_exceeded: HTTP 429: ' + message + cooldownSuffix
+  if (status === 429 || code === 'rate_limit_exceeded') {
+    return (
+      'rate_limit_exceeded: ' + (status ? 'HTTP ' + status + ': ' : '') + message + cooldownSuffix
+    )
   }
   const prefix = status === 400 || status === 422 ? 'invalid_input: ' : ''
   return prefix + (status ? 'HTTP ' + status + ': ' : '') + message
@@ -360,6 +331,7 @@ function codexResponsesSecondsFromValue(value, mode) {
       normalizedKey === 'cooldown_seconds' ||
       normalizedKey === 'retry_after_seconds' ||
       normalizedKey === 'reset_after_seconds' ||
+      normalizedKey === 'resets_in_seconds' ||
       normalizedKey === 'rate_limit_reset_after_seconds' ||
       normalizedKey.endsWith('_reset_after_seconds')
     ) {

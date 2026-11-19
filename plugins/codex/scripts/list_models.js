@@ -56,6 +56,7 @@ function main(ctx) {
           ],
           context_window: item.context_window,
           max_context_window: item.max_context_window,
+          service_tiers: codexServiceTiers(item, ctx.account?.tier),
           reasoning: {
             efforts: (item.supported_reasoning_levels || [])
               .map((level) => level.effort)
