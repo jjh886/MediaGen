@@ -1,9 +1,15 @@
 function geminiHistory(session, saved) {
   if (!/^c_[a-zA-Z0-9_-]+$/.test(saved.conversation_id || ''))
     throw new Error('invalid_response: Gemini 会话编号无效')
-  let value
+  const read = (count) =>
+    geminiRpc(session, 'hNvQHb', [saved.conversation_id, count, null, 1, [0], [4], null, 1])?.[0]
+  const matches = (turn) =>
+    turn?.[0]?.[0] === saved.conversation_id && turn[0][1] === saved.response_id
+  let turn
   try {
-    value = geminiRpc(session, 'hNvQHb', [saved.conversation_id, 10, null, 1, [0], [4], null, 1])
+    const recent = read(10)
+    turn = recent?.find(matches)
+    if (!turn && recent?.length === 10) turn = read(100)?.find(matches)
   } catch (error) {
     if (String(error.message).startsWith('upstream_resource_not_found:'))
       throw new Error(
@@ -11,9 +17,14 @@ function geminiHistory(session, saved) {
       )
     throw error
   }
-  const turn = value?.[0]?.find((turn) => turn?.[0]?.[1] === saved.response_id)
   if (!turn) return null
-  const candidate = turn[3]?.[0]?.[0]
+  const candidates = Array.isArray(turn[3]?.[0]) ? turn[3][0] : []
+  const id = saved.candidate_id || turn[3]?.[3]
+  const candidate = id
+    ? candidates.find((item) => item?.[0] === id)
+    : candidates.length === 1
+      ? candidates[0]
+      : null
   return {
     turn,
     text: typeof candidate?.[1]?.[0] === 'string' ? candidate[1][0] : '',

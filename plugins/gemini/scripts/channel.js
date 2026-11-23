@@ -158,7 +158,8 @@ function geminiChannelGenerate(session, model, inner, onFrame) {
   if (!channel.sid || !channel.gsid)
     throw new Error('invalid_response: Gemini WebChannel 未建立会话')
   const prompt = inner[0][0]
-  inner[0][0] = ''
+  // Redo 的初始化消息也携带原问题，收到确认后再提交正文。
+  if (inner[18] !== 2) inner[0][0] = ''
   const meta = geminiWireEncode([
     [1, 1],
     [2, model.selector || model.hex],

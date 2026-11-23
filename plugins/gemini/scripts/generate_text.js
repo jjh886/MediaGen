@@ -20,6 +20,8 @@ function main(ctx) {
       saved.original_receipt?.error ||
         'upstream_generation_failed: ' + JSON.stringify({ message: saved.retry_reply })
     )
+  if (saved.reasoning_retry && saved.phase !== 'accepted')
+    throw new Error('recovery_exhausted: 仅有思考摘要的原轮次已经补发过，无法确认补发结果')
   const session = geminiInitialize(apiSessionRead(ctx))
   const model =
     saved.phase === 'accepted'
@@ -119,6 +121,19 @@ function main(ctx) {
     /temporary_unavailable:|unexpected eof|connection reset|broken pipe|timed? ?out|error sending request|error reading a body from connection|incomplete message/i.test(
       String(error.message)
     )
+  const hasAnswer = (state) =>
+    Boolean(
+      emittedText ||
+      state.received_text_length ||
+      writer.output.some((item) => item.type !== 'reasoning') ||
+      (state.has_output && state.received_text_length === undefined && !started)
+    )
+  const finishReasoning = () => {
+    for (const id of Object.keys(writer.reasoning_items || {}))
+      apiTextUpdateReasoning(writer, id, '', true)
+    writer.reasoning_items = {}
+    progress.length = 0
+  }
   const recover = (current) => {
     // 已有回执时刷新原轮次；历史可能比生成通道晚写入。
     const delays = [0, 2000, 5000, 10000, 20000, 30000, 45000, 60000]
@@ -155,16 +170,15 @@ function main(ctx) {
     }
     if (!current.channel_ended) throw new Error('temporary_unavailable: 原 Gemini 会话结果尚未就绪')
     const incomplete = 'generation_failed: incomplete_upstream_turn'
-    if (
-      current.retry_reply !== undefined ||
-      current.fallback_model ||
-      hasOutput ||
-      current.received_text_length
-    )
+    if (current.retry_reply !== undefined || current.fallback_model || hasAnswer(current))
       throw new Error(incomplete)
-    const base = geminiCatalog(session).find(
-      (candidate) => candidate.mode === 1 && candidate.id !== requestedModel
-    )
+    // 只收到思考时保留原模型和思考等级；关闭旧摘要，下一次生成使用独立的摘要事件。
+    finishReasoning()
+    const base =
+      !hasOutput &&
+      geminiCatalog(session).find(
+        (candidate) => candidate.mode === 1 && candidate.id !== requestedModel
+      )
     const nextModel = base
       ? { ...base, think: 1, tool: 0 }
       : model || geminiModel(session, requestedModel, request.reasoning.effort)
@@ -174,9 +188,11 @@ function main(ctx) {
       ...current,
       phase: 'ready',
       fallback_model: nextModel.id,
+      reasoning_retry: hasOutput,
       original_receipt: {
         conversation_id: current.conversation_id,
         response_id: current.response_id,
+        history_lookup: current.history_lookup,
       },
       conversation_id: '',
       response_id: '',
@@ -188,13 +204,20 @@ function main(ctx) {
       accepted_at: null,
       recovery_started_at: null,
     })
-    const result = generate(nextModel, (value) =>
-      emit({ ...value, actual_model_name: value.actual_model_name || nextModel.name })
+    const redo =
+      hasOutput && current.history_lookup?.lookup_error !== 'conversation_unavailable'
+        ? current
+        : undefined
+    const result = generate(
+      nextModel,
+      (value) => emit({ ...value, actual_model_name: value.actual_model_name || nextModel.name }),
+      redo
     )
+
     return { ...result, actual_model_name: result.actual_model_name || nextModel.name }
   }
 
-  const generate = (selected, onResult = emit) => {
+  const generate = (selected, onResult = emit, redo) => {
     let result
     try {
       const packed = host.checkpoint()?.use_history_file ? withHistoryFile() : null
@@ -205,7 +228,8 @@ function main(ctx) {
         packed?.files || references(),
         request.session,
         null,
-        onResult
+        onResult,
+        redo
       )
     } catch (error) {
       const current = host.checkpoint()
@@ -273,20 +297,22 @@ function main(ctx) {
       if (
         (marker !== true && marker !== 1) ||
         current.phase !== 'failed' ||
-        hasOutput ||
-        writer.output.length ||
+        hasAnswer(current) ||
         current.fallback_model ||
         current.retry_reply !== undefined
       )
         throw error
-      // 先持久化一次性重试，再从本轮原父节点提交，避免把失败回答拼进下一轮。
+      finishReasoning()
+      // 先占用唯一一次 Redo，再短暂等待；断线重连不会再次创建回答版本。
       host.checkpoint({
         phase: 'retry_reserved',
         receipt_writer: current.receipt_writer,
         retry_reply: geminiFailureReply(new Error(current.error)),
         original_receipt: current,
         fallback_model: current.fallback_model,
+        use_history_file: current.use_history_file,
       })
+      host.call('time.sleep', { milliseconds: 1500 })
       const retryModel =
         model && model.id === (current.fallback_model || requestedModel)
           ? model
@@ -295,15 +321,16 @@ function main(ctx) {
               current.fallback_model || requestedModel,
               current.fallback_model ? undefined : request.reasoning.effort
             )
-      result = generate(retryModel)
+      result = generate(
+        retryModel,
+        emit,
+        current.conversation_id && current.response_id ? current : undefined
+      )
     }
     if (!result.text) throw new Error('invalid_response: Gemini 完成但未返回正文')
     emit(result)
     if (!started) apiTextStartResponse(writer)
-    if (writer.reasoning_items?.thinking)
-      apiTextUpdateReasoning(writer, 'thinking', result.reasoning || '', true)
-    if (writer.reasoning_items?.['thinking-progress'])
-      apiTextUpdateReasoning(writer, 'thinking-progress', '', true)
+    finishReasoning()
     if (request.session_key)
       writer.metadata = {
         ...writer.metadata,
@@ -324,6 +351,7 @@ function main(ctx) {
     if (current.phase === 'failed' && current.error) error = new Error(current.error)
     if (
       current.retry_reply !== undefined ||
+      (current.reasoning_retry && current.phase === 'ready') ||
       /^(conversation_unavailable|recovery_exhausted|generation_failed|upstream_generation_failed):/.test(
         String(error.message)
       )

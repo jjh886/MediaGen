@@ -408,9 +408,11 @@ describe('Gemini API 插件', () => {
     expect(context.geminiWireMessage(fields, 1)[1]).toEqual([[]])
   })
 
-  it.each(['', 'argon', 'carbon'])(
+  it.each(['', 'argon', 'carbon', 'redo'])(
     '按手动顺序检查额度与变体 %s，确认后发送提示词并关闭通道',
-    (variant) => {
+    (scenario) => {
+      const redo = scenario === 'redo'
+      const variant = redo ? '' : scenario
       const { context, host } = runtime()
       const requests = []
       const rpcs = []
@@ -463,6 +465,9 @@ describe('Gemini API 插件', () => {
         expect(
           context.geminiWireText(context.geminiWireDecode([...Buffer.from(turn, 'base64')]), 1)
         ).toBe(context.geminiWireText(inner, 60))
+        expect(context.geminiWireText(context.geminiWireMessage(inner, 1), 1)).toBe(
+          redo ? '1+1=?' : ''
+        )
         receive({ type: 'http_response', ok: true })
         receive([[1, [context.geminiWireBase64(context.geminiWireEncode([[1, []]]))]]])
         expect(requests.at(-1).body.ofs).toBe(1)
@@ -493,10 +498,12 @@ describe('Gemini API 插件', () => {
         selector: variant || '56fdd199312815e2',
         variant,
       }
+      const payload = context.geminiPayload('1+1=?', model, [], null)
+      if (redo) payload[18] = 2
       context.geminiChannelGenerate(
         { tokens: { api_key: 'test', bl: 'test' }, auth: {} },
         model,
-        context.geminiPayload('1+1=?', model, [], null),
+        payload,
         () => {}
       )
       expect(rpcs).toEqual(['ESY5D', 'VxUbXb', 'aPya6c'])
@@ -777,6 +784,134 @@ describe('Gemini API 插件', () => {
     expect(context.geminiReferences).toHaveBeenCalledTimes(1)
   })
 
+  it.each(['只有思考', '补发也断流', '已有正文', '已有工具调用'])(
+    '原轮次失联时按实际输出补发：%s',
+    (scenario) => {
+      const { context, host } = runtime()
+      const model = { id: 'gemini-4-hydrogen', name: '4 Hydrogen', think: 2 }
+      const req = {
+        request: { model: model.id, input: '原问题', stream: true, reasoning: { effort: 'high' } },
+      }
+      context.apiSessionRead = () => ({})
+      context.geminiInitialize = (session) => session
+      context.geminiModel = () => model
+      context.geminiReferences = vi.fn(() => [['原附件']])
+      context.geminiHistory = vi.fn(() => {
+        throw new Error('conversation_unavailable: 原轮次不存在')
+      })
+      let attempts = 0
+      context.geminiChannelGenerate = (_s, chosen, payload, feed) => {
+        attempts++
+        expect(chosen).toEqual(model)
+        expect(payload[0][3]).toEqual([['原附件']])
+        const frame = Array(43).fill(null)
+        frame[1] = ['c_' + attempts, 'r_' + attempts]
+        const text =
+          attempts === 2 && scenario !== '补发也断流'
+            ? '补发的正文'
+            : scenario === '已有正文'
+              ? '部分正文'
+              : scenario === '已有工具调用'
+                ? '<tool_call>{"name":"test","arguments":{}}</tool_call>'
+                : ''
+        const item = ['rc_' + attempts, [text]]
+        item[37] = [['摘要' + attempts]]
+        frame[4] = [item]
+        feed(frame)
+        if (attempts === 2 && scenario !== '补发也断流') return
+        host.checkpoint({ ...host.checkpoint(), channel_ended: true, channel_completed: false })
+        throw new Error('temporary_unavailable: channel ended')
+      }
+      if (scenario === '只有思考') {
+        const result = context.main(req).response
+        expect(result.output_text).toBe('补发的正文')
+        expect(
+          result.output
+            .filter((item) => item.type === 'reasoning')
+            .map((item) => [item.status, item.summary[0].text])
+        ).toEqual([
+          ['completed', '摘要1'],
+          ['completed', '摘要2'],
+        ])
+        expect(host.emit.mock.calls.filter(([e]) => e.type === 'response.created')).toHaveLength(1)
+        expect(context.main(req).response.id).toBe(result.id)
+      } else {
+        expect(() => context.main(req)).toThrow('incomplete_upstream_turn')
+        expect(() => context.main(req)).toThrow('incomplete_upstream_turn')
+      }
+      expect(attempts).toBe(['只有思考', '补发也断流'].includes(scenario) ? 2 : 1)
+      expect(context.geminiReferences).toHaveBeenCalledTimes(1)
+    }
+  )
+
+  it('续聊重新生成时保留原父节点和附件，只转发新版本，二次失败保留原因', () => {
+    const parent = {
+      conversation_id: 'c_a',
+      response_id: 'r_parent',
+      candidate_id: 'rc_parent',
+      turn: 1,
+    }
+    const failed = { conversation_id: 'c_a', response_id: 'r_attempt', candidate_id: 'rc_old' }
+    for (const secondFailure of [false, true]) {
+      const { context } = runtime()
+      const emit = vi.fn()
+      context.geminiChannelGenerate = (_s, _m, payload, feed) => {
+        expect(payload[2].slice(0, 3)).toEqual(['c_a', 'r_parent', 'rc_parent'])
+        expect(payload[0][3]).toEqual([['原附件']])
+        expect(payload[17]).toEqual([[1]])
+        expect(payload[18]).toBe(2)
+        const frame = Array(43).fill(null)
+        frame[1] = ['c_a', 'r_attempt']
+        frame[4] = [['rc_old', ['旧回答']]]
+        feed(frame)
+        expect(emit).not.toHaveBeenCalled()
+        if (secondFailure) {
+          frame[4] = [['rc_old', ['第二次上游错误']]]
+          frame[31] = true
+        } else frame[4].push(['rc_new', ['新回答']])
+        feed(frame)
+      }
+      const run = () =>
+        context.geminiGenerate(
+          {},
+          { tool: 0 },
+          '本轮问题',
+          [['原附件']],
+          parent,
+          null,
+          emit,
+          failed
+        )
+      if (secondFailure) expect(run).toThrow('第二次上游错误')
+      else expect(run()).toMatchObject({ text: '新回答', candidate_id: 'rc_new' })
+    }
+  })
+
+  it('短历史未包含目标时扩大同会话查询，并按原轮次和候选编号取正文', () => {
+    const { context } = runtime()
+    const recent = Array.from({ length: 10 }, (_, i) => [['c_a', 'r_' + i]])
+    const candidates = [
+      ['rc_other', ['别的回答']],
+      ['rc_target', ['原回答']],
+    ]
+    context.geminiRpc = vi.fn((_session, _rpc, args) => [
+      args[1] === 10
+        ? recent
+        : [
+            ...recent,
+            [['c_other', 'r_target'], null, null, [candidates]],
+            [['c_a', 'r_target'], null, null, [candidates, null, null, 'rc_other']],
+          ],
+    ])
+    const receipt = { conversation_id: 'c_a', response_id: 'r_target', candidate_id: 'rc_target' }
+    expect(context.geminiHistory({}, receipt).text).toBe('原回答')
+    expect(context.geminiRpc.mock.calls.map(([, , args]) => args.slice(0, 2))).toEqual([
+      ['c_a', 10],
+      ['c_a', 100],
+    ])
+    expect(context.geminiHistory({}, { ...receipt, candidate_id: 'rc_unknown' }).text).toBe('')
+  })
+
   it('恢复等待有跨请求时限，过期后不再查询上游或重发生成', () => {
     const { context, host } = runtime()
     host.checkpoint({
@@ -1053,8 +1188,14 @@ describe('Gemini API 插件', () => {
     context.geminiReferences = vi.fn(() => [])
     context.geminiHistory = () => null
     let attempts = 0
-    context.geminiChannelGenerate = (_s, _m, _p, callback) => {
+    context.geminiChannelGenerate = (_s, _m, payload, callback) => {
       attempts++
+      if (attempts === 2) {
+        expect(host.call).toHaveBeenCalledWith('time.sleep', { milliseconds: 1500 })
+        expect(payload[2].slice(0, 3)).toEqual(['c_test', '', ''])
+        expect(payload[18]).toBe(2)
+        expect(payload[32]).toBe(1)
+      }
       const send = (text, marker, reasoning, progress) => {
         const frame = Array(43).fill(null)
         frame[1] = ['c_test', 'r_' + attempts]
@@ -1082,9 +1223,9 @@ describe('Gemini API 插件', () => {
       )
       send(scenario.endsWith('已输出') ? detail : '', 1)
     }
+    const succeeds = ['正常文案', '失败后恢复', '思考已输出', '思考进度已输出'].includes(scenario)
     for (let i = 0; i < 2; i++) {
-      if (scenario === '正常文案' || scenario === '失败后恢复')
-        expect(context.main(input).response.output_text).toBe(normal)
+      if (succeeds) expect(context.main(input).response.output_text).toBe(normal)
       else if (scenario === '二次请求报错')
         expect(() => context.main(input)).toThrow('二次请求参数错误')
       else {
@@ -1097,18 +1238,12 @@ describe('Gemini API 插件', () => {
         expect(context.geminiFailureReply(error)).toBe(detail)
       }
     }
-    expect(attempts).toBe(scenario === '正常文案' || scenario.endsWith('已输出') ? 1 : 2)
+    expect(attempts).toBe(scenario === '正常文案' || scenario === '正文已输出' ? 1 : 2)
     expect(context.geminiReferences).toHaveBeenCalledTimes(1)
     const deltas = host.emit.mock.calls
       .map(([e]) => (e.type === 'response.output_text.delta' ? e.delta : ''))
       .join('')
-    expect(deltas).toBe(
-      scenario === '正常文案' || scenario === '失败后恢复'
-        ? normal
-        : scenario === '正文已输出'
-          ? '第一段'
-          : ''
-    )
+    expect(deltas).toBe(succeeds ? normal : scenario === '正文已输出' ? '第一段' : '')
   })
 
   it('重启回读保留响应身份，等待正确轮次，且恢复脚本没有生成入口', () => {
