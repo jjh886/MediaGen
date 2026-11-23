@@ -338,6 +338,15 @@ describe('Gemini API 插件', () => {
     expect(result.response.output.every((item) => item.status === 'completed')).toBe(true)
   })
 
+  it('已取得轮次回执后读取通道的 HTTP 400 进入历史恢复，提交参数错误保持原分类', () => {
+    const { context, host } = runtime()
+    const response = { ok: false, status: 400 }
+    expect(() => context.geminiRequirePollOk(response)).toThrow('invalid_input')
+    host.checkpoint({ phase: 'accepted', conversation_id: 'c_real', response_id: 'r_real' })
+    expect(() => context.geminiRequirePollOk(response)).toThrow('temporary_unavailable')
+    expect(() => context.geminiRequireOk(response)).toThrow('invalid_input')
+  })
+
   it('确认受理前额度错误不提前输出，保留现有自动换号机制', () => {
     const { context, host } = runtime()
     context.apiSessionRead = () => ({})
@@ -351,6 +360,13 @@ describe('Gemini API 插件', () => {
       'quota_exhausted'
     )
     expect(host.emit).not.toHaveBeenCalled()
+  })
+
+  it('跨分块编码长载荷时保留所有字节，包括零字节和高位字节', () => {
+    const { context } = runtime()
+    const bytes = Array.from({ length: 300001 }, (_, i) => i % 256)
+    expect(context.geminiWireBase64(bytes)).toBe(Buffer.from(bytes).toString('base64'))
+    expect(context.geminiWireBase64([])).toBe('')
   })
 
   it('生成请求的第 31 字段使用网页的 packed enum 编码，不嵌套消息', () => {
@@ -491,6 +507,52 @@ describe('Gemini API 插件', () => {
     expect(host.checkpoint()).toEqual({ phase: 'ready' })
   })
 
+  it.each([true, false])('长历史被明确拒绝后只换一次承载方式，第二次成功=%s', (succeeds) => {
+    const { context, host } = runtime()
+    context.apiSessionRead = () => ({})
+    context.geminiInitialize = (session) => session
+    context.geminiModel = () => ({ id: 'gemini-4-hydrogen' })
+    const original = [['original-reference']]
+    context.geminiReferences = vi.fn(() => original)
+    context.geminiUpload = vi.fn((_s, file) => {
+      expect(Buffer.from(file.base64, 'base64').toString()).toBe(
+        '[SYSTEM]\n指令\n\n[USER]\n先前问题\n\n[ASSISTANT]\n先前回答'
+      )
+      return ['history-reference']
+    })
+    const reject = () => {
+      host.checkpoint({ ...host.checkpoint(), phase: 'ready', rejected_message_bytes: 2000000 })
+      throw new Error('invalid_input: rejected')
+    }
+    context.geminiGenerate = vi
+      .fn()
+      .mockImplementationOnce(reject)
+      .mockImplementation((_s, _m, prompt, files) => {
+        expect(prompt).toContain('# INSTRUCTIONS\n本次指令')
+        expect(prompt).toContain('[USER]\n继续')
+        expect(files).toEqual([['history-reference'], ...original])
+        if (!succeeds) reject()
+        return { text: '完成' }
+      })
+    const input = {
+      request: {
+        model: 'gemini-4-hydrogen',
+        instructions: '本次指令',
+        input: [
+          ['system', '指令'],
+          ['user', '先前问题'],
+          ['assistant', '先前回答'],
+          ['user', '继续'],
+        ].map(([role, content]) => ({ role, content })),
+      },
+    }
+    if (succeeds) expect(context.main(input).response.output_text).toBe('完成')
+    else expect(() => context.main(input)).toThrow('invalid_input')
+    expect(context.geminiGenerate).toHaveBeenCalledTimes(2)
+    expect(context.geminiUpload).toHaveBeenCalledTimes(1)
+    expect(context.geminiReferences).toHaveBeenCalledTimes(1)
+  })
+
   it('识别 HTTP 200 内失败标记，并保留上游返回的实际模型', () => {
     const { context } = runtime()
     const frame = Array(43).fill(null)
@@ -559,6 +621,55 @@ describe('Gemini API 插件', () => {
     expect(initialize).toHaveBeenCalledTimes(1)
   })
 
+  it.each(['通道关闭', '读取断线', '读取响应体中断', '通道正常结束但无正文'])(
+    '%s 后反复刷新同一轮历史，接回迟到的完整正文',
+    (mode) => {
+      const { context, host } = runtime()
+      context.apiSessionRead = () => ({})
+      context.geminiInitialize = (s) => s
+      context.geminiModel = () => ({ id: 'gemini-4-hydrogen' })
+      context.geminiReferences = () => []
+      context.geminiGenerate = vi.fn((_s, _m, _p, _f, _prior, _ratio, emit) => {
+        host.checkpoint({
+          phase: 'accepted',
+          conversation_id: 'c_test',
+          response_id: 'r_test',
+          received_text_length: 2,
+          channel_ended: mode === '通道关闭' || mode === '通道正常结束但无正文',
+        })
+        if (mode === '通道正常结束但无正文') return { text: '' }
+        emit({ text: '原文' })
+        throw new Error(
+          mode === '通道关闭'
+            ? 'temporary_unavailable: channel ended'
+            : mode === '读取响应体中断'
+              ? 'error decoding response body: error reading a body from connection'
+              : 'unexpected EOF'
+        )
+      })
+      context.geminiHistory = vi
+        .fn()
+        .mockReturnValueOnce(null)
+        .mockImplementationOnce(() => {
+          throw new Error('temporary_unavailable: Gemini HTTP 503')
+        })
+        .mockReturnValueOnce({ text: '短' })
+        .mockReturnValueOnce({ text: '原文和后续。' })
+      const req = { request: { model: 'gemini-4-hydrogen', input: 'test' } }
+      expect(context.main(req).response.output_text).toBe('原文和后续。')
+      expect(context.main(req).response.output_text).toBe('原文和后续。')
+      expect(context.geminiGenerate).toHaveBeenCalledTimes(1)
+      expect(context.geminiHistory.mock.calls.map((args) => args[1].response_id)).toEqual(
+        Array(4).fill('r_test')
+      )
+      expect(
+        host.emit.mock.calls
+          .map(([e]) => (e.type === 'response.output_text.delta' ? e.delta : ''))
+          .join('')
+      ).toBe('原文和后续。')
+    }
+  )
+
   it('降级后的通道仍没有结果时终止，不循环降级', () => {
     const { context, host } = runtime()
     host.checkpoint({
@@ -574,8 +685,11 @@ describe('Gemini API 插件', () => {
     const input = { request: { model: 'gemini-4-argon', input: 'test' } }
     expect(() => context.main(input)).toThrow('generation_failed')
     expect(() => context.main(input)).toThrow('generation_failed')
-    expect(context.geminiHistory).toHaveBeenCalledTimes(1)
-    expect(host.checkpoint().phase).toBe('failed')
+    expect(context.geminiHistory).toHaveBeenCalledTimes(8)
+    expect(host.checkpoint()).toMatchObject({
+      phase: 'failed',
+      history_lookup: { attempt: 8, found_turn: false, history_chars: 0 },
+    })
   })
 
   it('原通道确定结束且没有正文时按账号目录降级一次，通过标准 model 返回实际模型', () => {
@@ -606,6 +720,39 @@ describe('Gemini API 插件', () => {
     expect(response.output_text).toBe('OK')
     expect(context.main(input).response.output_text).toBe(response.output_text)
     expect(context.geminiGenerate).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([true, false])('基础模型通道关闭无正文时仅补发一次，第二次成功=%s', (success) => {
+    const { context, host } = runtime()
+    const model = { id: 'gemini-4-hydrogen', name: '4 Hydrogen', think: 4 }
+    context.apiSessionRead = () => ({})
+    context.geminiInitialize = (s) => s
+    context.geminiModel = () => model
+    context.geminiCatalog = () => [{ ...model, mode: 1 }]
+    context.geminiHistory = () => null
+    context.geminiReferences = vi.fn(() => [])
+    let calls = 0
+    context.geminiGenerate = (_s, selected) => {
+      expect(selected).toEqual(model)
+      calls++
+      if (calls === 2 && success)
+        return { text: '正常回答', conversation_id: 'c_ok', response_id: 'r_ok' }
+      host.checkpoint({
+        ...host.checkpoint(),
+        phase: 'accepted',
+        conversation_id: 'c_empty',
+        response_id: 'r_empty',
+        channel_ended: true,
+      })
+      throw new Error('temporary_unavailable: channel ended')
+    }
+    const req = { request: { model: model.id, input: 'test' } }
+    for (let i = 0; i < 2; i++) {
+      if (success) expect(context.main(req).response.output_text).toBe('正常回答')
+      else expect(() => context.main(req)).toThrow('incomplete_upstream_turn')
+    }
+    expect(calls).toBe(2)
+    expect(context.geminiReferences).toHaveBeenCalledTimes(1)
   })
 
   it('恢复等待有跨请求时限，过期后不再查询上游或重发生成', () => {
@@ -776,6 +923,29 @@ describe('Gemini API 插件', () => {
     }
   })
 
+  it('上传只重试尚未建立连接的步骤，额度和提交后的错误直接返回', () => {
+    const { context } = runtime()
+    for (const message of [
+      'client error (Connect); caused by: unexpected EOF',
+      'rate_limit_exceeded: HTTP 429',
+      'connection reset after write',
+    ]) {
+      context.geminiRequest = vi
+        .fn()
+        .mockImplementationOnce(() => {
+          throw new Error(message)
+        })
+        .mockReturnValueOnce({ ok: true })
+      if (message.includes('(Connect)')) {
+        expect(context.geminiUploadRequest({}, 'upload', {})).toEqual({ ok: true })
+        expect(context.geminiRequest).toHaveBeenCalledTimes(2)
+      } else {
+        expect(() => context.geminiUploadRequest({}, 'upload', {})).toThrow(message)
+        expect(context.geminiRequest).toHaveBeenCalledTimes(1)
+      }
+    }
+  })
+
   it('超出上游附件数量时返回实际数量，不启动文件上传', () => {
     const { context } = runtime()
     context.geminiUpload = vi.fn()
@@ -917,6 +1087,54 @@ describe('Gemini API 插件', () => {
           ? '第一段'
           : ''
     )
+  })
+
+  it('重启回读保留响应身份，等待正确轮次，且恢复脚本没有生成入口', () => {
+    const { context, host } = runtime('recover_text_receipt')
+    expect(context.geminiGenerate).toBeUndefined()
+    expect(context.geminiUpload).toBeUndefined()
+    context.apiSessionRead = () => ({})
+    context.geminiInitialize = (s) => s
+    expect(manifest.capabilities.context_fields).toContain('task_id')
+    const original = runtime()
+    original.context.apiSessionRead = () => ({})
+    original.context.geminiInitialize = (s) => s
+    original.context.geminiModel = () => ({ id: 'gemini-4-hydrogen', mode: 1 })
+    original.context.geminiChannelGenerate = (_s, _m, _p, onFrame) => {
+      const frame = Array(43).fill(null)
+      frame[1] = ['c_exact', 'r_exact']
+      frame[4] = [['rc_exact', ['最终回']]]
+      onFrame(frame)
+      throw new Error('进程退出')
+    }
+    expect(() =>
+      original.context.main({
+        task_id: 'receipt_test',
+        request: { model: 'gemini-4-hydrogen', input: '用户原始输入', stream: true },
+      })
+    ).toThrow('进程退出')
+    const saved = original.host.checkpoint()
+    const created = original.host.emit.mock.calls.find(([e]) => e.type === 'response.created')[0]
+      .response
+    expect(saved.phase).toBe('accepted')
+    expect(JSON.stringify(saved.receipt_writer)).not.toContain('用户原始输入')
+    host.checkpoint(saved)
+    context.geminiRpc = vi.fn(() => [
+      [[['c_exact', 'r_other'], null, null, [[['rc_other', ['其他轮次']]]]]],
+    ])
+    expect(() => context.main({})).toThrow('receipt_pending')
+    context.geminiRpc = () => [
+      [[['c_exact', 'r_exact'], null, null, [[['rc_exact', ['最终回答。']]]]]],
+    ]
+    const response = context.main({}).response
+    expect(response).toMatchObject({
+      id: created.id,
+      created_at: created.created_at,
+      status: 'completed',
+      output_text: '最终回答。',
+    })
+    host.checkpoint({ phase: 'submitting' })
+    expect(() => context.main({})).toThrow('receipt_terminal')
   })
 
   it('文本成功后保存结果，恢复同一个请求不再次消耗额度', () => {

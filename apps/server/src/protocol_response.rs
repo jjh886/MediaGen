@@ -4,9 +4,36 @@ use base64::prelude::{Engine as _, BASE64_STANDARD};
 use serde_json::Value;
 use tokio::sync::mpsc;
 
+pub(super) fn receipt_sender(
+    sender: tokio::sync::mpsc::Sender<serde_json::Value>,
+    drain_after_disconnect: bool,
+) -> tokio::sync::mpsc::Sender<serde_json::Value> {
+    // HTTP 消费者断开后仍排空事件，让插件完成原调用并保存最终回执。
+    if drain_after_disconnect {
+        let (events, mut drain) = tokio::sync::mpsc::channel(8);
+        let out = sender.clone();
+        tokio::spawn(async move {
+            while let Some(event) = drain.recv().await {
+                let _ = out.send(event).await;
+            }
+        });
+        events
+    } else {
+        sender
+    }
+}
+
 pub(crate) struct AbortJob {
     pub(super) handle: tokio::task::JoinHandle<Result<Value, String>>,
     pub(super) detach: bool,
+}
+impl AbortJob {
+    pub(crate) fn new(
+        handle: tokio::task::JoinHandle<Result<Value, String>>,
+        detach: bool,
+    ) -> Self {
+        Self { handle, detach }
+    }
 }
 impl Drop for AbortJob {
     fn drop(&mut self) {

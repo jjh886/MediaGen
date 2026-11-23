@@ -45,7 +45,9 @@ pub(crate) async fn run_plugin(
         .with_http_profile(manifest)
         .with_events(events, request_id.into());
     let saved = host.checkpoint(&json!({})).await?;
-    if saved["_transport_failures"].as_u64().unwrap_or(0) >= 3 {
+    if flow_name != "recover_text_receipt"
+        && saved["_transport_failures"].as_u64().unwrap_or(0) >= 3
+    {
         return Err(
             "recovery_exhausted: 原请求连续三次连接失败，已停止自动恢复，请检查网络并核对原任务"
                 .into(),
@@ -110,9 +112,16 @@ pub(crate) async fn run_plugin(
     .await;
     if let Err(message) = &execution {
         let lower = message.to_ascii_lowercase();
-        if ["operation timed out", "broken pipe", "connection reset"]
-            .iter()
-            .any(|kind| lower.contains(kind))
+        if [
+            "operation timed out",
+            "broken pipe",
+            "connection reset",
+            "client error (connect)",
+            "client error (sendrequest)",
+            "error reading a body from connection",
+        ]
+        .iter()
+        .any(|kind| lower.contains(kind))
         {
             let mut checkpoint = host.checkpoint(&json!({})).await?;
             checkpoint["_transport_failures"] =

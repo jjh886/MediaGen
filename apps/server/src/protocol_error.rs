@@ -148,6 +148,13 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
             "原请求连续三次连接失败，已停止自动恢复；请检查网络并核对原任务".into(),
         );
     }
+    if message.contains("generation_failed: incomplete_upstream_turn") {
+        return (
+            409,
+            "generation_failed",
+            "上游已受理，但生成通道已结束，多次查询原轮次仍未取得完整回答".into(),
+        );
+    }
     for (code, detail) in [
         (
             "conversation_unavailable",
@@ -199,6 +206,26 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
         );
     }
     if message.contains("invalid_input") {
+        if let Some(details) = structured_failure(message, "invalid_input") {
+            if details["reason"] == "missing_tool_output" {
+                return (400, "invalid_input", "上游未找到工具调用对应的结果。请检查续聊输入是否包含相同 call_id 的 function_call_output。".into());
+            }
+            if details["upstream_status"] == 400 && details["reason"] == "invalid_argument" {
+                let stage = match details["stage"].as_str() {
+                    Some("message") => "发送正文后",
+                    Some("setup") => "准备会话时",
+                    _ => "处理请求时",
+                };
+                if let (Some(bytes), Some(files)) = (
+                    details["message_frame_bytes"].as_u64(),
+                    details["attachment_count"].as_u64(),
+                ) {
+                    return (400, "invalid_input", format!(
+                        "上游在{stage}返回 400（Request contains an invalid argument），未指出具体字段。本次正文帧 {bytes} 字节，附件 {files} 个。"
+                    ));
+                }
+            }
+        }
         return (
             400,
             "invalid_input",

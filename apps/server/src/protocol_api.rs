@@ -255,7 +255,13 @@ pub(crate) async fn execute(
     let task_id = context.task_id;
     let recoverable = receipt_id.is_some();
     if let Some(id) = receipt_id {
-        match crate::request_receipts::reserve(&state, &key, &id.to_string(), &task_id).await {
+        let recovery = manifest.flows.contains_key("recover_text_receipt").then(|| json!({
+            "metadata": metadata, "previous_response_id": previous_response_id, "store":store_response,
+            "session":session_id, "input": if store_response || session_id.is_some() { Some(&stored_input) } else { None }
+        }));
+        match crate::request_receipts::reserve(&state, &key, &id.to_string(), &task_id, recovery)
+            .await
+        {
             Ok(true) => {}
             Ok(false) => return error(409, "request_already_registered", "请查询原请求回执"),
             Err(_) => return error(503, "receipt_unavailable", "无法登记请求"),
@@ -303,19 +309,7 @@ pub(crate) async fn execute(
         crate::conversation_affinity::remember(&state.store, &affinity_id, &account.id);
     }
     let (sender, receiver) = mpsc::channel(8);
-    // HTTP 消费者断开后仍排空事件，让插件完成原调用并保存最终回执。
-    let sender = if streaming && recoverable {
-        let (events, mut drain) = mpsc::channel(8);
-        let out = sender.clone();
-        tokio::spawn(async move {
-            while let Some(event) = drain.recv().await {
-                let _ = out.send(event).await;
-            }
-        });
-        events
-    } else {
-        sender
-    };
+    let sender = response::receipt_sender(sender, streaming && recoverable);
     let events = streaming.then_some(sender.clone());
     let task_state = state.clone();
     let task_request_id = task_id.clone();
@@ -479,10 +473,7 @@ pub(crate) async fn execute(
         }
         result
     });
-    let job = AbortJob {
-        handle,
-        detach: recoverable,
-    };
+    let job = AbortJob::new(handle, recoverable);
     response::respond(
         job,
         receiver,

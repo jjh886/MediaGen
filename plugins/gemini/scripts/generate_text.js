@@ -27,10 +27,19 @@ function main(ctx) {
       : geminiModel(
           session,
           saved.fallback_model || request.model,
-          saved.fallback_model ? undefined : request.reasoning.effort
+          saved.fallback_model && saved.fallback_model !== request.model
+            ? undefined
+            : request.reasoning.effort
         )
   const requestedModel = request.model
   const writer = apiTextCreateResponseWriter(request)
+  if (ctx.task_id?.startsWith('receipt_')) {
+    // 回读历史时复用原响应身份和工具定义；附件、提示词和会话令牌不需要重复存储。
+    const { input, session: cursor, ...format } = request
+    saved.receipt_writer ||= { id: writer.response_id, created_at: writer.created_at, format }
+    writer.response_id = saved.receipt_writer.id
+    writer.created_at = saved.receipt_writer.created_at
+  }
   const progress = []
   let started = false
   let emittedText = null
@@ -74,27 +83,97 @@ function main(ctx) {
   const turnRequest = request.session ? apiTextSessionRequest(request) : request
   let files
   const references = () => (files ||= geminiReferences(ctx, session, turnRequest))
-  const recover = (current) => {
-    let history
-    try {
-      history = geminiHistory(session, current)
-    } catch (error) {
-      if (!current.channel_ended || !String(error.message).startsWith('conversation_unavailable:'))
-        throw error
+  let historyUpload
+  const historyEnd = turnRequest.input.map((item) => item.role).lastIndexOf('assistant') + 1
+  const withHistoryFile = () => {
+    if (historyUpload) return historyUpload
+    const history = turnRequest.input
+      .slice(0, historyEnd)
+      .map((item) => '[' + item.role.toUpperCase() + ']\n' + item.text)
+      .join('\n\n')
+    const name = 'conversation-history-' + apiTextUuid() + '.txt'
+    const [attachment] = apiTextResponsesMedia([
+      {
+        type: 'input_file',
+        filename: name,
+        file_data: host.call('crypto.base64_encode_utf8', { text: history }).value,
+      },
+    ])
+    const reference = geminiUpload(session, attachment)
+    historyUpload = {
+      prompt: apiTextBuildResponsesPrompt({
+        ...turnRequest,
+        input: [
+          {
+            role: 'user',
+            text: '附件 ' + name + ' 是本轮之前的完整对话记录，按原顺序作为上下文继续最后的请求。',
+          },
+          ...turnRequest.input.slice(historyEnd),
+        ],
+      }),
+      files: [reference, ...references()],
     }
-    if (history?.text) return { ...current, ...history }
+    return historyUpload
+  }
+  const interrupted = (error) =>
+    /temporary_unavailable:|unexpected eof|connection reset|broken pipe|timed? ?out|error sending request|error reading a body from connection|incomplete message/i.test(
+      String(error.message)
+    )
+  const recover = (current) => {
+    // 已有回执时刷新原轮次；历史可能比生成通道晚写入。
+    const delays = [0, 2000, 5000, 10000, 20000, 30000, 45000, 60000]
+    for (const [index, delay] of delays.entries()) {
+      if (delay) host.call('time.sleep', { milliseconds: delay })
+      try {
+        const history = geminiHistory(session, current)
+        const text = history?.text || ''
+        const prefixMatches = !emittedText || text.startsWith(emittedText)
+        if (text && text.length >= (current.received_text_length || 0) && prefixMatches)
+          return { ...current, ...history }
+        current.history_lookup = {
+          attempt: index + 1,
+          found_turn: Boolean(history),
+          history_chars: text.length,
+          received_chars: current.received_text_length || 0,
+          prefix_matches: prefixMatches,
+        }
+        host.checkpoint(current)
+      } catch (error) {
+        const missing = String(error.message).startsWith('conversation_unavailable:')
+        current.history_lookup = {
+          attempt: index + 1,
+          lookup_error: missing
+            ? 'conversation_unavailable'
+            : interrupted(error)
+              ? 'transport'
+              : 'provider',
+        }
+        host.checkpoint(current)
+        if (!(current.channel_ended && missing) && !interrupted(error)) throw error
+        if (!missing && index === delays.length - 1) throw error
+      }
+    }
     if (!current.channel_ended) throw new Error('temporary_unavailable: 原 Gemini 会话结果尚未就绪')
-    if (current.retry_reply !== undefined || current.fallback_model || current.received_text_length)
-      throw new Error('generation_failed: Gemini 上游已结束生成，但原轮次没有完整结果')
+    const incomplete = 'generation_failed: incomplete_upstream_turn'
+    if (
+      current.retry_reply !== undefined ||
+      current.fallback_model ||
+      hasOutput ||
+      current.received_text_length
+    )
+      throw new Error(incomplete)
     const base = geminiCatalog(session).find(
       (candidate) => candidate.mode === 1 && candidate.id !== requestedModel
     )
-    if (!base) throw new Error('generation_failed: Gemini 上游未返回结果，账号也没有可用的基础模型')
-    // 仅原通道明确结束且没有正文时降级一次；保存原回执，断线后不重复提交。
+    const nextModel = base
+      ? { ...base, think: 1, tool: 0 }
+      : model || geminiModel(session, requestedModel, request.reasoning.effort)
+    // 通道已关闭且原轮次持续为空，只补发一次；已是基础模型时保留原思考等级。
+
     host.checkpoint({
       ...current,
       phase: 'ready',
-      fallback_model: base.id,
+      fallback_model: nextModel.id,
       original_receipt: {
         conversation_id: current.conversation_id,
         response_id: current.response_id,
@@ -109,23 +188,63 @@ function main(ctx) {
       accepted_at: null,
       recovery_started_at: null,
     })
+    const result = generate(nextModel, (value) =>
+      emit({ ...value, actual_model_name: value.actual_model_name || nextModel.name })
+    )
+    return { ...result, actual_model_name: result.actual_model_name || nextModel.name }
+  }
+
+  const generate = (selected, onResult = emit) => {
+    let result
     try {
-      const result = geminiGenerate(
+      const packed = host.checkpoint()?.use_history_file ? withHistoryFile() : null
+      result = geminiGenerate(
         session,
-        { ...base, think: 1, tool: 0 },
-        apiTextBuildResponsesPrompt(turnRequest),
-        references(),
+        selected,
+        packed?.prompt || apiTextBuildResponsesPrompt(turnRequest),
+        packed?.files || references(),
         request.session,
         null,
-        (value) => emit({ ...value, actual_model_name: value.actual_model_name || base.name })
+        onResult
       )
-      return { ...result, actual_model_name: result.actual_model_name || base.name }
     } catch (error) {
-      const next = host.checkpoint() || {}
-      if (next.channel_ended && String(error.message).startsWith('temporary_unavailable:'))
-        return recover(next)
-      throw error
+      const current = host.checkpoint()
+      // 仅在长正文已被明确拒绝且尚无回执时，换用 TXT 承载前文。保留原附件及本轮完整输入。
+      if (
+        current?.phase === 'ready' &&
+        current.rejected_message_bytes >= 1024 * 1024 &&
+        String(error.message).includes('invalid_input:') &&
+        !current.use_history_file &&
+        !current.conversation_id &&
+        !request.session &&
+        !hasOutput &&
+        current.retry_reply === undefined &&
+        !current.fallback_model &&
+        historyEnd > 0 &&
+        historyEnd < turnRequest.input.length &&
+        references().length < 10
+      ) {
+        host.checkpoint({ ...current, use_history_file: true, rejected_message_bytes: null })
+        return generate(selected, onResult)
+      }
+      if (
+        current?.phase !== 'accepted' ||
+        !current.conversation_id ||
+        !current.response_id ||
+        !interrupted(error)
+      )
+        throw error
+      return recover(current)
     }
+    const current = host.checkpoint()
+    if (
+      !result.text &&
+      current?.phase === 'accepted' &&
+      current.conversation_id &&
+      current.response_id
+    )
+      return recover(current)
+    return result
   }
 
   const firstResult = () => {
@@ -140,24 +259,8 @@ function main(ctx) {
     } else {
       if (saved.phase === 'submitting')
         throw new Error('PROVIDER_SUBMISSION_UNKNOWN: Gemini 提交状态未知，禁止重复发送')
-      const previous = request.session
       host.checkpoint({ ...saved, phase: 'ready' })
-      try {
-        return geminiGenerate(
-          session,
-          model,
-          apiTextBuildResponsesPrompt(turnRequest),
-          references(),
-          previous,
-          null,
-          emit
-        )
-      } catch (error) {
-        const current = host.checkpoint() || {}
-        if (!current.channel_ended || !String(error.message).startsWith('temporary_unavailable:'))
-          throw error
-        return recover(current)
-      }
+      return generate(model)
     }
   }
   try {
@@ -172,12 +275,14 @@ function main(ctx) {
         current.phase !== 'failed' ||
         hasOutput ||
         writer.output.length ||
+        current.fallback_model ||
         current.retry_reply !== undefined
       )
         throw error
       // 先持久化一次性重试，再从本轮原父节点提交，避免把失败回答拼进下一轮。
       host.checkpoint({
         phase: 'retry_reserved',
+        receipt_writer: current.receipt_writer,
         retry_reply: geminiFailureReply(new Error(current.error)),
         original_receipt: current,
         fallback_model: current.fallback_model,
@@ -190,15 +295,7 @@ function main(ctx) {
               current.fallback_model || requestedModel,
               current.fallback_model ? undefined : request.reasoning.effort
             )
-      result = geminiGenerate(
-        session,
-        retryModel,
-        apiTextBuildResponsesPrompt(turnRequest),
-        references(),
-        request.session,
-        null,
-        emit
-      )
+      result = generate(retryModel)
     }
     if (!result.text) throw new Error('invalid_response: Gemini 完成但未返回正文')
     emit(result)

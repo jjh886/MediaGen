@@ -171,6 +171,9 @@ async fn main() -> std::io::Result<()> {
     let config = ServerConfig::from_env();
     ensure_server_dirs(&config)?;
     let state = web::Data::new(build_state(&config).map_err(std::io::Error::other)?);
+    request_receipts::resume_after_restart(state.clone())
+        .await
+        .map_err(std::io::Error::other)?;
     realtime_api::recover_sessions(state.clone());
     generation_queue::start_worker(state.clone());
     upload_cleanup::start_worker(state.clone());

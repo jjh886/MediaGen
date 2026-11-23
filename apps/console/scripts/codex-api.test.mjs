@@ -162,6 +162,15 @@ it('Codex 流式失败保留错误码，并排除响应正文', () => {
   }
 })
 
+it('工具结果缺失时区分输入错误和连接失败', () => {
+  const run = scripts(['codex/scripts/text_responses.js'])
+  expect(
+    run(
+      "codexResponsesHttpError({body:{message:'No tool output found for function call call_test.'}})"
+    )
+  ).toBe('invalid_input: {"reason":"missing_tool_output"}')
+})
+
 it.each([false, true])('流在首段内容前被拒绝才能安全换号，已输出=%s', (started) => {
   const emitted = []
   const checkpoints = []

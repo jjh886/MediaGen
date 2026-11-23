@@ -306,6 +306,9 @@ function codexResponsesHttpError(result) {
       'rate_limit_exceeded: ' + (status ? 'HTTP ' + status + ': ' : '') + message + cooldownSuffix
     )
   }
+  if (typeof detail === 'string' && /^No tool output found for function call\b/i.test(detail)) {
+    return 'invalid_input: ' + JSON.stringify({ reason: 'missing_tool_output' })
+  }
   const prefix = status === 400 || status === 422 ? 'invalid_input: ' : ''
   return prefix + (status ? 'HTTP ' + status + ': ' : '') + message
 }

@@ -187,32 +187,61 @@ impl Encoder {
 }
 
 pub(crate) async fn response(
-    mut receiver: tokio::sync::mpsc::Receiver<Value>,
+    receiver: tokio::sync::mpsc::Receiver<Value>,
     job: crate::protocol_api::AbortJob,
     endpoint: &str,
     model_id: String,
     include_usage: bool,
     request_id: String,
 ) -> actix_web::HttpResponse {
+    response_with_heartbeat(
+        receiver,
+        job,
+        endpoint,
+        model_id,
+        include_usage,
+        request_id,
+        std::time::Duration::from_secs(15),
+    )
+    .await
+}
+
+async fn response_with_heartbeat(
+    mut receiver: tokio::sync::mpsc::Receiver<Value>,
+    job: crate::protocol_api::AbortJob,
+    endpoint: &str,
+    model_id: String,
+    include_usage: bool,
+    request_id: String,
+    heartbeat: std::time::Duration,
+) -> actix_web::HttpResponse {
     use crate::protocol_api::error;
     use actix_web::{web, HttpResponse};
-    let first =
-        match tokio::time::timeout(std::time::Duration::from_secs(180), receiver.recv()).await {
-            Ok(Some(event)) => event,
-            _ => return error(504, "upstream_timeout", "等待上游响应超时或流已关闭"),
-        };
-    if first["type"] == "error" {
+    let first = match tokio::time::timeout(heartbeat, receiver.recv()).await {
+        Ok(Some(event)) => Some(event),
+        Ok(None) => {
+            return error(
+                502,
+                "upstream_stream_closed",
+                "上游事件流在返回结果前已关闭",
+            )
+        }
+        Err(_) => None,
+    };
+    if let Some(event) = first.as_ref().filter(|event| event["type"] == "error") {
         return HttpResponse::build(
-            actix_web::http::StatusCode::from_u16(first["status"].as_u64().unwrap_or(502) as u16)
+            actix_web::http::StatusCode::from_u16(event["status"].as_u64().unwrap_or(502) as u16)
                 .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY),
         )
-        .json(json!({"error":first["error"]}));
+        .json(json!({"error":event["error"]}));
     }
-    let first = Some(first);
-    let encoder = crate::protocol_stream::Encoder::new(endpoint == "chat", model_id, include_usage);
+    let encoder = Encoder::new(endpoint == "chat", model_id, include_usage);
+    // 心跳只维持 HTTP 连接，不算模型输出，也不会重新提交任务。
+    let mut ticks = tokio::time::interval(heartbeat);
+    ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let stream = futures_util::stream::unfold(
-        (receiver, encoder, job, first),
-        |(mut receiver, mut encoder, job, mut first)| async move {
+        (receiver, encoder, job, first, ticks),
+        |(mut receiver, mut encoder, job, mut first, mut ticks)| async move {
             loop {
                 if encoder.terminal {
                     return None;
@@ -220,13 +249,18 @@ pub(crate) async fn response(
                 let event = if let Some(event) = first.take() {
                     event
                 } else {
-                    receiver.recv().await?
+                    tokio::select! {
+                        biased;
+                        event = receiver.recv() => event.unwrap_or_else(|| json!({"type":"error", "error":{"code":"upstream_stream_closed","type":"server_error","message":"上游事件流在返回完成事件前已关闭"}})),
+                        _ = ticks.tick() => return Some((Ok::<_,actix_web::Error>(web::Bytes::from_static(b": keep-alive\n\n")), (receiver, encoder, job, first, ticks))),
+                    }
                 };
                 let frame = encoder.encode(&event);
                 if !frame.is_empty() {
+                    ticks.reset();
                     return Some((
-                        Ok::<_, actix_web::Error>(web::Bytes::from(frame)),
-                        (receiver, encoder, job, first),
+                        Ok(web::Bytes::from(frame)),
+                        (receiver, encoder, job, first, ticks),
                     ));
                 }
             }
@@ -238,4 +272,42 @@ pub(crate) async fn response(
         .insert_header(("x-accel-buffering", "no"))
         .content_type("text/event-stream")
         .streaming(stream)
+}
+
+#[cfg(test)]
+mod heartbeat_tests {
+    use super::*;
+    use std::time::Duration;
+    #[actix_web::test]
+    async fn delayed_first_event_survives_heartbeat_and_delivers_terminal_status() {
+        for chat in [false, true] {
+            let (tx, rx) = tokio::sync::mpsc::channel(4);
+            let handle = tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(35)).await;
+                tx.send(json!({"type":"response.output_text.delta","delta":"测试正文"}))
+                    .await
+                    .unwrap();
+                tx.send(json!({"type":"response.completed","response":{"output":[],"status":"completed"}})).await.unwrap();
+                Ok(Value::Null)
+            });
+            let response = response_with_heartbeat(
+                rx,
+                crate::protocol_api::AbortJob::new(handle, false),
+                if chat { "chat" } else { "responses" },
+                "test".into(),
+                false,
+                "req_test".into(),
+                Duration::from_millis(3),
+            )
+            .await;
+            assert_eq!(response.status(), 200);
+            let bytes = actix_web::body::to_bytes(response.into_body())
+                .await
+                .unwrap();
+            let frames = std::str::from_utf8(&bytes).unwrap();
+            assert!(frames.starts_with(": keep-alive\n\n"));
+            assert!(frames.contains("测试正文"));
+            assert!(frames.contains(if chat { "[DONE]" } else { "response.completed" }));
+        }
+    }
 }

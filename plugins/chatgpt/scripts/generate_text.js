@@ -136,35 +136,57 @@ function chatgptApiGenerateTextConversation(auth, request, initialized) {
         conversationId = id
         chatgptApiCheckpoint({ ...checkpoint, phase: 'accepted', conversation_id: id })
       }
-      const result = chatgptApiStreamTextConversation(
-        auth,
-        prompt,
-        prepared,
-        sentinelHeaders,
-        request.attachments || saved.attachments || [],
-        (event) => {
-          const receivedId =
-            chatgptApiFindConversationId(event) ||
-            (event?.p === '/conversation_id' && typeof event.v === 'string' ? event.v : '')
-          if (receivedId) rememberConversation(receivedId)
-          start()
-          chatgptApiConsumeTextStreamEvent(state, writer, event, rememberConversation)
-        }
-      )
-      if (chatgptApiPollRateLimited(result) && chatgptApiCheckpoint().phase === 'submitting') {
+      let result
+      try {
+        result = chatgptApiStreamTextConversation(
+          auth,
+          prompt,
+          prepared,
+          sentinelHeaders,
+          request.attachments || saved.attachments || [],
+          (event) => {
+            const receivedId =
+              chatgptApiFindConversationId(event) ||
+              (event?.p === '/conversation_id' && typeof event.v === 'string' ? event.v : '')
+            if (receivedId) rememberConversation(receivedId)
+            start()
+            chatgptApiConsumeTextStreamEvent(state, writer, event, rememberConversation)
+          }
+        )
+      } catch (error) {
+        const accepted = chatgptApiCheckpoint()
+        if (
+          accepted.phase !== 'accepted' ||
+          !accepted.conversation_id ||
+          !prepared.user_message_id ||
+          (continued && accepted.conversation_id !== continued.conversation_id) ||
+          accepted.user_message_id !== prepared.user_message_id ||
+          !/^(?:Error: )?接收 ChatGPT 生成事件 失败：HTTP 200 Error in message stream\s*$/i.test(
+            String(error.message).split('\n')[0]
+          )
+        )
+          throw error
+        // 流报告中断，但本轮已有回执；继续用同一个 writer 读取原回答。
+        conversationId = accepted.conversation_id
+      }
+      if (
+        result &&
+        chatgptApiPollRateLimited(result) &&
+        chatgptApiCheckpoint().phase === 'submitting'
+      ) {
         const retry = { ...chatgptApiCheckpoint(), phase: 'ready' }
         delete retry.conversation_id
         chatgptApiCheckpoint(retry)
         chatgptApiRequireOk({ ...result, ok: false }, '当前消息未被受理')
       }
-      if (!(state.finished && chatgptApiIsFinalText(state) && state.text.trim())) {
+      if (result && !(state.finished && chatgptApiIsFinalText(state) && state.text.trim())) {
         chatgptApiRequireRetryableRead(result)
         chatgptApiRequireTextStreamOrPoll(result, '发送 ChatGPT 文本消息', conversationId)
       }
       conversationId =
         conversationId ||
-        chatgptApiFindConversationId(result.events) ||
-        chatgptApiFindConversationId(result.body) ||
+        chatgptApiFindConversationId(result?.events) ||
+        chatgptApiFindConversationId(result?.body) ||
         continued?.conversation_id
       if (!conversationId) {
         throw new Error('PROVIDER_SUBMISSION_UNKNOWN: ChatGPT 文本响应缺少 conversation_id')

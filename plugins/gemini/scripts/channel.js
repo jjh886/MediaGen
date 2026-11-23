@@ -70,6 +70,15 @@ function geminiChannelPost(session, channel, offset, data) {
   )
 }
 
+function geminiRequirePollOk(response) {
+  if (response?.status === 400) {
+    const saved = host.checkpoint()
+    if (saved?.phase === 'accepted' && saved.conversation_id && saved.response_id)
+      throw new Error('temporary_unavailable: Gemini 读取已受理轮次的通道返回 HTTP 400')
+  }
+  return geminiRequireOk(response)
+}
+
 function geminiChannelGenerate(session, model, inner, onFrame) {
   if (!session.tokens.api_key)
     throw new Error('upstream_client_outdated: Gemini 页面未提供 WebChannel 参数')
@@ -199,6 +208,24 @@ function geminiChannelGenerate(session, model, inner, onFrame) {
         const code = Number(status.error?.code ?? status[0])
         if ([16, 401, 8, 429, 400].includes(code) && !(host.checkpoint() || {}).conversation_id)
           host.checkpoint({ ...host.checkpoint(), phase: 'ready' })
+        if (
+          code === 400 &&
+          (status.error?.message || status[1]) === 'Request contains an invalid argument.'
+        ) {
+          const saved = host.checkpoint()
+          if (sent && saved?.phase === 'ready' && !saved.conversation_id)
+            host.checkpoint({ ...saved, rejected_message_bytes: message.length })
+          throw new Error(
+            'invalid_input: ' +
+              JSON.stringify({
+                upstream_status: code,
+                reason: 'invalid_argument',
+                stage: sent ? 'message' : 'setup',
+                message_frame_bytes: message.length,
+                attachment_count: inner[0][3]?.length || 0,
+              })
+          )
+        }
         throw new Error(
           (code === 16 || code === 401
             ? 'LOGIN_EXPIRED'
@@ -273,12 +300,12 @@ function geminiChannelGenerate(session, model, inner, onFrame) {
         retry: { max_attempts: 1 },
       },
       (event) => {
-        if (event.type === 'http_response') geminiRequireOk(event)
+        if (event.type === 'http_response') geminiRequirePollOk(event)
         else if (Array.isArray(event)) receive(event)
         return null
       }
     )
-    geminiRequireOk(response)
+    geminiRequirePollOk(response)
   }
   host.checkpoint({ ...host.checkpoint(), channel_ended: ended, channel_completed: closing })
   // 媒体任务可在受理后直接结束通道，产物继续通过指定轮次的历史接口轮询。

@@ -10,6 +10,10 @@ fn structured_provider_errors_explain_limits_and_preserve_safe_refusal_text() {
     assert_eq!((status, code), (409, "upstream_generation_failed"));
     assert!(text.contains("不具备这方面的信息或能力"));
     assert!(!text.contains("eval_script") && !text.contains("frame[31]"));
+    let (status, code, message) =
+        public_failure("plugin.run_js: generation_failed: incomplete_upstream_turn");
+    assert_eq!((status, code), (409, "generation_failed"));
+    assert!(message.contains("多次查询原轮次仍未取得完整回答"));
     let long = "测试正文".repeat(800);
     assert_eq!(
         public_failure(&format!(
@@ -37,6 +41,17 @@ fn structured_provider_errors_explain_limits_and_preserve_safe_refusal_text() {
 
 #[test]
 fn input_validation_is_not_misreported_as_model_capability_failure() {
+    let (status, code, detail) =
+        public_failure(r#"invalid_input: {"reason":"missing_tool_output"}"#);
+    assert_eq!((status, code), (400, "invalid_input"));
+    assert!(detail.contains("function_call_output"));
+    let (status, code, detail) = public_failure(
+        r#"plugin.run_js: invalid_input: {"upstream_status":400,"reason":"invalid_argument","stage":"message","message_frame_bytes":1024,"attachment_count":4,"prompt":"private-detail"}"#,
+    );
+    assert_eq!((status, code), (400, "invalid_input"));
+    assert!(detail.contains("发送正文后"));
+    assert!(detail.contains("1024 字节，附件 4 个"));
+    assert!(!detail.contains("private-detail"));
     let raw = "SAFE_RETRY:plugin.run_js JS 错误: Error: invalid_input: 附件文件名无效\n    at apiTextResponsesMedia (eval_script:2240:17)\nprivate-detail";
     let (status, code, public) = public_failure(raw);
     assert_eq!((status, code), (400, "invalid_input"));

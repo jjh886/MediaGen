@@ -86,6 +86,16 @@ const run = () =>
   vm.runInContext(`main({ request: { input: '提取资产', model: 'chatgpt-gpt-5.6-sol' } })`, context)
 
 describe('ChatGPT 文本提交与恢复', () => {
+  it('已受理的消息流报错后直接读取同一轮，只提交一次', () => {
+    stream.mockImplementation((_auth, _prompt, _prepared, _headers, _attachments, receive) => {
+      receive({ conversation_id: 'original' })
+      throw new Error('接收 ChatGPT 生成事件 失败：HTTP 200 Error in message stream')
+    })
+    const result = run()
+    expect(result.response.output_text).toBe('原会话的完整结果')
+    expect(poll.mock.calls[0][1]).toBe('original')
+    expect(stream).toHaveBeenCalledTimes(1)
+  })
   it('新提交的 HTTP 429 保留具体额度原因和 Retry-After，不覆盖成通用限流', () => {
     stream.mockReturnValue({
       ok: false,

@@ -34,9 +34,11 @@ function geminiWireEncode(fields) {
 }
 
 function geminiWireBase64(bytes) {
-  let text = ''
-  for (const byte of bytes) text += String.fromCharCode(byte)
-  return host.call('crypto.base64_encode_latin1', { text }).value
+  // QuickJS 逐字节拼接长字符串会反复复制前缀，分块也能避免展开参数超出栈上限。
+  const chunks = []
+  for (let i = 0; i < bytes.length; i += 4096)
+    chunks.push(String.fromCharCode(...bytes.slice(i, i + 4096)))
+  return host.call('crypto.base64_encode_latin1', { text: chunks.join('') }).value
 }
 
 function geminiWireDecode(bytes) {

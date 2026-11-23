@@ -80,6 +80,7 @@ impl AppStore {
                 return;
             }
             task.status = "completed".to_string();
+            task.error_message = None;
             task.result_data = Some(result.to_string());
             task.completed_at = Some(Utc::now().to_rfc3339());
             if let Some(url) = first_result_url(&result) {

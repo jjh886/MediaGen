@@ -1,3 +1,14 @@
+function geminiUploadRequest(session, url, options) {
+  try {
+    return geminiRequest(session, url, options)
+  } catch (error) {
+    // 连接未建立时请求体尚未送达，可以重试当前上传步骤。
+    if (!String(error.message).includes('client error (Connect)')) throw error
+    host.call('time.sleep', { milliseconds: 1000 })
+    return geminiRequest(session, url, options)
+  }
+}
+
 function geminiUpload(session, attachment) {
   const limit = attachment.mime_type.startsWith('video/') ? 2 * 1024 ** 3 : 100 * 1024 ** 2
   if (attachment.size > limit)
@@ -9,7 +20,7 @@ function geminiUpload(session, attachment) {
     'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
     ...(session.tokens.pctx ? { 'x-client-pctx': session.tokens.pctx } : {}),
   }
-  const start = geminiRequest(
+  const start = geminiUploadRequest(
     session,
     'https://content-push.googleapis.com/upload?authuser=' + (session.auth.authuser || 0),
     {
@@ -27,7 +38,7 @@ function geminiUpload(session, attachment) {
   const url = start.headers?.['x-goog-upload-url']
   if (!/^https:\/\/content-push\.googleapis\.com\/upload(?:[/?]|$)/.test(url || ''))
     throw new Error('upload_failed: Gemini 返回了无效上传地址')
-  const result = geminiRequest(session, url, {
+  const result = geminiUploadRequest(session, url, {
     method: 'POST',
     headers: {
       ...headers,

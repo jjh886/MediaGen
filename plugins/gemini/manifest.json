@@ -79,6 +79,10 @@
         "temporary_unavailable",
         "timeout",
         "connection reset",
+        "client error (Connect)",
+        "client error (SendRequest)",
+        "operation timed out",
+        "error reading a body from connection",
         "HTTP 500",
         "HTTP 502",
         "HTTP 503",
@@ -131,6 +135,7 @@
     ],
     "network_hosts": ["google.com", "googleapis.com", "googleusercontent.com"],
     "context_fields": [
+      "task_id",
       "profile_dir",
       "workspace_dir",
       "request",
@@ -956,6 +961,26 @@
             "generate_text.js"
           ],
           "timeout_ms": 3600000,
+          "save_as": "result"
+        }
+      ]
+    },
+    "recover_text_receipt": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "@shared/api_text_media.js",
+            "account.js",
+            "auth.js",
+            "protocol.js",
+            "history.js",
+            "recover_receipt.js"
+          ],
+          "timeout_ms": 120000,
           "save_as": "result"
         }
       ]

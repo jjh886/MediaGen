@@ -5,11 +5,15 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::path::Path;
 
+#[path = "receipt_recovery.rs"]
+mod recovery;
+pub(crate) use recovery::resume_after_restart;
+
 fn db(root: &Path) -> rusqlite::Result<Connection> {
     std::fs::create_dir_all(root).map_err(|_| rusqlite::Error::InvalidPath(root.to_owned()))?;
     let db = Connection::open(root.join("request-receipts.sqlite"))?;
     db.busy_timeout(std::time::Duration::from_secs(5))?;
-    db.execute_batch("CREATE TABLE IF NOT EXISTS receipts(owner TEXT NOT NULL, request TEXT NOT NULL, task TEXT UNIQUE NOT NULL, status TEXT NOT NULL DEFAULT 'running', result TEXT, expires INTEGER NOT NULL, PRIMARY KEY(owner,request)); CREATE INDEX IF NOT EXISTS receipts_expiry ON receipts(expires) WHERE status!='expired'")?;
+    db.execute_batch("CREATE TABLE IF NOT EXISTS receipts(owner TEXT NOT NULL, request TEXT NOT NULL, task TEXT UNIQUE NOT NULL, status TEXT NOT NULL DEFAULT 'running', result TEXT, expires INTEGER NOT NULL, PRIMARY KEY(owner,request)); CREATE INDEX IF NOT EXISTS receipts_expiry ON receipts(expires) WHERE status!='expired'; CREATE TABLE IF NOT EXISTS receipt_context(task TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, recovery_started INTEGER)")?;
     Ok(db)
 }
 
@@ -18,14 +22,27 @@ pub(crate) async fn reserve(
     key: &str,
     id: &str,
     task: &str,
+    recovery: Option<Value>,
 ) -> Result<bool, String> {
     let root = state.file_root.clone();
     let (owner, id, task) = (hash_secret(key), id.to_owned(), task.to_owned());
+    let cipher = state.credential_cipher.clone();
     web::block(move || {
-        db(&root)?.execute(
+        let encrypted = recovery.map(|v|cipher.encrypt(&v.to_string())).transpose()
+            .map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let mut conn = db(&root)?;
+        let tx = conn.transaction()?;
+        let inserted = tx.execute(
             "INSERT INTO receipts(owner,request,task,expires) VALUES(?1,?2,?3,unixepoch()+86400) ON CONFLICT DO NOTHING",
             params![owner, id, task],
-        )
+        )?;
+        if inserted == 1 {
+            if let Some(ciphertext) = encrypted {
+                tx.execute("INSERT INTO receipt_context(task,ciphertext) VALUES(?1,?2)", params![task,ciphertext])?;
+            }
+        }
+        tx.commit()?;
+        Ok::<_,rusqlite::Error>(inserted)
     })
     .await.map_err(|_| "回执写入中断")?
     .map(|changed| changed == 1).map_err(|_| "无法登记请求回执".into())
@@ -46,11 +63,14 @@ pub(crate) async fn finish(
             .map(|v| state.credential_cipher.encrypt(&v.to_string()))
             .transpose()?;
         db(&state.file_root)
-            .and_then(|db| {
-                db.execute(
-                    "UPDATE receipts SET status=?2,result=?3,expires=unixepoch()+86400 WHERE task=?1 AND status='running'",
+            .and_then(|mut db| {
+                let tx=db.transaction()?;
+                tx.execute(
+                    "UPDATE receipts SET status=?2,result=?3,expires=unixepoch()+86400 WHERE task=?1 AND status IN ('running','recovering') AND expires>unixepoch()",
                     params![task, status, encrypted],
-                )
+                )?;
+                tx.execute("DELETE FROM receipt_context WHERE task=?1", [&task])?;
+                tx.commit()
             })
             .map_err(|_| "无法保存请求结果".to_string())?;
         Ok(())
@@ -68,10 +88,14 @@ pub(crate) async fn fail(state: &web::Data<ServerState>, task: &str) {
 pub(crate) async fn expire(state: &ServerState) -> Result<(), String> {
     let root = state.file_root.clone();
     web::block(move || {
-        db(&root)?.execute(
+        let mut db = db(&root)?;
+        let tx = db.transaction()?;
+        tx.execute(
             "UPDATE receipts SET status='expired',result=NULL WHERE expires<=unixepoch() AND status!='expired'",
             [],
-        )
+        )?;
+        tx.execute("DELETE FROM receipt_context WHERE task IN (SELECT task FROM receipts WHERE status='expired')", [])?;
+        tx.commit()
     })
     .await.map_err(|_| "回执清理中断")?
     .map(|_| ()).map_err(|_| "回执清理失败".into())
@@ -109,6 +133,7 @@ pub(crate) async fn lookup(
             status = confirmed;
             encrypted = result;
         }
+        if status == "recovering" {status = "running".into();}
         let response = encrypted.map(|v| {
             let clear = state.credential_cipher.decrypt(&v)?;
             serde_json::from_str::<Value>(&clear).map_err(|_| "请求回执损坏".to_string())
