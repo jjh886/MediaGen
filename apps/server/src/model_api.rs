@@ -55,7 +55,7 @@ pub(crate) fn resolve(
                 entry
                     .models
                     .iter()
-                    .find(|candidate| candidate.model_id == model.model_id)
+                    .find(|candidate| candidate.matches_id(canonical))
             })
             .filter_map(|candidate| candidate.extra.get("capabilities"))
             .cloned()
@@ -156,17 +156,7 @@ pub(crate) async fn list(
         if account.login_state == "disabled" || account.login_state == "login_expired" {
             continue;
         }
-        let stale = state
-            .model_catalog
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&account.id)
-            .is_none_or(|entry| chrono::Utc::now().timestamp() - entry.refreshed_at > 3600);
-        if !query.refresh && !stale {
-            continue;
-        }
-        if let Err(code) = refresh_account(&state, account.clone()).await {
+        if let Err(code) = cache::refresh_if_needed(&state, account.clone(), query.refresh).await {
             failures.push(json!({"account_id":account.id,"code":code}));
         }
     }
@@ -178,7 +168,10 @@ pub(crate) async fn refresh_account(
     state: &ServerState,
     account: AccountRecord,
 ) -> Result<(), &'static str> {
-    let _refresh = state.model_catalog.1.lock().await;
+    cache::refresh_if_needed(state, account, true).await
+}
+
+async fn discover_account(state: &ServerState, account: AccountRecord) -> Result<(), &'static str> {
     let manifest = state
         .plugin_loader
         .get_plugin(&account.platform)
@@ -209,7 +202,7 @@ pub(crate) async fn refresh_account(
         }
         "model_discovery_failed"
     })?;
-    let models: Vec<ModelDef> =
+    let mut models: Vec<ModelDef> =
         serde_json::from_value(result["models"].clone()).map_err(|_| "invalid_model_catalog")?;
     if models.len() > 2048
         || models
@@ -217,6 +210,18 @@ pub(crate) async fn refresh_account(
             .any(|model| model.model_id.trim().is_empty() || model.model_id.len() > 256)
     {
         return Err("invalid_model_catalog");
+    }
+    for model in &mut models {
+        if !model.extra.contains_key("capabilities") {
+            if let Some(caps) = manifest
+                .models
+                .iter()
+                .find(|m| m.model_id == model.model_id)
+                .and_then(|m| m.extra.get("capabilities"))
+            {
+                model.extra.insert("capabilities".into(), caps.clone());
+            }
+        }
     }
     let raw = {
         let mut cache = state
@@ -254,11 +259,10 @@ pub(crate) async fn retrieve(
         return crate::protocol_api::error(401, "invalid_api_key", "API Key 无效");
     }
     let key = crate::routes::api_key_from_request(&request).unwrap_or_default();
-    let canonical = state
-        .plugin_loader
-        .resolve_model(&path)
-        .map(|(_, m)| m.model_id.as_str())
-        .unwrap_or(&path);
+    refresh_before_dispatch(&state, &path, &key).await;
+    let canonical = resolve(&state, &path, &key)
+        .map(|(_, model, _)| model.model_id)
+        .unwrap_or_else(|| path.to_string());
     match catalog(&state, &key, None)
         .into_iter()
         .find(|item| item["id"] == canonical)

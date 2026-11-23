@@ -96,7 +96,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "2.2.5",
+  "version": "2.2.6",
   "platform_id": "doubao-api",
   "display_name": "豆包",
   "sort_order": 50,
@@ -214,6 +214,7 @@
     },
     {
       "model_id": "doubao-api-seedream-5-pro",
+      "account_model": "doubao-api-seedream-5-pro",
       "display_name": "Seedream 5.0 Pro",
       "task_kind": "image",
       "aliases": ["doubao-seedream-5-pro"],
@@ -226,6 +227,7 @@
     },
     {
       "model_id": "doubao-api-seedream-5-flash",
+      "account_model": "doubao-api-seedream-5-flash",
       "display_name": "Seedream 5.0 Flash",
       "task_kind": "image",
       "aliases": ["doubao-seedream-5-flash"],
@@ -238,6 +240,7 @@
     },
     {
       "model_id": "doubao-api-seedance-2-5",
+      "account_model": "doubao-api-seedance-2-5",
       "display_name": "Seedance 2.5",
       "task_kind": "video",
       "aliases": ["doubao-seedance-2-5"],
@@ -250,6 +253,7 @@
     },
     {
       "model_id": "doubao-api-seedance-2",
+      "account_model": "doubao-api-seedance-2",
       "display_name": "Seedance 2.0",
       "task_kind": "video",
       "aliases": ["doubao-seedance-2"],
@@ -262,6 +266,7 @@
     },
     {
       "model_id": "doubao-api-seedance-2-fast",
+      "account_model": "doubao-api-seedance-2-fast",
       "display_name": "Seedance 2.0 Fast",
       "task_kind": "video",
       "aliases": ["doubao-seedance-2-fast"],
@@ -274,6 +279,7 @@
     },
     {
       "model_id": "doubao-api-seedance-2-mini",
+      "account_model": "doubao-api-seedance-2-mini",
       "display_name": "Seedance 2.0 Mini",
       "task_kind": "video",
       "aliases": ["doubao-seedance-2-mini"],
@@ -386,6 +392,27 @@
           ],
           "timeout_ms": 14400000,
           "save_as": "result"
+        }
+      ]
+    },
+    "list_models": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_session.js",
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "auth.js",
+            "signing_transport.js",
+            "signing_environment.js",
+            "signing.js",
+            "passport.js",
+            "lifecycle.js",
+            "conversation.js",
+            "media_options.js",
+            "list_models.js"
+          ]
         }
       ]
     },

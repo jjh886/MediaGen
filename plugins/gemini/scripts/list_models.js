@@ -3,6 +3,7 @@ function main(ctx) {
   return {
     models: geminiCatalog(session).map((model) => ({
       model_id: model.id,
+      aliases: model.aliases || [],
       display_name: model.name,
       task_kind: 'text',
       capabilities: {

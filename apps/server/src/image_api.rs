@@ -134,6 +134,9 @@ async fn handle_image_request(
             return openai_error(400, "unsupported_parameter", &message);
         }
     }
+    if let Some(key) = caller_key.as_deref() {
+        crate::model_api::refresh_before_dispatch(&state, &body.model, key).await;
+    }
     if body.async_generation {
         if endpoint != ImageEndpoint::Generation {
             return openai_error(

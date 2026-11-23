@@ -189,6 +189,7 @@ function codexExecuteResponses(auth, payload, ctx) {
             'usage_limit_reached',
             'rate_limit_exceeded',
             'server_is_overloaded',
+            'model_not_found',
           ].includes(error.code || error.type)
         // 统一由协议层发送终态，否则客户端可能先收到失败，随后又收到切换账号后的响应。
         return null
@@ -288,6 +289,7 @@ function codexResponsesHttpError(result) {
   const status = Number(result?.status || 0)
   const code = error?.code || (error?.type !== 'error' && error?.type)
   const message = [code, detail].filter(Boolean).join(': ') || 'Codex Responses 请求失败'
+  if (code === 'model_not_found') return 'account_model_unavailable: ' + message
   const cooldownSeconds = codexResponsesCooldownSeconds({
     body: error,
     body_text: typeof body === 'object' && body !== null ? '' : result?.body_text,

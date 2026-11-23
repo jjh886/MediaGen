@@ -3,6 +3,51 @@ use crate::test_fixtures::account_record;
 use mediagen_plugin_runtime::PluginLoader;
 
 #[actix_web::test]
+async fn cold_catalog_routes_alias_to_the_account_that_advertises_it() {
+    let state = crate::test_fixtures::protocol_state(true);
+    state
+        .store
+        .insert_account(account_record("plus", "test", "Plus", ""));
+    let scripts = state
+        .plugin_loader
+        .get_plugin_dir("test")
+        .unwrap()
+        .join("scripts");
+    std::fs::write(scripts.join("models.js"), "function main(ctx){return {models:ctx.account_id==='plus'?[{model_id:'renamed',aliases:['old-id'],display_name:'Renamed',task_kind:'text'}]:[]}}").unwrap();
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(state.clone())
+            .configure(crate::configure_routes),
+    )
+    .await;
+    let result = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::post()
+            .uri("/v1/responses")
+            .insert_header(("authorization", "Bearer key-a"))
+            .set_json(json!({"model":"old-id","input":"hello"}))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(result.status(), 200);
+    let response: Value = actix_test::read_body_json(result).await;
+    assert_eq!(response["model"], "renamed");
+    assert_eq!(
+        state.store.list_tasks(None)[0].account_id.as_deref(),
+        Some("plus")
+    );
+    let details: Value = actix_test::call_and_read_body_json(
+        &app,
+        actix_test::TestRequest::get()
+            .uri("/v1/models/old-id")
+            .insert_header(("authorization", "Bearer key-a"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(details["alias_of"], "renamed");
+}
+
+#[actix_web::test]
 async fn dynamic_model_reservation_uses_other_free_accounts() {
     let state = crate::test_fixtures::protocol_state(true);
     state.store.update_account(

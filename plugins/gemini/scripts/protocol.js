@@ -72,7 +72,7 @@ function geminiCatalog(session) {
   const choices = Array.isArray(data[24]?.[1])
     ? data[24][1]
     : rows.map((row) => [[null, row[17]], []])
-  return choices.flatMap((choice) => {
+  const models = choices.flatMap((choice) => {
     const mode = choice?.[0]?.[1]
     const row = rows.find((row) => row[17] === mode)
     if (!row) return []
@@ -100,6 +100,18 @@ function geminiCatalog(session) {
       },
     ]
   })
+  // 网页曾将同一条无变体的模式 8 通道命名为 Argon；显式分开的变体按原名路由。
+  if (!models.some((model) => model.id === 'gemini-4-argon')) {
+    const renamed = models.find(
+      (model) =>
+        model.id === 'gemini-4-carbon' &&
+        model.hex === '95a4c0abcba24364' &&
+        model.mode === 8 &&
+        !model.variant
+    )
+    if (renamed) renamed.aliases = ['gemini-4-argon']
+  }
+  return models
 }
 
 function geminiModel(session, id, effort) {
@@ -107,7 +119,7 @@ function geminiModel(session, id, effort) {
   const media = ['gemini-image', 'gemini-video'].includes(id)
   const model = media
     ? models.find((model) => model.mode === 1)
-    : models.find((model) => model.id === id)
+    : models.find((model) => model.id === id || model.aliases?.includes(id))
   if (!model) throw new Error('account_model_unavailable: 当前 Google 账号未提供所选 Gemini 模型')
   if (effort && !model.efforts.includes(effort))
     throw new Error('invalid_input: 所选 Gemini 模型不支持此思考等级')

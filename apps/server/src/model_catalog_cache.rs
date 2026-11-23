@@ -71,31 +71,47 @@ pub(crate) async fn refresh_before_dispatch(state: &crate::ServerState, model: &
         .resolve_model(model)
         .map(|(manifest, _)| manifest.platform_id.clone())
         .or_else(|| super::resolve(state, model, key).map(|(manifest, _, _)| manifest.platform_id));
-    let Some(platform) = platform else { return };
-    let Some(manifest) = state.plugin_loader.get_plugin(&platform) else {
-        return;
-    };
-    if !manifest.flows.contains_key("list_models") {
-        return;
-    }
     for account in super::visible_accounts(state, key)
         .into_iter()
         .filter(|account| {
-            account.platform == platform
-                && !matches!(account.login_state.as_str(), "disabled" | "login_expired")
+            platform.as_ref().is_none_or(|p| p == &account.platform)
+                && !matches!(
+                    account.login_state.as_str(),
+                    "disabled" | "login_expired" | "verification_required"
+                )
+                && state
+                    .plugin_loader
+                    .get_plugin(&account.platform)
+                    .is_some_and(|manifest| manifest.flows.contains_key("list_models"))
         })
     {
-        let stale = state
-            .model_catalog
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&account.id)
-            .is_none_or(|entry| chrono::Utc::now().timestamp() - entry.refreshed_at > 3600);
-        if stale {
-            let _ = super::refresh_account(state, account).await;
-        }
+        let _ = refresh_if_needed(state, account, false).await;
     }
+}
+
+pub(super) async fn refresh_if_needed(
+    state: &crate::ServerState,
+    account: crate::store::AccountRecord,
+    force: bool,
+) -> Result<(), &'static str> {
+    let fresh = || {
+        !force
+            && state
+                .model_catalog
+                .0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&account.id)
+                .is_some_and(|entry| chrono::Utc::now().timestamp() - entry.refreshed_at <= 3600)
+    };
+    if fresh() {
+        return Ok(());
+    }
+    let _refresh = state.model_catalog.1.lock().await;
+    if fresh() {
+        return Ok(());
+    }
+    super::discover_account(state, account).await
 }
 
 #[cfg(test)]

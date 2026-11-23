@@ -30,6 +30,7 @@ pub(crate) async fn transcribe(
         return error(400, "missing_file", "缺少音频文件");
     }
     let key = crate::routes::api_key_from_request(&request).unwrap_or_default();
+    crate::model_api::refresh_before_dispatch(&state, id, &key).await;
     let Some((manifest, model, _)) = crate::model_api::resolve(&state, id, &key) else {
         return error(404, "model_not_found", "模型不存在");
     };

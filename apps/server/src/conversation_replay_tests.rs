@@ -13,7 +13,7 @@ fn setup(mode: &str) -> web::Data<ServerState> {
     let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     manifest["models"][0]["capabilities"]["input_modalities"] = json!(["text", "file"]);
     manifest["models"][0]["capabilities"]["attachment_transport"] = json!("workspace");
-    manifest["failure_strategy"] = json!([{"contains_any":["quota_exhausted"],"category":"quota_exhausted","retry_action":"failover","account_state":"cooldown","cooldown_seconds":3600,"usage_consumed":false}]);
+    manifest["failure_strategy"] = json!([{"contains_any":["quota_exhausted"],"category":"quota_exhausted","retry_action":"failover","account_state":"cooldown","cooldown_seconds":3600,"usage_consumed":false},{"contains_any":["account_model_unavailable"],"category":"account_model_unavailable","retry_action":"failover","usage_consumed":false}]);
     std::fs::write(path, manifest.to_string()).unwrap();
     std::fs::write(directory.join("scripts/text.js"), r#"
 function main(ctx) {
@@ -21,6 +21,7 @@ function main(ctx) {
  if(prior && prior.account !== ctx.account_id) throw new Error('foreign account cursor');
  if(prior && ctx.account_id==='account' && MODE!=='known') {
    host.checkpoint({phase:MODE==='ambiguous'?'accepted':'ready',conversation_id:'original'});
+   if(MODE==='permission') throw new Error('account_model_unavailable: model access revoked');
    throw new Error('quota_exhausted: retry after 3600 seconds');
  }
  const text=JSON.stringify(ctx.request.input);
@@ -205,6 +206,27 @@ async fn quota_rejection_during_chat_migrates_even_when_client_only_sends_new_me
         next["choices"][0]["message"]["content"],
         "MigratedWithAttachment"
     );
+}
+
+#[actix_web::test]
+async fn session_moves_with_attachments_when_original_account_loses_model_access() {
+    let state = setup("permission");
+    let id = file(&state).await;
+    let (status, first) = call(
+        &state,
+        json!({"model":"text-model","input":initial(&id)}),
+        "/v1/responses",
+    )
+    .await;
+    assert_eq!(status, 200);
+    let (status, next) = call(
+        &state,
+        json!({"model":"text-model","previous_response_id":first["id"],"input":"继续"}),
+        "/v1/responses",
+    )
+    .await;
+    assert_eq!(status, 200, "{next}");
+    assert_eq!(next["output_text"], "MigratedWithAttachment");
 }
 
 #[actix_web::test]

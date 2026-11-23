@@ -109,7 +109,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "1.1.4",
+  "version": "1.1.5",
   "platform_id": "gemini",
   "display_name": "Gemini",
   "sort_order": 25,

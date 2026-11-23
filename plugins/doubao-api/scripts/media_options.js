@@ -7,6 +7,16 @@ const DOUBAO_MEDIA_MODELS = {
   'doubao-seedance-2-mini': { kind: 'video', value: 'seedance_v2.0_mini' },
 }
 
+function doubaoMediaSelectors(session, conversationId, kind) {
+  const items = doubaoConversationActions(session, conversationId)
+  const entry = items.find((item) => Number(item.instruction_type) === (kind === 'image' ? 4 : 18))
+  const conf = session.actionBar?.conf?.item_list?.[entry?.item_id]
+  const templates = conf?.instruction_conf?.instruction_item_list
+  return (templates || [])
+    .flatMap((item) => JSON.parse(item.template || '{}').selector_list || [])
+    .map((item) => JSON.parse(item.template || '{}'))
+}
+
 function doubaoMediaOptions(ctx, session, kind, saved) {
   const selected = DOUBAO_MEDIA_MODELS[String(ctx.model_id).replace(/^doubao-api-/, 'doubao-')]
   if (!selected) throw new Error('invalid_input: 必须指定具体的豆包生成模型')
@@ -20,13 +30,7 @@ function doubaoMediaOptions(ctx, session, kind, saved) {
     return saved
   }
   const conversationId = doubaoLocalConversationId()
-  const items = doubaoConversationActions(session, conversationId)
-  const entry = items.find((item) => Number(item.instruction_type) === (kind === 'image' ? 4 : 18))
-  const conf = session.actionBar?.conf?.item_list?.[entry?.item_id]
-  const templates = conf?.instruction_conf?.instruction_item_list
-  const selectors = (templates || [])
-    .flatMap((item) => JSON.parse(item.template || '{}').selector_list || [])
-    .map((item) => JSON.parse(item.template || '{}'))
+  const selectors = doubaoMediaSelectors(session, conversationId, kind)
   const modelSelector = selectors.find(
     (item) => item.key === (kind === 'image' ? 'model' : 'video-model')
   )

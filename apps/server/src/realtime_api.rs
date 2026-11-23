@@ -109,6 +109,7 @@ async fn create(
         return error(400, "invalid_sdp", "缺少有效的 SDP offer");
     }
     let key = crate::routes::api_key_from_request(&request).unwrap_or_default();
+    crate::model_api::refresh_before_dispatch(&state, &model_id, &key).await;
     let Some((manifest, model, _)) = crate::model_api::resolve(&state, &model_id, &key) else {
         return error(404, "model_not_found", "实时模型不存在");
     };

@@ -42,6 +42,12 @@ pub async fn create_video(
         Ok(authorized) => authorized,
         Err(response) => return response,
     };
+    crate::model_api::refresh_before_dispatch(
+        &state,
+        &authorized.body.model,
+        &authorized.caller_key,
+    )
+    .await;
     let submission = match prepare_video_submission(&state, authorized) {
         Ok(submission) => submission,
         Err(response) => return response,

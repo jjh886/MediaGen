@@ -193,6 +193,28 @@ describe('Gemini API 插件', () => {
     expect(context.geminiCatalog({})).toEqual([])
   })
 
+  it('旧名 Argon 只路由到账号开放的同编号无变体 Carbon', () => {
+    const { context } = runtime()
+    const row = Array(18).fill(null)
+    row[0] = '95a4c0abcba24364'
+    row[12] = '4 Carbon'
+    row[17] = 8
+    const choice = ['', 8, false, null, 'Carbon', '4 Carbon']
+    const data = Array(25).fill(null)
+    data[15] = [row]
+    data[24] = ['neon_launch_ultra_policy', [[choice, [[1]]]]]
+    context.geminiRpc = () => data
+    expect(context.geminiModel({}, 'gemini-4-argon')).toMatchObject({
+      id: 'gemini-4-carbon',
+      mode: 8,
+      selector: row[0],
+    })
+    choice[3] = 'carbon'
+    expect(() => context.geminiModel({}, 'gemini-4-argon')).toThrow('account_model_unavailable')
+    data[24][1] = []
+    expect(() => context.geminiModel({}, 'gemini-4-argon')).toThrow('account_model_unavailable')
+  })
+
   it('免费账号自动模式使用稳定 ID，不再把中文用途转换成 gemini--', () => {
     const { context } = runtime()
     const row = Array(20).fill(null)

@@ -62,7 +62,7 @@ pub(crate) async fn execute(
     };
     payload.as_object_mut().unwrap().remove("async");
     payload.as_object_mut().unwrap().remove("callback_url");
-    payload["model"] = json!(model.model_id);
+
     let capabilities = model
         .extra
         .get("capabilities")

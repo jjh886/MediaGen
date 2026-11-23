@@ -79,7 +79,7 @@ describe('豆包已生成视频的下载等待', () => {
 })
 
 describe('豆包媒体参数', () => {
-  const run = scripts(['doubao-api/scripts/media_options.js'])
+  const run = scripts(['doubao-api/scripts/media_options.js', 'doubao-api/scripts/list_models.js'])
   run(
     `apiTextUuid=()=> 'test-id'; doubaoLocalConversationId=()=> 'local_testid'; doubaoConversationActions=(session,id)=>{
     session.actionBar={conf:{item_list:configuration}};
@@ -144,6 +144,14 @@ describe('豆包媒体参数', () => {
       ),
     }
   )
+  it('发布当前账号媒体选项中实际开放的型号', () => {
+    expect(run('apiSessionRead=()=>({});main({}).models.map(m=>m.model_id)')).toEqual([
+      'doubao-api-text',
+      'doubao-api-seedream-5-pro',
+      'doubao-api-seedance-2-mini',
+    ])
+  })
+
   it('仅接受具体 model ID，不接受默认入口或缺失模型', () => {
     expect(() => run(`doubaoMediaOptions({model_id:'doubao-image'}, {}, 'image')`)).toThrow(
       '必须指定具体'

@@ -26,6 +26,7 @@ pub(crate) async fn connect(
         _ => return error(400, "missing_model", "model 必须是非空字符串"),
     };
     let key = crate::routes::api_key_from_request(&request).unwrap_or_default();
+    crate::model_api::refresh_before_dispatch(&state, &query.model, &key).await;
     let Some((manifest, model, _)) = crate::model_api::resolve(&state, &query.model, &key) else {
         return error(404, "model_not_found", "实时模型不存在");
     };

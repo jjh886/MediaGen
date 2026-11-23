@@ -196,6 +196,7 @@ function stableProviderErrorCode(code, message) {
   ) {
     return 'invalid_request'
   }
+  if (code === 'model_not_found') return 'account_model_unavailable'
   return compactUpstreamText(code)
 }
 

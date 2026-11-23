@@ -27,7 +27,14 @@ pub(crate) fn previous_input(
     if previous_model != &request["model"]
         && !previous_model.as_str().is_some_and(|id| {
             crate::model_api::resolve(state, id, key)
-                .is_some_and(|(_, model, _)| request["model"] == model.model_id)
+                .zip(
+                    request["model"]
+                        .as_str()
+                        .and_then(|current| crate::model_api::resolve(state, current, key)),
+                )
+                .is_some_and(|((before, a, _), (after, b, _))| {
+                    before.platform_id == after.platform_id && a.model_id == b.model_id
+                })
         })
     {
         return Err("previous_response_id 必须使用相同模型".into());

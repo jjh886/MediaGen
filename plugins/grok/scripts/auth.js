@@ -10,6 +10,8 @@ function grokSave(ctx, auth) {
 }
 function grokError(result) {
   const code = String(result.body?.error?.code || result.body?.error || '')
+  if ([400, 403, 404].includes(result.status) && code === 'model_not_found')
+    throw new Error('account_model_unavailable: 当前 Grok 账号未提供所选模型')
   if (result.status === 426)
     throw new Error('upstream_client_outdated: Grok 要求更新插件使用的 CLI 协议版本')
   if (result.status === 401 || ['invalid_grant', 'access_denied'].includes(code))

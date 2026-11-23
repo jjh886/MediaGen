@@ -97,7 +97,7 @@ pub(crate) async fn route(
         *preferred = original;
         return Ok(true);
     }
-    let limited = crate::protocol_queue::check_model_accounts(
+    let unavailable = crate::protocol_queue::check_model_accounts(
         state,
         manifest,
         request["model"].as_str().unwrap_or_default(),
@@ -105,8 +105,8 @@ pub(crate) async fn route(
         key,
         preferred.as_deref(),
     )
-    .is_err_and(|error| error.starts_with("insufficient_quota:"));
-    if !limited {
+    .is_err();
+    if !unavailable {
         return Ok(false);
     }
     if let Some(account) = original.and_then(|id| state.store.account_by_id(&id)) {

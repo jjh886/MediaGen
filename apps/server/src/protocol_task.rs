@@ -244,27 +244,27 @@ pub(crate) async fn run_with_failover(
     key: &str,
     replay: Option<Value>,
 ) -> Result<Value, String> {
+    let routing_id = request["model"].as_str().unwrap_or_default().to_owned();
     let mut excluded = Vec::new();
     let mut attempt = 0;
     let mut _replay_upload_use = None;
     loop {
-        let actual = crate::model_api::account_model(
-            state,
-            manifest,
-            request["model"].as_str().unwrap_or(""),
-            &account.id,
-        );
+        let actual = crate::model_api::account_model(state, manifest, &routing_id, &account.id);
         let actual_caps = actual
             .as_ref()
             .and_then(|model| model.extra.get("capabilities"))
             .cloned()
             .unwrap_or_else(|| capabilities.clone());
+        let mut attempt_request = request.clone();
+        if let Some(model) = &actual {
+            attempt_request["model"] = serde_json::json!(model.model_id);
+        }
         let result = run_plugin(
             state,
             manifest,
             account,
             flow,
-            request.clone(),
+            attempt_request,
             events.clone(),
             task_id,
             actual_caps,
@@ -323,7 +323,7 @@ pub(crate) async fn run_with_failover(
             && (replay.is_none()
                 || !(matches!(
                     decision.category.as_str(),
-                    "account_rate_limited" | "quota_exhausted"
+                    "account_rate_limited" | "quota_exhausted" | "account_model_unavailable"
                 ) || message.contains("model_quota_exhausted")))
         {
             return result;
@@ -336,22 +336,17 @@ pub(crate) async fn run_with_failover(
                     .store
                     .account_with_required_runtime_proxy(candidate.clone())
                     .is_err()
-                    || crate::model_api::account_model(
-                        state,
-                        manifest,
-                        &model.model_id,
-                        &candidate.id,
-                    )
-                    .is_none_or(|candidate_model| {
-                        crate::protocol_request::validate_capabilities(
-                            &request,
-                            candidate_model
-                                .extra
-                                .get("capabilities")
-                                .unwrap_or(&Value::Null),
-                        )
-                        .is_err()
-                    })
+                    || crate::model_api::account_model(state, manifest, &routing_id, &candidate.id)
+                        .is_none_or(|candidate_model| {
+                            crate::protocol_request::validate_capabilities(
+                                &request,
+                                candidate_model
+                                    .extra
+                                    .get("capabilities")
+                                    .unwrap_or(&Value::Null),
+                            )
+                            .is_err()
+                        })
                 {
                     rejected.push(candidate.id);
                 }
@@ -375,7 +370,7 @@ pub(crate) async fn run_with_failover(
                 crate::protocol_queue::check_model_accounts(
                     state,
                     manifest,
-                    &model.model_id,
+                    &routing_id,
                     "text",
                     key,
                     None,
@@ -389,10 +384,9 @@ pub(crate) async fn run_with_failover(
             return result;
         };
         if migrate {
-            let next_caps =
-                crate::model_api::account_model(state, manifest, &model.model_id, &next.id)
-                    .and_then(|model| model.extra.get("capabilities").cloned())
-                    .unwrap_or_else(|| capabilities.clone());
+            let next_caps = crate::model_api::account_model(state, manifest, &routing_id, &next.id)
+                .and_then(|model| model.extra.get("capabilities").cloned())
+                .unwrap_or_else(|| capabilities.clone());
             let (restored, guard) = Box::pin(crate::conversation_replay::prepare(
                 state,
                 key,
