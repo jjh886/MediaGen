@@ -313,6 +313,23 @@ function main(ctx) {
         use_history_file: current.use_history_file,
       })
       host.call('time.sleep', { milliseconds: 1500 })
+      let redo
+      if (current.conversation_id && current.response_id) {
+        redo = current
+        let lookup
+        try {
+          const history = geminiHistory(session, current)
+          lookup = history ? 'found' : 'turn_not_found'
+          if (history?.candidate_id && !current.candidate_id)
+            redo = { ...current, candidate_id: history.candidate_id }
+        } catch (lookupError) {
+          if (String(lookupError.message).startsWith('conversation_unavailable:'))
+            lookup = 'conversation_unavailable'
+          else if (interrupted(lookupError)) lookup = 'transport_error'
+          else throw lookupError
+        }
+        host.checkpoint({ ...host.checkpoint(), redo_history_lookup: lookup })
+      }
       const retryModel =
         model && model.id === (current.fallback_model || requestedModel)
           ? model
@@ -321,11 +338,7 @@ function main(ctx) {
               current.fallback_model || requestedModel,
               current.fallback_model ? undefined : request.reasoning.effort
             )
-      result = generate(
-        retryModel,
-        emit,
-        current.conversation_id && current.response_id ? current : undefined
-      )
+      result = generate(retryModel, emit, redo)
     }
     if (!result.text) throw new Error('invalid_response: Gemini 完成但未返回正文')
     emit(result)
