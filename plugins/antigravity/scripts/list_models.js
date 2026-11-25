@@ -13,21 +13,50 @@ function main(ctx) {
         .split('-')
         .map((part) => part[0].toUpperCase() + part.slice(1))
         .join(' ')
-      return [
-        {
-          model_id: 'antigravity-' + slug,
-          display_name: display,
-          task_kind: 'text',
-          capabilities: {
-            ...agInputCapabilities(models, variants),
-            output_modalities: ['text'],
-            endpoints: ['/v1/responses', '/v1/chat/completions'],
-            streaming: true,
-            tool_calling: false,
-            unsupported_parameters: ['tools', 'temperature', 'top_p', 'stop', 'text'],
-            reasoning: { efforts, ...(defaultEffort ? { default_effort: defaultEffort } : {}) },
+      const base = {
+        model_id: 'antigravity-' + slug,
+        display_name: display,
+        task_kind: 'text',
+        capabilities: {
+          ...agInputCapabilities(models, variants),
+          output_modalities: ['text'],
+          endpoints: ['/v1/responses', '/v1/chat/completions'],
+          streaming: true,
+          tool_calling: false,
+          unsupported_parameters: [
+            'tools',
+            'temperature',
+            'top_p',
+            'stop',
+            'text',
+            ...(slug.startsWith('claude-') ? [] : ['max_output_tokens']),
+          ],
+          reasoning: {
+            efforts,
+            ...(defaultEffort
+              ? {
+                  default_effort: defaultEffort,
+                  model_ids: Object.fromEntries(
+                    efforts.map((e) => [e, 'antigravity-' + slug + '-' + e])
+                  ),
+                }
+              : {}),
           },
         },
+      }
+      return [
+        base,
+        ...efforts.map((level) => ({
+          ...base,
+          model_id: base.model_id + '-' + level,
+          aliases: [variants[level], base.model_id + '(' + level + ')'],
+          catalog_hidden: true,
+          capabilities: {
+            ...base.capabilities,
+            ...agInputCapabilities(models, { [level]: variants[level] }),
+            reasoning: { efforts: [level], default_effort: level },
+          },
+        })),
       ]
     }),
   }

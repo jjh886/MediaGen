@@ -52,16 +52,10 @@ function agFinishLogin(ctx) {
     agCallback(pending.reader, true)
   }
   const info = agRequireOk(
-    host.call('http.request', agParams(auth, 'https://www.googleapis.com/oauth2/v2/userinfo')),
+    host.call('http.request', agParams(auth, AG_USERINFO)),
     '读取 Google 账号'
   )
-  if (!info?.id || !info.email) throw new Error('AUTH_INCONCLUSIVE: Google 未返回账号身份')
-  auth.account = {
-    user_id: info.id,
-    username: info.name || info.email,
-    email: info.email,
-    tier: 'standard',
-  }
+  auth.account = agAccountProfile(info)
   auth.project = agLoadProject(auth)
   auth.login_state = pending.state
   host.call('file.write_json', { path: ctx.profile_dir + '/auth.json', value: auth })

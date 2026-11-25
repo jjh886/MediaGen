@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "1.0.6",
+  "version": "1.0.7",
   "platform_id": "antigravity",
   "display_name": "Antigravity",
   "sort_order": 26,
@@ -22,7 +22,32 @@
           "efforts": ["low", "medium", "high", "xhigh"],
           "default_effort": "medium"
         },
-        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+        "unsupported_parameters": [
+          "tools",
+          "temperature",
+          "top_p",
+          "stop",
+          "text",
+          "max_output_tokens"
+        ],
+        "transports": ["http", "websocket"],
+        "context_window": 1024000,
+        "max_output_tokens": 65535,
+        "attachment_transport": "inline",
+        "pricing": {
+          "reference_only": true,
+          "status": "unavailable",
+          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json"
+        },
+        "attachment_limits": {
+          "file_bytes": 52428800,
+          "request_body_bytes": 52428800,
+          "max_files": null,
+          "audio_bytes": 20971520,
+          "video_bytes": 16777216,
+          "source": "MediaGen"
+        },
+        "generation_timeout_ms": 600000
       },
       "aliases": ["gemini-4-neon"]
     },
@@ -40,7 +65,44 @@
           "efforts": ["low", "medium", "high", "xhigh"],
           "default_effort": "medium"
         },
-        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+        "unsupported_parameters": [
+          "tools",
+          "temperature",
+          "top_p",
+          "stop",
+          "text",
+          "max_output_tokens"
+        ],
+        "transports": ["http", "websocket"],
+        "context_window": 1024000,
+        "max_output_tokens": 65535,
+        "attachment_transport": "inline",
+        "pricing": {
+          "currency": "USD",
+          "unit": "1M tokens",
+          "reference_only": true,
+          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json#gemini-4-carbon",
+          "input": 2.0,
+          "cached_input": 0.1,
+          "output": 10.0,
+          "reference_rates": {
+            "cache_read_input_token_cost": 1e-7,
+            "cache_read_input_token_cost_priority": 1.8e-7,
+            "input_cost_per_token": 2e-6,
+            "input_cost_per_token_priority": 3.6e-6,
+            "output_cost_per_token": 1e-5,
+            "output_cost_per_token_priority": 1.8e-5
+          }
+        },
+        "attachment_limits": {
+          "file_bytes": 52428800,
+          "request_body_bytes": 52428800,
+          "max_files": null,
+          "audio_bytes": 20971520,
+          "video_bytes": 16777216,
+          "source": "MediaGen"
+        },
+        "generation_timeout_ms": 600000
       }
     },
     {
@@ -57,7 +119,44 @@
           "efforts": ["low", "medium", "high", "xhigh"],
           "default_effort": "medium"
         },
-        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+        "unsupported_parameters": [
+          "tools",
+          "temperature",
+          "top_p",
+          "stop",
+          "text",
+          "max_output_tokens"
+        ],
+        "transports": ["http", "websocket"],
+        "context_window": 1024000,
+        "max_output_tokens": 65535,
+        "attachment_transport": "inline",
+        "pricing": {
+          "currency": "USD",
+          "unit": "1M tokens",
+          "reference_only": true,
+          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json#gemini-4-argon",
+          "input": 2.0,
+          "cached_input": 0.1,
+          "output": 10.0,
+          "reference_rates": {
+            "cache_read_input_token_cost": 1e-7,
+            "cache_read_input_token_cost_priority": 1.8e-7,
+            "input_cost_per_token": 2e-6,
+            "input_cost_per_token_priority": 3.6e-6,
+            "output_cost_per_token": 1e-5,
+            "output_cost_per_token_priority": 1.8e-5
+          }
+        },
+        "attachment_limits": {
+          "file_bytes": 52428800,
+          "request_body_bytes": 52428800,
+          "max_files": null,
+          "audio_bytes": 20971520,
+          "video_bytes": 16777216,
+          "source": "MediaGen"
+        },
+        "generation_timeout_ms": 600000
       }
     },
     {
@@ -74,7 +173,44 @@
           "efforts": ["low", "medium", "high", "xhigh"],
           "default_effort": "medium"
         },
-        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+        "unsupported_parameters": [
+          "tools",
+          "temperature",
+          "top_p",
+          "stop",
+          "text",
+          "max_output_tokens"
+        ],
+        "transports": ["http", "websocket"],
+        "context_window": 1024000,
+        "max_output_tokens": 65535,
+        "attachment_transport": "inline",
+        "pricing": {
+          "currency": "USD",
+          "unit": "1M tokens",
+          "reference_only": true,
+          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json#gemini-4-hydrogen",
+          "input": 1.5,
+          "cached_input": 0.075,
+          "output": 7.5,
+          "reference_rates": {
+            "cache_read_input_token_cost": 7.5e-8,
+            "cache_read_input_token_cost_priority": 1.35e-7,
+            "input_cost_per_token": 1.5e-6,
+            "input_cost_per_token_priority": 2.7e-6,
+            "output_cost_per_token": 7.5e-6,
+            "output_cost_per_token_priority": 1.35e-5
+          }
+        },
+        "attachment_limits": {
+          "file_bytes": 52428800,
+          "request_body_bytes": 52428800,
+          "max_files": null,
+          "audio_bytes": 20971520,
+          "video_bytes": 16777216,
+          "source": "MediaGen"
+        },
+        "generation_timeout_ms": 600000
       }
     },
     {
@@ -91,7 +227,34 @@
           "efforts": ["low", "medium", "high", "xhigh"],
           "default_effort": "high"
         },
-        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"],
+        "transports": ["http", "websocket"],
+        "context_window": 1024000,
+        "max_output_tokens": 65535,
+        "attachment_transport": "inline",
+        "pricing": {
+          "currency": "USD",
+          "unit": "1M tokens",
+          "reference_only": true,
+          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json#claude-sonnet-5-5",
+          "input": 2.0,
+          "cached_input": 0.1,
+          "output": 10.0,
+          "reference_rates": {
+            "cache_creation_input_token_cost": 2.5e-6,
+            "cache_creation_input_token_cost_above_1hr": 4e-6,
+            "cache_read_input_token_cost": 1e-7,
+            "input_cost_per_token": 2e-6,
+            "output_cost_per_token": 1e-5
+          }
+        },
+        "attachment_limits": {
+          "file_bytes": 52428800,
+          "request_body_bytes": 52428800,
+          "max_files": null,
+          "source": "MediaGen"
+        },
+        "generation_timeout_ms": 600000
       },
       "aliases": ["claude-sonnet-5-5"]
     },
@@ -109,7 +272,40 @@
           "efforts": ["low", "medium", "high", "xhigh"],
           "default_effort": "high"
         },
-        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"],
+        "transports": ["http", "websocket"],
+        "context_window": 1024000,
+        "max_output_tokens": 65535,
+        "attachment_transport": "inline",
+        "pricing": {
+          "currency": "USD",
+          "unit": "1M tokens",
+          "reference_only": true,
+          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json#claude-opus-5-5",
+          "input": 4.0,
+          "cached_input": 0.2,
+          "output": 20.0,
+          "reference_rates": {
+            "cache_creation_input_token_cost": 5e-6,
+            "cache_creation_input_token_cost_above_1hr": 8e-6,
+            "cache_read_input_token_cost": 2e-7,
+            "input_cost_per_token": 4e-6,
+            "output_cost_per_token": 2e-5,
+            "input_cost_per_token_priority": 8e-6,
+            "output_cost_per_token_priority": 4e-5,
+            "cache_creation_input_token_cost_priority": 1e-5,
+            "cache_read_input_token_cost_priority": 4e-7,
+            "input_cost_per_token_batches": 2e-6,
+            "output_cost_per_token_batches": 1e-5
+          }
+        },
+        "attachment_limits": {
+          "file_bytes": 52428800,
+          "request_body_bytes": 52428800,
+          "max_files": null,
+          "source": "MediaGen"
+        },
+        "generation_timeout_ms": 600000
       },
       "aliases": ["claude-opus-5-5"]
     },
@@ -126,7 +322,32 @@
         "reasoning": {
           "efforts": []
         },
-        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+        "unsupported_parameters": [
+          "tools",
+          "temperature",
+          "top_p",
+          "stop",
+          "text",
+          "max_output_tokens"
+        ],
+        "transports": ["http", "websocket"],
+        "context_window": 1024000,
+        "max_output_tokens": 65535,
+        "attachment_transport": "inline",
+        "pricing": {
+          "reference_only": true,
+          "status": "unavailable",
+          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json"
+        },
+        "attachment_limits": {
+          "file_bytes": 52428800,
+          "request_body_bytes": 52428800,
+          "max_files": null,
+          "audio_bytes": 20971520,
+          "video_bytes": 16777216,
+          "source": "MediaGen"
+        },
+        "generation_timeout_ms": 600000
       },
       "aliases": ["gemini-pro-orchestrator-neon"]
     },
@@ -143,7 +364,32 @@
         "reasoning": {
           "efforts": []
         },
-        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+        "unsupported_parameters": [
+          "tools",
+          "temperature",
+          "top_p",
+          "stop",
+          "text",
+          "max_output_tokens"
+        ],
+        "transports": ["http", "websocket"],
+        "context_window": 1024000,
+        "max_output_tokens": 65535,
+        "attachment_transport": "inline",
+        "pricing": {
+          "reference_only": true,
+          "status": "unavailable",
+          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json"
+        },
+        "attachment_limits": {
+          "file_bytes": 52428800,
+          "request_body_bytes": 52428800,
+          "max_files": null,
+          "audio_bytes": 20971520,
+          "video_bytes": 16777216,
+          "source": "MediaGen"
+        },
+        "generation_timeout_ms": 600000
       },
       "aliases": ["gemini-pro-orchestrator"]
     },
@@ -160,7 +406,32 @@
         "reasoning": {
           "efforts": []
         },
-        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+        "unsupported_parameters": [
+          "tools",
+          "temperature",
+          "top_p",
+          "stop",
+          "text",
+          "max_output_tokens"
+        ],
+        "transports": ["http", "websocket"],
+        "context_window": 1024000,
+        "max_output_tokens": 65535,
+        "attachment_transport": "inline",
+        "pricing": {
+          "reference_only": true,
+          "status": "unavailable",
+          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json"
+        },
+        "attachment_limits": {
+          "file_bytes": 52428800,
+          "request_body_bytes": 52428800,
+          "max_files": null,
+          "audio_bytes": 20971520,
+          "video_bytes": 16777216,
+          "source": "MediaGen"
+        },
+        "generation_timeout_ms": 600000
       },
       "aliases": ["gemini-pro-orchestrator-argon"]
     }
@@ -236,7 +507,12 @@
       "steps": [
         {
           "action": "plugin.run_js",
-          "script_files": ["auth.js", "models.js", "list_models.js"],
+          "script_files": [
+            "@shared/api_text_attachments.js",
+            "auth.js",
+            "models.js",
+            "list_models.js"
+          ],
           "timeout_ms": 90000,
           "save_as": "result"
         }

@@ -133,6 +133,11 @@ function agAuth(ctx, rejectedToken, forceRefresh = false) {
         info = agProjectInfo(auth)
       }
       auth.project = agProjectId(info) || auth.project
+      if (forceRefresh && auth.account) {
+        const profile = host.tryCall('http.request', agParams(auth, AG_USERINFO))
+        if (profile.success && profile.data?.ok)
+          auth.account = agAccountProfile(profile.data.body, auth.account)
+      }
       host.call('file.write_json', { path, value: auth })
     }
     return auth
@@ -147,7 +152,7 @@ function agParams(auth, url, body) {
     url,
     headers: {
       Authorization: 'Bearer ' + auth.access_token,
-      'User-Agent': 'MediaGen-Antigravity/1.0.6',
+      'User-Agent': 'MediaGen-Antigravity/1.0.7',
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
     body,
@@ -155,6 +160,23 @@ function agParams(auth, url, body) {
     timeout_ms: 30000,
     retry: { max_attempts: 1 },
     proxy: 'system',
+  }
+}
+
+const AG_USERINFO = 'https://www.googleapis.com/oauth2/v2/userinfo'
+
+function agAccountProfile(info, previous = {}) {
+  if (!info?.id || !info.email || (previous.user_id && previous.user_id !== info.id))
+    throw new Error('AUTH_INCONCLUSIVE: Google 账号身份无法确认')
+  const picture = typeof info.picture === 'string' ? info.picture : ''
+  return {
+    user_id: info.id,
+    username: info.name || info.email,
+    email: info.email,
+    avatar_url: /^https:\/\/(?:[a-z0-9-]+\.)*googleusercontent\.com\/[^\s\\]*$/i.test(picture)
+      ? picture
+      : '',
+    tier: previous.tier || 'standard',
   }
 }
 

@@ -48,40 +48,62 @@ function agSelect(slug, catalog, effort) {
 }
 
 // 仅公布既能通过 MediaGen 输入、又被账号上游目录接受的格式。
-const AG_FILE_TYPES = {
-  'image/jpeg': ['jpg', 'jpeg'],
-  'image/png': ['png'],
-  'image/webp': ['webp'],
-  'image/gif': ['gif'],
-  'image/heic': ['heic'],
-  'image/heif': ['heif'],
-  'application/pdf': ['pdf'],
-  'text/plain': ['txt'],
-  'text/csv': ['csv'],
-  'text/markdown': ['md'],
-  'text/html': ['html'],
-  'application/json': ['json'],
-  'audio/mpeg': ['mp3'],
-  'audio/wav': ['wav'],
-  'video/mp4': ['mp4'],
-  'video/webm': ['webm'],
+const AG_EXTENSIONS = {
+  ...API_TEXT_FILE_TYPES,
+  heic: 'image/heic',
+  heif: 'image/heif',
+  html: 'text/html',
+  htm: 'text/html',
 }
+const AG_ATTACHMENT_LIMITS = {
+  file_bytes: 50 * 1024 * 1024,
+  audio_bytes: 20 * 1024 * 1024,
+  video_bytes: 16 * 1024 * 1024,
+  request_body_bytes: 50 * 1024 * 1024,
+}
+const AG_GENERATION_TIMEOUT_MS = 600000
+
 function agMimeTypes(info) {
   if (info?.supportedMimeTypes && typeof info.supportedMimeTypes === 'object')
-    return Object.keys(AG_FILE_TYPES).filter((mime) => info.supportedMimeTypes[mime] === true)
+    return Object.keys(info.supportedMimeTypes).filter(
+      (mime) =>
+        info.supportedMimeTypes[mime] === true && Object.values(AG_EXTENSIONS).includes(mime)
+    )
   return info?.supportsImages ? ['image/jpeg', 'image/png'] : []
 }
 
 function agInputCapabilities(catalog, variants) {
-  const mime = [...new Set(Object.values(variants).flatMap((id) => agMimeTypes(catalog[id])))]
+  const entries = Object.values(variants).map((id) => catalog[id])
+  const mime = [...new Set(entries.flatMap(agMimeTypes))]
   const kinds = mime.map((type) =>
     /^(image|audio|video)\//.test(type) ? type.split('/')[0] : 'file'
   )
+  const limits = {
+    source: 'MediaGen',
+    file_bytes: AG_ATTACHMENT_LIMITS.file_bytes,
+    max_files: null,
+    request_body_bytes: AG_ATTACHMENT_LIMITS.request_body_bytes,
+  }
+  if (kinds.includes('audio')) limits.audio_bytes = AG_ATTACHMENT_LIMITS.audio_bytes
+  if (kinds.includes('video')) limits.video_bytes = AG_ATTACHMENT_LIMITS.video_bytes
+  // 基础型号只公布所有可用档位都接受的预算；带后缀的型号使用本档位预算。
+  const budget = (key, fallback) =>
+    Math.min(
+      ...entries.map((entry) =>
+        Number.isSafeInteger(entry[key]) && entry[key] > 0 ? entry[key] : fallback
+      )
+    )
   return {
     input_modalities: [
       ...new Set(['text', ...kinds, ...(kinds.includes('video') ? ['file'] : [])]),
     ],
     supported_mime_types: mime,
-    file_extensions: mime.flatMap((type) => AG_FILE_TYPES[type]),
+    file_extensions: Object.keys(AG_EXTENSIONS).filter((ext) => mime.includes(AG_EXTENSIONS[ext])),
+    ...(kinds.includes('image') ? { image_sources: ['data_url', 'file_id'] } : {}),
+    attachment_limits: limits,
+    attachment_transport: 'inline',
+    context_window: budget('maxTokens', 1024000),
+    max_output_tokens: budget('maxOutputTokens', 65535),
+    generation_timeout_ms: AG_GENERATION_TIMEOUT_MS,
   }
 }

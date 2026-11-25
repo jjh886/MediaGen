@@ -1,4 +1,5 @@
-function agPayload(request, auth, selection, requestId, mimeTypes) {
+function agPayload(request, auth, selection, requestId, modelInfo) {
+  const mimeTypes = agMimeTypes(modelInfo)
   const instructions = [request.instructions].filter(Boolean)
   const contents = []
   for (const item of request.input) {
@@ -12,6 +13,10 @@ function agPayload(request, auth, selection, requestId, mimeTypes) {
       for (const file of item.attachments || []) {
         if (!file.base64 || !mimeTypes.includes(file.mime_type))
           throw new Error('invalid_request: 所选模型和推理档位不支持此附件格式')
+        const kind = file.mime_type.split('/')[0]
+        const limit = AG_ATTACHMENT_LIMITS[kind + '_bytes'] || AG_ATTACHMENT_LIMITS.file_bytes
+        if (file.size > limit)
+          throw new Error('invalid_request: 单个附件超过 MediaGen 容量限制 ' + limit + ' bytes')
         parts.push({ inlineData: { mimeType: file.mime_type, data: file.base64 } })
       }
       const role = item.role === 'assistant' ? 'model' : 'user'
@@ -21,8 +26,13 @@ function agPayload(request, auth, selection, requestId, mimeTypes) {
   }
   if (!contents.length) throw new Error('invalid_request: 缺少对话内容')
   const generationConfig = {}
-  if (request.max_output_tokens && selection.model.startsWith('claude-'))
-    generationConfig.maxOutputTokens = request.max_output_tokens
+  if (request.max_output_tokens && selection.model.startsWith('claude-')) {
+    const limit = modelInfo.maxOutputTokens
+    generationConfig.maxOutputTokens =
+      Number.isSafeInteger(limit) && limit > 0
+        ? Math.min(request.max_output_tokens, limit)
+        : request.max_output_tokens
+  }
   if (selection.level && selection.model.startsWith('gemini-4-'))
     generationConfig.thinkingConfig = { thinkingLevel: selection.level, includeThoughts: true }
   const firstUserText = contents.find((item) => item.role === 'user' && item.parts[0]?.text)
@@ -82,15 +92,19 @@ function main(ctx) {
   if (saved?.phase === 'submitting')
     throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 上次请求已发送，无法确认结果')
   const request = apiTextNormalizeTextRequest(ctx.request)
-  const slug =
+  const requested =
     Object.keys(AG_ORCHESTRATORS).find((key) => AG_ORCHESTRATORS[key] === request.model) ||
     request.model.replace(/^antigravity-/, '')
+  const suffix = requested.match(/-(low|medium|high|xhigh)$/)
+  const slug = suffix ? requested.slice(0, suffix.index) : requested
   if (!AG_MODELS.includes(slug)) throw new Error('invalid_request: 不支持该 Antigravity 模型')
+  if (suffix && request.reasoning.effort && suffix[1] !== request.reasoning.effort)
+    throw new Error('invalid_request: 模型后缀与 reasoning.effort 不一致')
   host.checkpoint({ phase: 'ready' })
   const { auth, models } = agCatalog(ctx, agAuth(ctx))
-  const selection = agSelect(slug, models, request.reasoning.effort)
+  const selection = agSelect(slug, models, suffix?.[1] || request.reasoning.effort)
   const id = host.call('crypto.random_uuid', {}).value
-  const body = agPayload(request, auth, selection, id, agMimeTypes(models[selection.model]))
+  const body = agPayload(request, auth, selection, id, models[selection.model])
   const writer = apiTextCreateResponseWriter(request)
   writer.metadata = { platform_session: { conversation_id: body.request.sessionId } }
   let started = false
@@ -136,7 +150,7 @@ function main(ctx) {
     const action = useStream ? 'streamGenerateContent?alt=sse' : 'generateContent'
     const params = agParams(auth, agModelEndpoint(auth) + action, body)
     params.headers.Accept = useStream ? 'text/event-stream' : 'application/json'
-    params.timeout_ms = 600000
+    params.timeout_ms = AG_GENERATION_TIMEOUT_MS
     const result = useStream
       ? host.stream('http.sse_request', params, consume)
       : host.call('http.request', params)
