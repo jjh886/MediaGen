@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "version": "1.0.6",
+  "platform_id": "antigravity",
+  "display_name": "Antigravity",
+  "sort_order": 26,
+  "adapter_mode": "api",
+  "login_url": "https://accounts.google.com/o/oauth2/v2/auth",
+  "workspace_url": "https://antigravity.google/",
+  "models": [
+    {
+      "model_id": "antigravity-gemini-4-neon",
+      "display_name": "Gemini 4 Neon",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "file", "audio", "video"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": false,
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "medium"
+        },
+        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+      },
+      "aliases": ["gemini-4-neon"]
+    },
+    {
+      "model_id": "antigravity-gemini-4-carbon",
+      "display_name": "Gemini 4 Carbon",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "file", "audio", "video"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": false,
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "medium"
+        },
+        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+      }
+    },
+    {
+      "model_id": "antigravity-gemini-4-argon",
+      "display_name": "Gemini 4 Argon",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "file", "audio", "video"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": false,
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "medium"
+        },
+        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+      }
+    },
+    {
+      "model_id": "antigravity-gemini-4-hydrogen",
+      "display_name": "Gemini 4 Hydrogen",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "file", "audio", "video"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": false,
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "medium"
+        },
+        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+      }
+    },
+    {
+      "model_id": "antigravity-claude-sonnet-5-5",
+      "display_name": "Claude Sonnet 5.5",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": false,
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "high"
+        },
+        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+      },
+      "aliases": ["claude-sonnet-5-5"]
+    },
+    {
+      "model_id": "antigravity-claude-opus-5-5",
+      "display_name": "Claude Opus 5.5",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": false,
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "high"
+        },
+        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+      },
+      "aliases": ["claude-opus-5-5"]
+    },
+    {
+      "model_id": "antigravity-orchestrator-neon",
+      "display_name": "Orchestrator Neon",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "file", "audio", "video"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": false,
+        "reasoning": {
+          "efforts": []
+        },
+        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+      },
+      "aliases": ["gemini-pro-orchestrator-neon"]
+    },
+    {
+      "model_id": "antigravity-orchestrator-carbon",
+      "display_name": "Orchestrator Carbon",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "file", "audio", "video"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": false,
+        "reasoning": {
+          "efforts": []
+        },
+        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+      },
+      "aliases": ["gemini-pro-orchestrator"]
+    },
+    {
+      "model_id": "antigravity-orchestrator-argon",
+      "display_name": "Orchestrator Argon",
+      "task_kind": "text",
+      "capabilities": {
+        "input_modalities": ["text", "image", "file", "audio", "video"],
+        "output_modalities": ["text"],
+        "endpoints": ["/v1/responses", "/v1/chat/completions"],
+        "streaming": true,
+        "tool_calling": false,
+        "reasoning": {
+          "efforts": []
+        },
+        "unsupported_parameters": ["tools", "temperature", "top_p", "stop", "text"]
+      },
+      "aliases": ["gemini-pro-orchestrator-argon"]
+    }
+  ],
+  "tiers": {
+    "standard": {
+      "display_name": "Google 账号",
+      "is_default": true,
+      "text_concurrency_limit": 1
+    }
+  },
+  "protected_json_files": ["auth.json", "oauth-client.json", "login.json"],
+  "capabilities": {
+    "actions": [
+      "http.request",
+      "http.sse_request",
+      "file.read_json",
+      "file.write_json",
+      "lock.acquire",
+      "lock.release",
+      "crypto.random_uuid",
+      "crypto.sha256_hex",
+      "time.sleep",
+      "process.spawn",
+      "crypto.random_base64url",
+      "crypto.sha256_base64url"
+    ],
+    "network_hosts": [
+      "oauth2.googleapis.com",
+      "www.googleapis.com",
+      "cloudcode-pa.googleapis.com",
+      "127.0.0.1",
+      "daily-cloudcode-pa.googleapis.com"
+    ],
+    "context_fields": ["profile_dir", "request", "model_capabilities", "refresh_quota"]
+  },
+  "login_detection": {
+    "method": "plugin_script",
+    "script_files": ["auth.js", "loopback.js", "finish_login.js"]
+  },
+  "flows": {
+    "add_account": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "loopback.js", "finish_login.js"],
+          "timeout_ms": 90000,
+          "save_as": "account"
+        }
+      ]
+    },
+    "relogin_account": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "loopback.js", "finish_login.js"],
+          "timeout_ms": 90000,
+          "save_as": "account"
+        }
+      ]
+    },
+    "check_account": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "check_account.js"],
+          "timeout_ms": 90000,
+          "save_as": "health"
+        }
+      ]
+    },
+    "list_models": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": ["auth.js", "models.js", "list_models.js"],
+          "timeout_ms": 90000,
+          "save_as": "result"
+        }
+      ]
+    },
+    "generate_text": {
+      "steps": [
+        {
+          "action": "plugin.run_js",
+          "script_files": [
+            "@shared/api_text_attachments.js",
+            "@shared/api_text_responses.js",
+            "auth.js",
+            "models.js",
+            "generate_text.js"
+          ],
+          "timeout_ms": 660000,
+          "save_as": "result"
+        }
+      ]
+    }
+  },
+  "failure_strategy": [
+    {
+      "contains_any": ["account_model_unavailable"],
+      "category": "account_model_unavailable",
+      "retry_action": "failover",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["LOGIN_EXPIRED"],
+      "category": "login_expired",
+      "retry_action": "failover",
+      "account_state": "login_expired",
+      "usage_consumed": false
+    },
+    {
+      "contains_any": ["http 429"],
+      "category": "account_rate_limited",
+      "retry_action": "failover",
+      "account_state": "cooldown",
+      "cooldown_seconds": 60,
+      "usage_consumed": false
+    }
+  ],
+  "registration": {
+    "enabled": false
+  },
+  "login_prepare": {
+    "script_files": ["auth.js", "loopback.js", "start_login.js"]
+  }
+}
