@@ -56,14 +56,14 @@ Authorization: Bearer <你的 MediaGen API Key>
 
 ## GET /v1/models
 
-返回当前可用的正式模型 ID。ID 以插件名开头，目录中的 ChatGPT 对话模型按网页名称展示。
+返回当前可用的正式模型 ID。每项的 `capabilities` 按模型声明列出参考价格、Token 预算、思考深度、支持的附件类型、大小和数量限制。完整能力可通过 `GET /v1/models/{model}` 查询。
 
 ```text
 chatgpt-gpt-6.2
 chatgpt-gpt-6
 codex-gpt-6.2-sol
 codex-gpt-6.2-astra
-codex-gpt-image-2
+codex-gpt-image-2.6-flare
 ```
 
 示例：
@@ -79,11 +79,15 @@ curl http://127.0.0.1:18080/v1/models
   "object": "list",
   "data": [
     {
-      "id": "codex-gpt-image-2",
+      "id": "codex-gpt-image-2.6-flare",
       "object": "model",
+      "created": 0,
       "owned_by": "codex",
-      "display_name": "GPT Image 2",
-      "task_kind": "image"
+      "capabilities": {
+        "input_modalities": ["text", "image"],
+        "reasoning": { "efforts": [] },
+        "limits": { "max_reference_images": 16 }
+      }
     }
   ]
 }
@@ -100,7 +104,7 @@ curl http://127.0.0.1:18080/v1/images/generations \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer local' \
   -d '{
-    "model": "codex-gpt-image-2",
+    "model": "codex-gpt-image-2.6-flare",
     "prompt": "A clean product photo of a glass water bottle on a white desk",
     "size": "1024x1024",
     "quality": "high",
@@ -114,7 +118,7 @@ curl http://127.0.0.1:18080/v1/images/generations \
 
 | 参数                 | 类型    | 说明                                                        |
 | -------------------- | ------- | ----------------------------------------------------------- |
-| `model`              | string  | 必填。使用 `/v1/models` 返回的模型 ID 或 OpenAI 兼容别名    |
+| `model`              | string  | 必填。使用 `/v1/models` 返回的正式模型 ID                   |
 | `prompt`             | string  | 必填。图片提示词                                            |
 | `n`                  | number  | 图片数量，当前限制为 `1..4`                                 |
 | `size`               | string  | `auto`、`1024x1024`、`1536x1024`、`1024x1536`               |
@@ -155,7 +159,7 @@ curl -N http://127.0.0.1:18080/v1/images/generations \
   -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' \
   -d '{
-    "model": "codex-gpt-image-2",
+    "model": "codex-gpt-image-2.6-flare",
     "prompt": "A minimal blue cube on a white background",
     "size": "1024x1024",
     "quality": "low",
@@ -170,7 +174,7 @@ MediaGen 的最终完成事件保持 OpenAI 图片流风格，同时额外增加
 
 ```text
 event: image_generation.started
-data: {"type":"image_generation.started","request_id":"...","model":"codex-gpt-image-2"}
+data: {"type":"image_generation.started","request_id":"...","model":"codex-gpt-image-2.6-flare"}
 
 event: image_generation.queued
 data: {"type":"image_generation.queued","request_id":"...","queued":0,"ahead":0,"queue_position":1,"active":0,"max_concurrent":64}
@@ -211,7 +215,7 @@ data: {"type":"image_generation.completed","b64_json":"...","created_at":1779695
 curl http://127.0.0.1:18080/v1/images/edits \
   -H 'Content-Type: application/json' \
   -d '{
-    "model": "codex-gpt-image-2",
+    "model": "codex-gpt-image-2.6-flare",
     "prompt": "Keep the product, change the background to a clean kitchen counter",
     "images": [
       {
@@ -227,7 +231,7 @@ curl http://127.0.0.1:18080/v1/images/edits \
 
 ```bash
 curl http://127.0.0.1:18080/v1/images/edits \
-  -F model=codex-gpt-image-2 \
+  -F model=codex-gpt-image-2.6-flare \
   -F prompt='Change the background to a clean kitchen counter' \
   -F image='@/absolute/path/input.png' \
   -F size=1024x1024 \

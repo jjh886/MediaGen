@@ -83,7 +83,7 @@ curl http://127.0.0.1:18080/v1/models
 curl http://127.0.0.1:18080/v1/images/generations \
   -H 'Content-Type: application/json' \
   -d '{
-    "model": "codex-gpt-image-2",
+    "model": "codex-gpt-image-2.6-flare",
     "prompt": "A clean product photo of a glass water bottle on a white desk",
     "size": "1024x1024",
     "quality": "high"
@@ -101,7 +101,7 @@ const client = new OpenAI({
 })
 
 const result = await client.images.generate({
-  model: 'codex-gpt-image-2',
+  model: 'codex-gpt-image-2.6-flare',
   prompt: 'A minimal desk setup with a silver laptop and soft daylight',
   size: '1024x1024',
 })
