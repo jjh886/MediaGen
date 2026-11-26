@@ -59,8 +59,8 @@ Authorization: Bearer <你的 MediaGen API Key>
 返回当前可用的正式模型 ID。ID 以插件名开头，目录中的 ChatGPT 对话模型按网页名称展示。
 
 ```text
+chatgpt-gpt-6.2
 chatgpt-gpt-6
-chatgpt-gpt-5.6-sol
 codex-gpt-6.2-sol
 codex-gpt-6.2-astra
 codex-gpt-image-2

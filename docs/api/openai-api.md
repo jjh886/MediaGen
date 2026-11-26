@@ -147,7 +147,7 @@ data: [DONE]
 
 ## 插件协议与模型同步
 
-ChatGPT 对话提供 `chatgpt-gpt-6`（GPT-6）和 `chatgpt-gpt-5.6-sol`（GPT-5.6 Sol）。网页的即时、中、高、极高、Pro 分别对应 `reasoning.effort` 的 `none`、`standard`、`extended`、`max`、`pro`。每个账号仅公布其可用档位。
+ChatGPT 对话提供 `chatgpt-gpt-6`（GPT-6）和 `chatgpt-gpt-6.2`（GPT-6.2）。网页的即时、中、高、极高、Pro 分别对应 `reasoning.effort` 的 `none`、`standard`、`extended`、`max`、`pro`。GPT-6.2 提供即时、中、高、极高四档；Pro 档使用 GPT-6。每个账号仅公布其可用档位。
 
 Codex 文本模型包括 `codex-gpt-6.2-sol`、`codex-gpt-6.2-astra`、`codex-gpt-6.1-terra`、`codex-gpt-6-sol`和`codex-gpt-6-luna`。上述 GPT-6.2 和 GPT-6.1 型号的 `reasoning.effort` 支持 `low/medium/high/xhigh/max/ultra`，默认 `low`；其他型号优先按账号模型目录校验。目录不再列出插件不支持的上游型号。
 

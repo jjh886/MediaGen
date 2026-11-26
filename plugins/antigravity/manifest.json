@@ -36,16 +36,14 @@
         "attachment_transport": "inline",
         "pricing": {
           "reference_only": true,
-          "status": "unavailable",
-          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json"
+          "status": "unavailable"
         },
         "attachment_limits": {
           "file_bytes": 52428800,
           "request_body_bytes": 52428800,
           "max_files": null,
           "audio_bytes": 20971520,
-          "video_bytes": 16777216,
-          "source": "MediaGen"
+          "video_bytes": 16777216
         },
         "generation_timeout_ms": 600000
       },
@@ -81,7 +79,6 @@
           "currency": "USD",
           "unit": "1M tokens",
           "reference_only": true,
-          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json#gemini-4-carbon",
           "input": 2.0,
           "cached_input": 0.1,
           "output": 10.0,
@@ -99,8 +96,7 @@
           "request_body_bytes": 52428800,
           "max_files": null,
           "audio_bytes": 20971520,
-          "video_bytes": 16777216,
-          "source": "MediaGen"
+          "video_bytes": 16777216
         },
         "generation_timeout_ms": 600000
       }
@@ -135,7 +131,6 @@
           "currency": "USD",
           "unit": "1M tokens",
           "reference_only": true,
-          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json#gemini-4-argon",
           "input": 2.0,
           "cached_input": 0.1,
           "output": 10.0,
@@ -153,8 +148,7 @@
           "request_body_bytes": 52428800,
           "max_files": null,
           "audio_bytes": 20971520,
-          "video_bytes": 16777216,
-          "source": "MediaGen"
+          "video_bytes": 16777216
         },
         "generation_timeout_ms": 600000
       }
@@ -189,7 +183,6 @@
           "currency": "USD",
           "unit": "1M tokens",
           "reference_only": true,
-          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json#gemini-4-hydrogen",
           "input": 1.5,
           "cached_input": 0.075,
           "output": 7.5,
@@ -207,8 +200,7 @@
           "request_body_bytes": 52428800,
           "max_files": null,
           "audio_bytes": 20971520,
-          "video_bytes": 16777216,
-          "source": "MediaGen"
+          "video_bytes": 16777216
         },
         "generation_timeout_ms": 600000
       }
@@ -236,7 +228,6 @@
           "currency": "USD",
           "unit": "1M tokens",
           "reference_only": true,
-          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json#claude-sonnet-5-5",
           "input": 2.0,
           "cached_input": 0.1,
           "output": 10.0,
@@ -251,8 +242,7 @@
         "attachment_limits": {
           "file_bytes": 52428800,
           "request_body_bytes": 52428800,
-          "max_files": null,
-          "source": "MediaGen"
+          "max_files": null
         },
         "generation_timeout_ms": 600000
       },
@@ -281,7 +271,6 @@
           "currency": "USD",
           "unit": "1M tokens",
           "reference_only": true,
-          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json#claude-opus-5-5",
           "input": 4.0,
           "cached_input": 0.2,
           "output": 20.0,
@@ -302,8 +291,7 @@
         "attachment_limits": {
           "file_bytes": 52428800,
           "request_body_bytes": 52428800,
-          "max_files": null,
-          "source": "MediaGen"
+          "max_files": null
         },
         "generation_timeout_ms": 600000
       },
@@ -336,16 +324,14 @@
         "attachment_transport": "inline",
         "pricing": {
           "reference_only": true,
-          "status": "unavailable",
-          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json"
+          "status": "unavailable"
         },
         "attachment_limits": {
           "file_bytes": 52428800,
           "request_body_bytes": 52428800,
           "max_files": null,
           "audio_bytes": 20971520,
-          "video_bytes": 16777216,
-          "source": "MediaGen"
+          "video_bytes": 16777216
         },
         "generation_timeout_ms": 600000
       },
@@ -378,16 +364,14 @@
         "attachment_transport": "inline",
         "pricing": {
           "reference_only": true,
-          "status": "unavailable",
-          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json"
+          "status": "unavailable"
         },
         "attachment_limits": {
           "file_bytes": 52428800,
           "request_body_bytes": 52428800,
           "max_files": null,
           "audio_bytes": 20971520,
-          "video_bytes": 16777216,
-          "source": "MediaGen"
+          "video_bytes": 16777216
         },
         "generation_timeout_ms": 600000
       },
@@ -420,16 +404,14 @@
         "attachment_transport": "inline",
         "pricing": {
           "reference_only": true,
-          "status": "unavailable",
-          "source": "sub2api/backend/resources/model-pricing/model_prices_and_context_window.json"
+          "status": "unavailable"
         },
         "attachment_limits": {
           "file_bytes": 52428800,
           "request_body_bytes": 52428800,
           "max_files": null,
           "audio_bytes": 20971520,
-          "video_bytes": 16777216,
-          "source": "MediaGen"
+          "video_bytes": 16777216
         },
         "generation_timeout_ms": 600000
       },

@@ -1,8 +1,8 @@
 // 目录同步与对话使用同一份网页预设，升级提示不能当作账号已经拥有的档位。
 const CHATGPT_MODELS_PATH = '/backend-api/models?iim=false&include_icons=false&is_gizmo=false'
 const CHATGPT_CHAT_MODELS = [
+  { id: 'chatgpt-gpt-6.2', title: 'GPT-6.2', base: 'gpt-6-2' },
   { id: 'chatgpt-gpt-6', title: 'GPT-6', base: 'gpt-6' },
-  { id: 'chatgpt-gpt-5.6-sol', title: 'GPT-5.6 Sol', base: 'gpt-5-6' },
 ]
 
 function chatgptApiPickerOptions(catalog, family) {
@@ -20,7 +20,8 @@ function chatgptApiPickerOptions(catalog, family) {
       )
         continue
       const { model_slug: model, thinking_effort } = preset
-      if (model !== family.base && !model.startsWith(family.base + '-')) continue
+      // 完整匹配数字版本，避免 gpt-6-2-thinking 被归入 GPT-6。
+      if (model.match(/^gpt-\d+(?:-\d+)?(?=-|$)/)?.[0] !== family.base) continue
       if (preset.lane === 'instant') routes.set('none', { model })
       if (preset.lane === 'pro') routes.set('pro', { model, thinking_effort })
       if (preset.lane === 'thinking' && ['standard', 'extended', 'max'].includes(thinking_effort))
@@ -39,5 +40,9 @@ function chatgptApiPickerOptions(catalog, family) {
     }
     if (has(family.base + '-pro')) routes.set('pro', { model: family.base + '-pro' })
   }
-  return routes
+  return new Map(
+    ['none', 'standard', 'extended', 'max', 'pro']
+      .filter((effort) => routes.has(effort))
+      .map((effort) => [effort, routes.get(effort)])
+  )
 }

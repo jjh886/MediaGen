@@ -1,5 +1,3 @@
-// 设备证明采用 reference/sub2api 的 DeviceCheck 与 CBOR 协议。平台规则仅存在于插件。
-
 const addon = require(process.argv[2])
 const { execFileSync } = require('node:child_process')
 const raw = execFileSync(
