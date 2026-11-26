@@ -206,7 +206,7 @@ export const guideSections: GuideSection[] = [
         title: '提交任务 · JSON 请求体',
         language: 'json',
         value: JSON.stringify(
-          { model: 'codex-gpt-image-2', prompt: '一只窗边的猫', sync: false },
+          { model: 'codex-gpt-image-2.6-flare', prompt: '一只窗边的猫', sync: false },
           null,
           2
         ),

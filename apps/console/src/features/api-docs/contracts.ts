@@ -9,7 +9,7 @@ import {
   type ApiContract,
   type ApiField,
 } from './schema'
-import { modelFields } from './modelFields'
+import { modelFields, modelListFields } from './modelFields'
 import { responseRequest, chatRequest, compactRequest } from './textRequestFields'
 import {
   responseFields,
@@ -66,16 +66,7 @@ function endpointContract(doc: ApiExample): ApiContract {
       output([
         ['object', 'string', '是', 'list', '模型列表。'],
         ['data', 'array<object>', '是', '—', '可路由模型数组；无模型时为空。'],
-        [
-          'refresh_errors',
-          'array<object>',
-          '是',
-          '[]（无错误）',
-          '模型发现未成功的账号，不包含认证凭据。',
-        ],
-        ['refresh_errors[].account_id', 'string', '错误条目返回', '—', '模型发现失败的账号。'],
-        ['refresh_errors[].code', 'string', '错误条目返回', '—', '失败代码。'],
-      ]).concat(prefix(modelFields, 'data[].'))
+      ]).concat(prefix(modelListFields, 'data[].'))
     )
   if (path === '/v1/models/{model}') return contract([], modelFields)
   if (path === '/v1/responses' && doc.method === 'WS')
@@ -296,7 +287,7 @@ function endpointContract(doc: ApiExample): ApiContract {
     return doc.method === 'POST'
       ? contract(
           fields([
-            ['file', 'file', '是', '—', 'multipart 文件，上传内容最多 50 MiB。'],
+            ['file', 'file', '是', '—', 'multipart 文件，文件大小按使用时的模型能力校验。'],
             [
               'purpose',
               'string',

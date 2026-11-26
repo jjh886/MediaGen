@@ -7,7 +7,7 @@ export const fileDocs: ApiExample[] = [
     title: '上传输入文件',
     description: '文件按 API Key 隔离，可在支持文件的模型中引用。',
     notes: [
-      'file：multipart 二进制文件，最大 50 MiB。',
+      'file：multipart 二进制文件，使用时按所选模型校验大小。',
       'purpose：assistants/vision 等受支持的用途，默认 assistants。',
       '任务附件副本会自动清理；多轮会话的上传原件保留用于跨账号续聊，删除该会话所有已保存响应后释放。清理后的文件须重新上传。',
     ],
@@ -103,7 +103,7 @@ export const fileDocs: ApiExample[] = [
       '参考图为 PNG、JPEG 或 WebP，单张不超过 10 MiB，合计最多 10 张；最终数量和用途仍受具体模型限制。',
       '多图：multipart 重复传 input_references[]；JSON 使用 input_references 数组。input_reference 与数组数量合并计算。',
       'JSON 图片 file_id 须先通过 POST /v1/files 上传，且使用同一 API Key。',
-      '视频创建请求体上限 50 MiB；返回任务后按查询、下载流程处理。',
+      '返回任务后按查询、下载流程处理。',
     ],
     form: [
       'model=doubao-api-seedance-2-fast',
@@ -123,7 +123,7 @@ export const fileDocs: ApiExample[] = [
       'Seedance 2.0 Fast 支持 video_reference 扩展，参考视频与聊天中的视频附件用途不同。',
     notes: [
       '先 POST /v1/files 上传 MP4 或 MOV（purpose=assistants），把返回 ID 填入 video_reference.file_id。',
-      '参考视频最多 1 个，文件上限 50 MiB；参考片时长上限由账号当前模型能力动态校验。此模式不支持音频参考。',
+      '参考视频数量以网页模型选择器为准；参考片时长上限由账号当前模型能力动态校验。此模式不支持音频参考。',
       '也可用 JSON video_reference: { filename: "reference.mp4", file_data: "data:video/mp4;base64,..." }；当前不支持直接 multipart 上传参考视频或传服务器本地路径。',
       '文件和视频任务按 API Key 隔离，查询与下载必须使用提交时的 Key。',
     ],

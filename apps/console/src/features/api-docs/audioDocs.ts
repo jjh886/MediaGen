@@ -30,7 +30,7 @@ export const audioDocs: ApiExample[] = [
       description:
         'multipart/form-data 文件上传；是否支持翻译及参数，以模型能力为准。Grok 转写通道未声明翻译能力时返回 400。',
       notes: [
-        'model、file 必填；文件最大 25 MiB。',
+        'model、file 必填；文件大小由所选模型决定。',
         'language：输入语种；response_format 当前 json / text；prompt、temperature、时间戳等仅声明支持的模型接受。',
       ],
       form: ['model=chatgpt-transcribe', 'file=@speech.wav', 'response_format=json'],

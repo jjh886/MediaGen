@@ -6,12 +6,12 @@ export const textDocs: ApiExample[] = [
     path: '/v1/models',
     title: '获取模型与输入能力',
     description:
-      '一次获取模型、接口、输入类型、参数约束与账号能力。不要把目录中的能力理解为账号一定有剩余额度。',
+      '列出可用模型及已知的价格、Token 预算、思考深度和附件限制。完整参数见单个模型详情。',
     notes: [
       'refresh=true：主动刷新账号模型目录；account_id：仅查询有访问权限的账号。',
       'ChatGPT 对话模型为 chatgpt-gpt-6（GPT-6）和 chatgpt-gpt-6.2（GPT-6.2）。即时、中、高、极高、Pro 分别使用 none、standard、extended、max、pro，GPT-6.2 提供前四档，Pro 档使用 GPT-6；以账号目录实际提供的档位为准。',
-      'Codex 文本型号：codex-gpt-6.2-sol/astra、codex-gpt-6.1-sol/terra、codex-gpt-6-astra/sol/luna、codex-gpt-5.6-sol/terra/luna。GPT-6.2 和 GPT-6.1 的思考深度为 low/medium/high/xhigh/max/ultra；其他型号以账号目录为准。',
-      'Codex 图片型号：codex-gpt-image-2.6-flare、codex-gpt-image-2.6-sunburst、codex-gpt-image-2.5-flare、codex-gpt-image-2.5-sunburst、codex-gpt-image-2；codex 别名指向 flare。目录中的 pricing 为源插件参考价格，不表示实际账单。',
+      'Codex 文本模型的思考深度统一支持 minimal、low、medium、high、xhigh、max。默认档位见模型目录。',
+      'Codex 图片型号：codex-gpt-image-2.6-flare、codex-gpt-image-2.6-sunburst。目录中的 pricing 为源插件参考价格，不表示实际账单。',
     ],
     response: {
       object: 'list',
@@ -19,17 +19,13 @@ export const textDocs: ApiExample[] = [
         {
           id: 'codex-gpt-realtime-2.1',
           object: 'model',
+          created: 0,
           owned_by: 'codex',
-          task_kind: 'realtime',
           capabilities: {
             input_modalities: ['text', 'audio'],
-            output_modalities: ['text', 'audio'],
-            endpoints: ['/v1/realtime'],
-            transports: ['websocket'],
           },
         },
       ],
-      refresh_errors: [],
     },
   },
   {
@@ -38,7 +34,7 @@ export const textDocs: ApiExample[] = [
     path: '/v1/models/{model}',
     title: '查询单个模型',
     description: '包含当前模型的参数及能力约束。',
-    notes: ['model：模型 ID 或声明的别名。'],
+    notes: ['model：目录中的正式模型 ID。'],
     response: {
       id: 'codex-gpt-6-luna',
       object: 'model',

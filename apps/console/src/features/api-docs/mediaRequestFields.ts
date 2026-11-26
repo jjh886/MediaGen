@@ -102,7 +102,7 @@ export const speechRequest = fields([
 ])
 export const transcriptionRequest = fields([
   ['model', 'string', '是', '—', '转写/翻译模型 ID；翻译需要模型声明 translate_audio。'],
-  ['file', 'file', '是', '—', 'multipart 上传的音频；整个上传内容不能超过 25 MiB。'],
+  ['file', 'file', '是', '—', 'multipart 上传的音频；文件大小由所选转写模型决定。'],
   ['response_format', 'string', '否', 'json', '当前 json 返回 {text}；text 返回纯文本。'],
   ['language', 'string', '否', '由模型识别', '音频语种，仅支持的模型可用。'],
   ['prompt', 'string', '否', '未设置', '上下文提示，仅支持的模型可用。'],
@@ -167,7 +167,7 @@ export const videoRequest = fields([
     'string',
     '视频来源二选一',
     '—',
-    '视频 Data URL，或搭配 filename 的 Base64；视频创建请求体上限 50 MiB。',
+    '视频 Data URL，或搭配 filename 的 Base64；文件大小由所选模型决定。',
   ],
   [
     'video_reference.filename',
