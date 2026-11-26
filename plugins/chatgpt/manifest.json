@@ -13,12 +13,12 @@
       "task_kind": "image"
     },
     {
-      "model_id": "chatgpt-gpt-6",
-      "display_name": "GPT-6",
+      "model_id": "chatgpt-gpt-6.2",
+      "display_name": "GPT-6.2",
       "task_kind": "text",
       "capabilities": {
         "reasoning": {
-          "efforts": ["none", "standard", "extended", "max", "pro"],
+          "efforts": ["none", "standard", "extended", "max"],
           "default_effort": "standard"
         },
         "tool_calling": false,
@@ -132,8 +132,8 @@
       }
     },
     {
-      "model_id": "chatgpt-gpt-5.6-sol",
-      "display_name": "GPT-5.6 Sol",
+      "model_id": "chatgpt-gpt-6",
+      "display_name": "GPT-6",
       "task_kind": "text",
       "capabilities": {
         "reasoning": {
@@ -354,7 +354,7 @@
         "key": "model",
         "type": "text",
         "label": "模型标识",
-        "hint": "留空最稳妥，例如 gpt-5-6",
+        "hint": "留空最稳妥，例如 gpt-6-2-thinking",
         "placeholder": "留空，跟随 ChatGPT 自动选择",
         "default": ""
       },
@@ -671,7 +671,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "2.0.0",
+  "version": "2.1.0",
   "schema_version": 1,
   "task_recovery": {
     "media_types": ["text", "image"],
