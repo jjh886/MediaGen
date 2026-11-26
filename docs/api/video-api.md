@@ -73,7 +73,7 @@ curl "$BASE_URL/v1/videos" \
 
 ### 参考图生成视频
 
-参考图为 PNG、JPEG 或 WebP，单张不超过 10 MiB，合计最多 10 张，最终限制由具体模型决定。视频创建请求体上限 50 MiB。
+参考图为 PNG、JPEG 或 WebP，数量和大小由具体模型决定。
 
 ```sh
 curl "$BASE_URL/v1/videos" \
@@ -89,7 +89,7 @@ JSON 可使用 `"input_reference":{"file_id":"上传返回的 ID"}`，或 `"inpu
 
 ### 参考视频生成视频
 
-使用 `doubao-api-seedance-2-fast`，最多 1 个 MP4/MOV。先上传文件（最多 50 MiB）：
+使用 `doubao-api-seedance-2-fast`，最多 1 个 MP4/MOV。先上传文件：
 
 ```sh
 curl "$BASE_URL/v1/files" \
@@ -113,7 +113,7 @@ curl "$BASE_URL/v1/videos" \
   }'
 ```
 
-也可传 `video_reference: {"filename":"reference.mp4","file_data":"data:video/mp4;base64,..."}`。内联 Base64 的编码开销计入 50 MiB 请求体限制，较大文件应先上传再引用。参考片时长上限由账号所选模型动态校验。
+也可传 `video_reference: {"filename":"reference.mp4","file_data":"data:video/mp4;base64,..."}`。较大文件可以先上传再引用。参考片时长上限由账号所选模型动态校验。
 
 当前不支持直接 multipart 上传参考视频、参考视频远程 URL、服务器本地路径或音频参考。聊天中分析视频应使用 `/v1/responses` 的 `input_file` 或 `/v1/chat/completions` 的 `file`，与此处的视频生成不同。
 

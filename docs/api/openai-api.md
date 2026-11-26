@@ -71,7 +71,7 @@ curl "$BASE_URL/v1/response-requests/$REQUEST_ID" \
 
 Responses 的实际用量位于 `usage`，流式请求应读取 `response.completed` 或 `response.incomplete` 中的 `response.usage`；Chat Completions 流式用量需开启 `stream_options.include_usage`。上游没有提供用量时保持缺失或 `null`，不能按文本长度估算结算，也不应因此重新生成。
 
-`/v1/models` 使用 `capabilities.context_window`、`capabilities.max_context_window` 和 `capabilities.max_output_tokens` 表示已知预算。Codex 动态目录的上下文字段来自上游同名字段；ChatGPT 的 `context_window` 来自上游目录的 `max_tokens`。插件静态声明可以补充预算，未提供的字段表示未知，不表示无限。预算字段不代表请求支持设置 `max_output_tokens`，还需查看 `unsupported_parameters`。
+`/v1/models` 使用 `capabilities.context_window`、`capabilities.max_context_window` 和 `capabilities.max_output_tokens` 表示已知预算。Codex 动态目录的上下文字段来自上游同名字段；ChatGPT 的 `context_window` 来自上游目录的 `max_tokens`。插件静态声明可以补充预算，未提供的字段表示未知，不表示无限。预算字段不代表请求支持设置 `max_output_tokens`，还需查看 `GET /v1/models/{model}` 的 `capabilities.unsupported_parameters`。
 
 ## 聊天附件
 
@@ -149,9 +149,11 @@ data: [DONE]
 
 ChatGPT 对话提供 `chatgpt-gpt-6`（GPT-6）和 `chatgpt-gpt-6.2`（GPT-6.2）。网页的即时、中、高、极高、Pro 分别对应 `reasoning.effort` 的 `none`、`standard`、`extended`、`max`、`pro`。GPT-6.2 提供即时、中、高、极高四档；Pro 档使用 GPT-6。每个账号仅公布其可用档位。
 
-Codex 文本模型包括 `codex-gpt-6.2-sol`、`codex-gpt-6.2-astra`、`codex-gpt-6.1-terra`、`codex-gpt-6-sol`和`codex-gpt-6-luna`。上述 GPT-6.2 和 GPT-6.1 型号的 `reasoning.effort` 支持 `low/medium/high/xhigh/max/ultra`，默认 `low`；其他型号优先按账号模型目录校验。目录不再列出插件不支持的上游型号。
+Codex 文本模型的 `reasoning.effort` 统一支持 `minimal`、`low`、`medium`、`high`、`xhigh`、`max`。各模型的默认档位见 `capabilities.reasoning.default_effort`。
 
-Codex 图片模型为 `codex-gpt-image-2.6-flare`、`codex-gpt-image-2.6-sunburst`、`codex` 别名指向 `codex-gpt-image-2.6-flare`。模型 `capabilities.pricing` 同步源插件的参考价格，不表示当前账号的实际收费。
+请求使用模型目录返回的正式 `model_id`。
+
+Codex 图片模型为 `codex-gpt-image-2.6-flare`、`codex-gpt-image-2.6-sunburst`。模型 `capabilities.pricing` 同步源插件的参考价格，不表示当前账号的实际收费。
 
 Codex 文本请求的 `service_tier` 支持 `auto/default/priority/flex/scale/ultrafast`，兼容 `fast` 并转成 `priority`；其他值返回参数错误，账号是否具有对应服务等级仍由上游判定。
 
@@ -161,7 +163,7 @@ Codex 文本请求的 `service_tier` 支持 `auto/default/priority/flex/scale/ul
 
 ## 文本聊天返回图片、视频和思考摘要
 
-`POST /v1/responses` 与 `POST /v1/chat/completions` 可在普通聊天中交付平台生成的媒体。ChatGPT 插件支持聊天图片，豆包支持聊天图片和视频；具体模型和账号能否生成仍由平台判定。DeepSeek 的思考摘要也会单独返回。输出能力可查询 `/v1/models` 的 `capabilities.output_modalities`。
+`POST /v1/responses` 与 `POST /v1/chat/completions` 可在普通聊天中交付平台生成的媒体。ChatGPT 插件支持聊天图片，豆包支持聊天图片和视频；具体模型和账号能否生成仍由平台判定。DeepSeek 的思考摘要也会单独返回。输出能力可查询 `/v1/models/{model}` 的 `capabilities.output_modalities`。
 
 Responses 的 `output` 保留以下输出项；`output_text` 只包含回答正文：
 
