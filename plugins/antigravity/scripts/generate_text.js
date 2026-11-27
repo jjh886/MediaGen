@@ -13,10 +13,6 @@ function agPayload(request, auth, selection, requestId, modelInfo) {
       for (const file of item.attachments || []) {
         if (!file.base64 || !mimeTypes.includes(file.mime_type))
           throw new Error('invalid_request: 所选模型和推理档位不支持此附件格式')
-        const kind = file.mime_type.split('/')[0]
-        const limit = AG_ATTACHMENT_LIMITS[kind + '_bytes'] || AG_ATTACHMENT_LIMITS.file_bytes
-        if (file.size > limit)
-          throw new Error('invalid_request: 单个附件超过 MediaGen 容量限制 ' + limit + ' bytes')
         parts.push({ inlineData: { mimeType: file.mime_type, data: file.base64 } })
       }
       const role = item.role === 'assistant' ? 'model' : 'user'
@@ -92,9 +88,7 @@ function main(ctx) {
   if (saved?.phase === 'submitting')
     throw new Error('PROVIDER_SUBMISSION_UNKNOWN: 上次请求已发送，无法确认结果')
   const request = apiTextNormalizeTextRequest(ctx.request)
-  const requested =
-    Object.keys(AG_ORCHESTRATORS).find((key) => AG_ORCHESTRATORS[key] === request.model) ||
-    request.model.replace(/^antigravity-/, '')
+  const requested = request.model.replace(/^antigravity-/, '')
   const suffix = requested.match(/-(low|medium|high|xhigh)$/)
   const slug = suffix ? requested.slice(0, suffix.index) : requested
   if (!AG_MODELS.includes(slug)) throw new Error('invalid_request: 不支持该 Antigravity 模型')

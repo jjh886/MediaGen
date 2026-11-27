@@ -59,6 +59,15 @@ pub(crate) async fn resolve(
             if !content.is_file() || content.len() != record.bytes {
                 return Err("文件内容不完整或大小已变化".into());
             }
+            crate::protocol_attachments::validate_size(
+                capabilities,
+                if record.mime_type.is_empty() {
+                    crate::file_api::mime_from_filename(&record.filename)
+                } else {
+                    &record.mime_type
+                },
+                record.bytes,
+            )?;
             if capabilities["attachment_transport"] == "workspace" {
                 if !matches!(part["type"].as_str(), Some("input_file" | "input_image")) {
                     return Err("此输入类型不能引用 file_id".into());
@@ -104,55 +113,79 @@ pub(crate) async fn materialize(
     request: &mut Value,
     workspace: &std::path::Path,
 ) -> Result<(), String> {
-    use std::collections::HashMap;
-    let mut copies: HashMap<std::path::PathBuf, std::path::PathBuf> = HashMap::new();
-    let Some(input) = request["input"].as_array_mut() else {
-        return Ok(());
+    let parts = {
+        request
+            .get_mut("input")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+            .filter_map(|item| item.get_mut("content").and_then(Value::as_array_mut))
+            .flatten()
+            .collect()
     };
-    for item in input {
-        let Some(parts) = item.get_mut("content").and_then(Value::as_array_mut) else {
+    materialize_parts(state, parts, workspace).await
+}
+
+pub(crate) async fn materialize_parts(
+    state: &ServerState,
+    parts: Vec<&mut Value>,
+    workspace: &std::path::Path,
+) -> Result<(), String> {
+    let mut copies = std::collections::HashMap::<std::path::PathBuf, std::path::PathBuf>::new();
+    for part in parts {
+        let Some(source) = part["file_path"].as_str() else {
+            if let Some((mime, bytes)) = crate::protocol_attachments::decode(part)? {
+                use sha2::{Digest, Sha256};
+                let target = workspace.join(format!("inline-{:x}", Sha256::digest(&bytes)));
+                crate::account_login_credentials::write_private_file(&target, &bytes).await?;
+                let fields = part.as_object_mut().ok_or("附件必须是对象")?;
+                for key in ["image_url", "file_data", "input_audio"] {
+                    fields.remove(key);
+                }
+                if fields["type"] == "input_audio" {
+                    fields.insert("type".into(), json!("input_file"));
+                }
+                fields.insert("file_path".into(), json!(target));
+                fields.insert("mime_type".into(), json!(mime));
+                fields.insert("size".into(), json!(bytes.len()));
+            }
             continue;
         };
-        for part in parts {
-            let Some(source) = part["file_path"].as_str() else {
-                continue;
-            };
-            let source = tokio::fs::canonicalize(source)
-                .await
-                .map_err(|_| "附件文件不存在")?;
-            let root = tokio::fs::canonicalize(&state.file_root)
-                .await
-                .map_err(|_| "文件目录不可读")?;
-            if source.parent() != Some(root.as_path()) {
-                return Err("附件引用不在授权文件目录".into());
-            }
-            let size = tokio::fs::metadata(&source)
-                .await
-                .map_err(|_| "附件文件不可读")?
-                .len();
-            if Some(size) != part["size"].as_u64() {
-                return Err("附件大小已变化".into());
-            }
-            let target = if let Some(path) = copies.get(&source) {
-                path.clone()
-            } else {
-                let temporary =
-                    tempfile::NamedTempFile::new_in(workspace).map_err(|_| "创建附件副本失败")?;
-                let copied = tokio::fs::copy(&source, temporary.path())
-                    .await
-                    .map_err(|_| "复制附件失败")?;
-                if copied != size {
-                    return Err("附件复制不完整".into());
-                }
-                let target = workspace.join(source.file_name().ok_or("附件文件名无效")?);
-                tokio::fs::rename(temporary.path(), &target)
-                    .await
-                    .map_err(|_| "保存附件副本失败")?;
-                copies.insert(source, target.clone());
-                target
-            };
-            part["file_path"] = json!(target);
+        let source = tokio::fs::canonicalize(source)
+            .await
+            .map_err(|_| "附件文件不存在")?;
+        let root = tokio::fs::canonicalize(&state.file_root)
+            .await
+            .map_err(|_| "文件目录不可读")?;
+        if source.parent() != Some(root.as_path()) {
+            return Err("附件引用不在授权文件目录".into());
         }
+        let size = tokio::fs::metadata(&source)
+            .await
+            .map_err(|_| "附件文件不可读")?
+            .len();
+        if Some(size) != part["size"].as_u64() {
+            return Err("附件大小已变化".into());
+        }
+        let target = if let Some(path) = copies.get(&source) {
+            path.clone()
+        } else {
+            let temporary =
+                tempfile::NamedTempFile::new_in(workspace).map_err(|_| "创建附件副本失败")?;
+            let copied = tokio::fs::copy(&source, temporary.path())
+                .await
+                .map_err(|_| "复制附件失败")?;
+            if copied != size {
+                return Err("附件复制不完整".into());
+            }
+            let target = workspace.join(source.file_name().ok_or("附件文件名无效")?);
+            tokio::fs::rename(temporary.path(), &target)
+                .await
+                .map_err(|_| "保存附件副本失败")?;
+            copies.insert(source, target.clone());
+            target
+        };
+        part["file_path"] = json!(target);
     }
     Ok(())
 }

@@ -152,9 +152,16 @@ fn content_length(headers: &[u8]) -> usize {
 }
 
 pub(crate) fn protocol_state(discovery: bool) -> actix_web::web::Data<ServerState> {
+    let root = std::env::temp_dir().join(format!("protocol-test-{}", uuid::Uuid::new_v4()));
+    protocol_state_in(root, discovery)
+}
+
+pub(crate) fn protocol_state_in(
+    root: std::path::PathBuf,
+    discovery: bool,
+) -> actix_web::web::Data<ServerState> {
     use actix_web::web;
     use serde_json::json;
-    let root = std::env::temp_dir().join(format!("protocol-test-{}", uuid::Uuid::new_v4()));
     let dir = root.join("plugins/test/scripts");
     std::fs::create_dir_all(&dir).unwrap();
     let script = r#"function main(ctx) {

@@ -3,8 +3,8 @@ use actix_web::web;
 use serde_json::{json, Value};
 
 pub(crate) async fn ffmpeg_file(path: &std::path::Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    use tokio::io::AsyncReadExt;
-    let mut child = tokio::process::Command::new(mediagen_core::resolve_ffmpeg_binary())
+    let mut command = tokio::process::Command::new(mediagen_core::resolve_ffmpeg_binary());
+    command
         .args([
             "-hide_banner",
             "-loglevel",
@@ -16,32 +16,8 @@ pub(crate) async fn ffmpeg_file(path: &std::path::Path, args: &[&str]) -> Result
         ])
         .arg(path)
         .args(args)
-        .arg("pipe:1")
-        .kill_on_drop(true)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|_| "视频处理需要可用的 FFmpeg")?;
-    let output = child.stdout.take().ok_or("媒体输出不可用")?;
-    let execution = async {
-        let mut bytes = Vec::new();
-        output
-            .take(50 * 1024 * 1024 + 1)
-            .read_to_end(&mut bytes)
-            .await
-            .map_err(|_| "媒体输出失败")?;
-        if bytes.len() > 50 * 1024 * 1024 {
-            return Err("媒体输出超过 50 MiB".to_string());
-        }
-        if !child.wait().await.map_err(|_| "媒体进程失败")?.success() || bytes.is_empty() {
-            return Err("媒体处理失败".into());
-        }
-        Ok(bytes)
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(120), execution)
-        .await
-        .map_err(|_| "媒体处理超时")?
+        .arg("pipe:1");
+    crate::media_transcode::run_to_file(command, None, std::time::Duration::from_secs(120)).await
 }
 
 pub(crate) async fn transcribe(

@@ -4,7 +4,33 @@ use base64::prelude::{Engine as _, BASE64_STANDARD};
 use mediagen_plugin_runtime::PluginHost;
 use serde_json::{json, Value};
 
-const MAX_BYTES: usize = 50 * 1024 * 1024;
+pub(crate) fn validate_size(caps: &Value, mime: &str, size: u64) -> Result<(), String> {
+    let kind = mime.split('/').next().unwrap_or("");
+    let limits = &caps["attachment_limits"];
+    if let Some(limit) = limits[format!("{kind}_bytes")]
+        .as_u64()
+        .or_else(|| limits["file_bytes"].as_u64())
+    {
+        if size > limit {
+            return Err(format!(
+                "附件超过当前模型声明的上游单文件容量 {limit} bytes"
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_data_url_size(caps: &Value, url: &str) -> Result<(), String> {
+    if let Some((mime, encoded)) = url
+        .strip_prefix("data:")
+        .and_then(|s| s.split_once(";base64,"))
+    {
+        let padding = encoded.len() - encoded.trim_end_matches('=').len();
+        let size = (encoded.len() / 4 * 3).saturating_sub(padding);
+        validate_size(caps, mime, size as u64)?;
+    }
+    Ok(())
+}
 
 fn supports(caps: &Value, kind: &str) -> bool {
     caps.get("input_modalities")
@@ -15,6 +41,18 @@ fn supports(caps: &Value, kind: &str) -> bool {
 
 pub(crate) fn decode(part: &Value) -> Result<Option<(String, Vec<u8>)>, String> {
     let (data, fallback) = match part["type"].as_str() {
+        Some("input_image") => {
+            let Some(url) = part["image_url"]
+                .as_str()
+                .filter(|url| url.starts_with("data:"))
+            else {
+                return Ok(None);
+            };
+            if !url.starts_with("data:image/") {
+                return Err("input_image 必须是图片".into());
+            }
+            (url, "")
+        }
         Some("input_file") => {
             if let Some(url) = part["file_url"].as_str() {
                 let parsed = reqwest::Url::parse(url).map_err(|_| "附件 URL 无效")?;
@@ -28,13 +66,10 @@ pub(crate) fn decode(part: &Value) -> Result<Option<(String, Vec<u8>)>, String> 
                 return Err("附件缺少 file_data".into());
             };
             (
-                data.to_string(),
-                part["mime_type"]
-                    .as_str()
-                    .unwrap_or_else(|| {
-                        crate::file_api::mime_from_filename(part["filename"].as_str().unwrap_or(""))
-                    })
-                    .to_string(),
+                data,
+                part["mime_type"].as_str().unwrap_or_else(|| {
+                    crate::file_api::mime_from_filename(part["filename"].as_str().unwrap_or(""))
+                }),
             )
         }
         Some("input_audio") => {
@@ -45,16 +80,12 @@ pub(crate) fn decode(part: &Value) -> Result<Option<(String, Vec<u8>)>, String> 
                 return Err("音频仅支持 wav 或 mp3".into());
             }
             (
-                part["input_audio"]["data"]
-                    .as_str()
-                    .ok_or("音频缺少数据")?
-                    .to_string(),
+                part["input_audio"]["data"].as_str().ok_or("音频缺少数据")?,
                 if format == "wav" {
                     "audio/wav"
                 } else {
                     "audio/mpeg"
-                }
-                .into(),
+                },
             )
         }
         _ => return Ok(None),
@@ -62,16 +93,13 @@ pub(crate) fn decode(part: &Value) -> Result<Option<(String, Vec<u8>)>, String> 
     let (mime, encoded) = if let Some(data) = data.strip_prefix("data:") {
         data.split_once(";base64,").ok_or("附件 data URL 无效")?
     } else {
-        (fallback.as_str(), data.as_str())
+        (fallback, data)
     };
-    if encoded.len() > MAX_BYTES.div_ceil(3) * 4 {
-        return Err("附件超过 50 MiB".into());
-    }
     let bytes = BASE64_STANDARD
         .decode(encoded)
         .map_err(|_| "附件 Base64 编码无效")?;
-    if bytes.is_empty() || bytes.len() > MAX_BYTES {
-        return Err("附件为空或超过 50 MiB".into());
+    if bytes.is_empty() {
+        return Err("附件为空".into());
     }
     Ok(Some((mime.to_ascii_lowercase(), bytes)))
 }
@@ -87,11 +115,26 @@ pub(crate) async fn prepare(
         return Ok(());
     };
     let mut cache = std::collections::HashMap::<String, Vec<Value>>::new();
-    let mut total = 0;
     for item in input {
         let Some(parts) = item.get_mut("content").and_then(Value::as_array_mut) else {
             continue;
         };
+        let count = parts
+            .iter()
+            .filter(|part| {
+                matches!(
+                    part["type"].as_str(),
+                    Some("input_file" | "input_audio" | "input_image")
+                )
+            })
+            .count();
+        if let Some(limit) = caps["attachment_limits"]["max_files"].as_u64() {
+            if count as u64 > limit {
+                return Err(format!(
+                    "本条消息包含 {count} 个附件，超过当前模型上限 {limit} 个"
+                ));
+            }
+        }
         let mut result = Vec::new();
         for part in parts.iter() {
             if part.get("file_path").is_some() {
@@ -108,17 +151,7 @@ pub(crate) async fn prepare(
                 if !supports(caps, kind) {
                     return Err(format!("当前模型不支持 {kind} 附件输入"));
                 }
-                let limits = &caps["attachment_limits"];
-                if let Some(limit) = limits[format!("{kind}_bytes")]
-                    .as_u64()
-                    .or_else(|| limits["file_bytes"].as_u64())
-                {
-                    if part["size"].as_u64().is_none_or(|size| size > limit) {
-                        return Err(format!(
-                            "附件超过当前模型声明的上游单文件容量 {limit} bytes"
-                        ));
-                    }
-                }
+                validate_size(caps, mime, part["size"].as_u64().ok_or("附件缺少大小")?)?;
                 if kind == "file" {
                     validate_extension(caps, part)?;
                 }
@@ -129,10 +162,18 @@ pub(crate) async fn prepare(
                 result.push(part);
                 continue;
             }
+            if part["type"] == "input_image" {
+                if let Some(url) = part["image_url"].as_str() {
+                    validate_data_url_size(caps, url)?;
+                }
+                result.push(part.clone());
+                continue;
+            }
             let Some((mime, bytes)) = decode(part)? else {
                 result.push(part.clone());
                 continue;
             };
+            validate_size(caps, &mime, bytes.len() as u64)?;
             let name = part["filename"].as_str().unwrap_or("attachment");
             let mut identity = sha2::Sha256::new();
             use sha2::Digest;
@@ -147,12 +188,6 @@ pub(crate) async fn prepare(
                 cache.insert(id, prepared.clone());
                 prepared
             };
-            total += serde_json::to_vec(&prepared)
-                .map_err(|_| "附件编码失败")?
-                .len();
-            if total > 64 * 1024 * 1024 {
-                return Err("本轮附件合计超过 64 MiB".into());
-            }
             result.extend(prepared);
         }
         *parts = result;
@@ -177,6 +212,9 @@ async fn prepare_one(
         ]);
     }
     if mime.starts_with("audio/") {
+        if supports(caps, "audio") && part["type"] == "input_file" {
+            return Ok(vec![part.clone()]);
+        }
         return Ok(vec![
             audio_part(state, key, caps, bytes.to_vec(), mime).await?,
         ]);
@@ -199,14 +237,14 @@ async fn prepare_one(
         return Err(info.error.unwrap_or("媒体信息检查失败".into()));
     }
     let duration = info.data["duration"].as_f64().ok_or("视频时长无效")?;
-    let times = frame_times(duration)?;
     if info.data["has_video"] != true {
         return Err("附件没有视频画面".into());
     }
-    let native_video = supports(caps, "video") && bytes.len() <= 16 * 1024 * 1024;
-    let mut output = if native_video {
-        vec![part.clone()]
-    } else {
+    if supports(caps, "video") {
+        return Ok(vec![part.clone()]);
+    }
+    let times = frame_times(duration)?;
+    let mut output = {
         if !supports(caps, "image") {
             return Err("当前模型不支持视频或图片输入".into());
         }
@@ -236,7 +274,7 @@ async fn prepare_one(
         parts
     };
     // 原生视频已经包含全片声音，不另加转写附件改变模型的输入语义。
-    if !native_video && info.data["has_audio"] == true {
+    if info.data["has_audio"] == true {
         let audio = crate::media_input::ffmpeg_file(
             &path,
             &[
@@ -290,14 +328,25 @@ async fn audio_part(
             "wav",
         )
     };
-    if data.len() > (20usize * 1024 * 1024).div_ceil(3) * 4 {
-        return Err("音频输入超过 20 MiB，请缩短音频".into());
-    }
     if supports(caps, "audio") {
         return Ok(json!({"type":"input_audio","input_audio":{"data":data,"format":format}}));
     }
     let text = crate::media_input::transcribe(state, key, &data, format).await?;
     Ok(json!({"type":"input_text","text":format!("附件音轨转写（并非原始声音输入）：\n{text}")}))
+}
+
+fn validate_extension(caps: &Value, part: &Value) -> Result<(), String> {
+    if let Some(extensions) = caps["file_extensions"].as_array() {
+        let name = part["filename"].as_str().unwrap_or("").to_lowercase();
+        if !extensions
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|ext| !ext.is_empty() && name.ends_with(&format!(".{ext}")))
+        {
+            return Err("文件后缀不在模型允许范围内".into());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -390,6 +439,32 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn validates_each_message_and_decoded_file_against_the_selected_model() {
+        let state = crate::protocol_api_tests::state();
+        let part = json!({"type":"input_file", "filename":"note.txt","file_data":"YWJj"});
+        let message = json!({"role":"user","content":[part]});
+        let mut request = json!({"input":[message,message]});
+        let mut caps =
+            json!({"input_modalities":["file"],"attachment_limits":{"max_files":1,"file_bytes":3}});
+        assert!(prepare(&state, "key-a", &mut request, &caps).await.is_ok());
+        request["input"][0]["content"] = json!([part, part]);
+        assert!(prepare(&state, "key-a", &mut request, &caps)
+            .await
+            .unwrap_err()
+            .contains("2 个"));
+        caps["attachment_limits"]["max_files"] = Value::Null;
+        caps["attachment_limits"]["file_bytes"] = json!(2);
+        assert!(prepare(&state, "key-a", &mut request, &caps)
+            .await
+            .unwrap_err()
+            .contains("2 bytes"));
+        caps["attachment_limits"]["file_bytes"] = Value::Null;
+        assert!(prepare(&state, "key-a", &mut request, &caps).await.is_ok());
+        let caps = json!({"attachment_limits":{"image_bytes":1,"file_bytes":20}});
+        assert!(validate_data_url_size(&caps, "data:image/png;base64,YQ==").is_ok());
+        assert!(validate_data_url_size(&caps, "data:image/png;base64,YWI=").is_err());
+    }
     #[test]
     fn validates_media_bytes_and_samples_full_duration() {
         assert!(
@@ -417,18 +492,4 @@ mod tests {
         assert!(frame_times(f64::NAN).is_err());
         assert!(frame_times(3601.).is_err());
     }
-}
-
-fn validate_extension(caps: &Value, part: &Value) -> Result<(), String> {
-    if let Some(extensions) = caps["file_extensions"].as_array() {
-        let name = part["filename"].as_str().unwrap_or("").to_lowercase();
-        if !extensions
-            .iter()
-            .filter_map(Value::as_str)
-            .any(|ext| !ext.is_empty() && name.ends_with(&format!(".{ext}")))
-        {
-            return Err("文件后缀不在模型允许范围内".into());
-        }
-    }
-    Ok(())
 }

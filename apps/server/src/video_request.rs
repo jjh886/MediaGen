@@ -182,15 +182,15 @@ impl OpenAiVideoRequest {
     pub fn to_flow_request(
         &self,
         task_id: String,
-        model_display_name: String,
+        model: &mediagen_core::ModelDef,
         ref_image_dataurls: Vec<String>,
         ref_image_locals: Vec<String>,
     ) -> Result<VideoFlowRequest, ApiError> {
         Ok(VideoFlowRequest {
             ref_video_locals: Vec::new(),
             task_id,
-            model_id: self.model.clone(),
-            model_display_name,
+            model_id: model.model_id.clone(),
+            model_display_name: model.display_name.clone(),
             prompt: self.prompt.clone(),
             seconds: self.seconds_text()?,
             size: self.size_text(),
@@ -218,6 +218,19 @@ pub(crate) fn validate_video_capabilities(
     {
         return request_error("当前插件不支持视频生成");
     }
+    let limits = manifest
+        .models
+        .iter()
+        .find(|model| model.model_id == request.model)
+        .and_then(|model| model.extra.get("capabilities"));
+    if request.extra.contains_key("video_reference")
+        && (capabilities["supports_video_reference"] == false
+            || limits
+                .and_then(|c| c["input_modalities"].as_array())
+                .is_some_and(|m| !m.iter().any(|v| v == "video")))
+    {
+        return request_error("当前视频模型不支持参考视频");
+    }
     let reference_count = request.reference_urls().len();
     if reference_count > 0
         && capabilities
@@ -227,12 +240,13 @@ pub(crate) fn validate_video_capabilities(
     {
         return request_error("当前视频模型不支持参考图");
     }
-    let max_references = capabilities
-        .get("max_reference_images")
-        .and_then(Value::as_u64)
-        .unwrap_or(1) as usize;
-    if reference_count > max_references {
-        return request_error(&format!("参考图不能超过 {max_references} 张"));
+    if let Some(limit) = limits
+        .and_then(|c| c["attachment_limits"]["max_reference_images"].as_u64())
+        .or_else(|| capabilities["max_reference_images"].as_u64())
+    {
+        if reference_count as u64 > limit {
+            return request_error(&format!("参考图不能超过 {limit} 张"));
+        }
     }
     let seconds = request
         .seconds_text()?

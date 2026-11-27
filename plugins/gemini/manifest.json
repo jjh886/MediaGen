@@ -109,7 +109,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "1.1.5",
+  "version": "1.1.6",
   "platform_id": "gemini",
   "display_name": "Gemini",
   "sort_order": 25,
@@ -158,12 +158,59 @@
       "quality"
     ]
   },
+  "discovered_model_metadata": {
+    "gemini-4-neon": {
+      "pricing": {
+        "reference_only": true,
+        "source": "https://ai.google.dev/gemini-api/docs/pricing",
+        "currency": "USD",
+        "unit": "1M tokens",
+        "input": 3,
+        "cached_input": 0.15,
+        "output": 15,
+        "status": "reference_only"
+      },
+      "attachment_limits": {
+        "file_bytes": 104857600,
+        "video_bytes": 2147483648,
+        "max_files": 10,
+        "source": "https://support.google.com/gemini/answer/14903178",
+        "note": "同一提示中音频合计 10 分钟、视频合计 5 分钟；符合条件的 Google AI 套餐分别为 3 小时和 1 小时。"
+      }
+    },
+    "gemini-auto": {
+      "pricing": {
+        "status": "unavailable",
+        "reference_only": true,
+        "source": "https://ai.google.dev/gemini-api/docs/pricing",
+        "note": "网页自动选择模型，无固定单价。"
+      },
+      "attachment_limits": {
+        "file_bytes": 104857600,
+        "video_bytes": 2147483648,
+        "max_files": 10,
+        "source": "https://support.google.com/gemini/answer/14903178",
+        "note": "同一提示中音频合计 10 分钟、视频合计 5 分钟；符合条件的 Google AI 套餐分别为 3 小时和 1 小时。"
+      }
+    }
+  },
   "models": [
     {
       "model_id": "gemini-4-hydrogen",
       "display_name": "Gemini 4 Hydrogen",
       "task_kind": "text",
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "currency": "USD",
+          "unit": "1M tokens",
+          "input": 1.5,
+          "cached_input": 0.075,
+          "output": 7.5,
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
+        },
         "input_modalities": ["text", "image", "video", "audio", "file"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
@@ -400,7 +447,9 @@
         "attachment_limits": {
           "file_bytes": 104857600,
           "video_bytes": 2147483648,
-          "max_files": 10
+          "max_files": 10,
+          "source": "https://support.google.com/gemini/answer/14903178",
+          "note": "同一提示中音频合计 10 分钟、视频合计 5 分钟；符合条件的 Google AI 套餐分别为 3 小时和 1 小时。"
         }
       }
     },
@@ -409,6 +458,24 @@
       "display_name": "Gemini 4 Argon",
       "task_kind": "text",
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "currency": "USD",
+          "unit": "1M tokens",
+          "input": 2,
+          "cached_input": 0.1,
+          "output": 10,
+          "valid_through": "2026-11-30",
+          "next_rates": {
+            "effective_from": "2026-12-01",
+            "input": 4,
+            "cached_input": 0.2,
+            "output": 20
+          },
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
+        },
         "input_modalities": ["text", "image", "video", "audio", "file"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
@@ -645,7 +712,9 @@
         "attachment_limits": {
           "file_bytes": 104857600,
           "video_bytes": 2147483648,
-          "max_files": 10
+          "max_files": 10,
+          "source": "https://support.google.com/gemini/answer/14903178",
+          "note": "同一提示中音频合计 10 分钟、视频合计 5 分钟；符合条件的 Google AI 套餐分别为 3 小时和 1 小时。"
         }
       }
     },
@@ -654,6 +723,24 @@
       "display_name": "Gemini 4 Carbon",
       "task_kind": "text",
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "currency": "USD",
+          "unit": "1M tokens",
+          "input": 2,
+          "cached_input": 0.1,
+          "output": 10,
+          "valid_through": "2026-11-30",
+          "next_rates": {
+            "effective_from": "2026-12-01",
+            "input": 4,
+            "cached_input": 0.2,
+            "output": 20
+          },
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
+        },
         "input_modalities": ["text", "image", "video", "audio", "file"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
@@ -890,7 +977,9 @@
         "attachment_limits": {
           "file_bytes": 104857600,
           "video_bytes": 2147483648,
-          "max_files": 10
+          "max_files": 10,
+          "source": "https://support.google.com/gemini/answer/14903178",
+          "note": "同一提示中音频合计 10 分钟、视频合计 5 分钟；符合条件的 Google AI 套餐分别为 3 小时和 1 小时。"
         }
       }
     },
@@ -899,6 +988,21 @@
       "display_name": "Gemini 图片",
       "task_kind": "image",
       "capabilities": {
+        "pricing": {
+          "status": "unavailable",
+          "reference_only": true,
+          "source": "https://one.google.com/about/google-ai-plans/",
+          "note": "网页媒体工具未标出可唯一对应的 API 计费模型。"
+        },
+        "attachment_limits": {
+          "file_bytes": 104857600,
+          "max_files": 10,
+          "source": "https://support.google.com/gemini/answer/14903178"
+        },
+        "format_examples": ["png", "jpg", "jpeg", "webp"],
+        "reasoning": {
+          "efforts": []
+        },
         "input_modalities": ["text", "image"],
         "output_modalities": ["image"],
         "endpoints": ["/v1/images/generations", "/v1/images/edits"]
@@ -909,7 +1013,25 @@
       "display_name": "Gemini 视频",
       "task_kind": "video",
       "capabilities": {
-        "input_modalities": ["text", "image"],
+        "pricing": {
+          "status": "unavailable",
+          "reference_only": true,
+          "source": "https://one.google.com/about/google-ai-plans/",
+          "note": "网页媒体工具未标出可唯一对应的 API 计费模型。"
+        },
+        "attachment_limits": {
+          "max_files": 6,
+          "file_bytes": 104857600,
+          "source": "https://support.google.com/gemini/answer/16126339",
+          "video_bytes": 2147483648,
+          "max_reference_images": 5,
+          "max_reference_videos": 1
+        },
+        "format_examples": ["png", "jpg", "jpeg", "webp", "mp4", "mov"],
+        "reasoning": {
+          "efforts": []
+        },
+        "input_modalities": ["text", "image", "video"],
         "output_modalities": ["video"],
         "endpoints": ["/v1/videos", "/v1/videos/{video_id}", "/v1/videos/{video_id}/content"]
       }
@@ -1076,5 +1198,17 @@
     "media_types": ["text", "image", "video"],
     "checkpoint_field": "conversation_id"
   },
-  "protected_json_files": ["auth.json"]
+  "protected_json_files": ["auth.json"],
+  "video_capabilities": {
+    "supports_generation": true,
+    "supports_image_reference": true,
+    "max_reference_images": 5,
+    "supports_video_reference": true,
+    "max_reference_videos": 1
+  },
+  "image_capabilities": {
+    "supports_generation": true,
+    "supports_edit": true,
+    "max_reference_images": 10
+  }
 }

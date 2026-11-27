@@ -1,28 +1,28 @@
 use super::*;
 
 pub(super) fn uuid_v1(params: &Value) -> Result<Value, String> {
-    let node: [u8; 6] = decode(params, "node_base64", 6)?
+    let node: [u8; 6] = decode(params, "node_base64", Some(6))?
         .try_into()
         .map_err(|_| "UUID 节点标识必须为 6 字节")?;
     Ok(json!({"value": uuid::Uuid::now_v1(&node).to_string()}))
 }
 
-fn decode(value: &Value, field: &str, limit: usize) -> Result<Vec<u8>, String> {
+fn decode(value: &Value, field: &str, limit: Option<usize>) -> Result<Vec<u8>, String> {
     let encoded = value[field].as_str().ok_or("缺少二进制参数")?;
-    if encoded.len() > limit.div_ceil(3) * 4 {
+    if limit.is_some_and(|max| encoded.len() > max.div_ceil(3) * 4) {
         return Err("二进制参数过大".into());
     }
     let bytes = BASE64_STANDARD
         .decode(encoded)
         .map_err(|_| "二进制编码无效")?;
-    if bytes.len() > limit {
+    if limit.is_some_and(|max| bytes.len() > max) {
         return Err("二进制参数过大".into());
     }
     Ok(bytes)
 }
 
 pub(super) fn crypto(action: &str, params: &Value) -> Result<Value, String> {
-    let data = decode(params, "data_base64", MAX_FILE_BYTES as usize)?;
+    let data = decode(params, "data_base64", None)?;
     let hash = match action {
         "crypto.digest_bytes" => match params["algorithm"].as_str() {
             Some("md5") => md5::Md5::digest(&data).to_vec(),
@@ -33,7 +33,7 @@ pub(super) fn crypto(action: &str, params: &Value) -> Result<Value, String> {
         },
         "crypto.hmac_sha256" => {
             use hmac::{Hmac, Mac};
-            let key = decode(params, "key_base64", 4096)?;
+            let key = decode(params, "key_base64", Some(4096))?;
             let mut mac = Hmac::<Sha256>::new_from_slice(&key).map_err(|_| "HMAC 密钥无效")?;
             mac.update(&data);
             mac.finalize().into_bytes().to_vec()
@@ -58,7 +58,7 @@ impl ServerPluginHost {
 
     pub(super) async fn write_base64(&self, params: &Value) -> Result<Value, String> {
         let path = PathBuf::from(required_str(params, "path")?);
-        let bytes = decode(params, "base64", MAX_FILE_BYTES as usize)?;
+        let bytes = decode(params, "base64", None)?;
         crate::account_login_credentials::write_private_file(&path, &bytes).await?;
         Ok(json!({"path":path,"size":bytes.len(),"sha256":format!("{:x}",Sha256::digest(&bytes))}))
     }
@@ -177,7 +177,7 @@ mod tests {
                 .collect::<String>(),
             "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
         );
-        assert!(decode(&json!({"base64":"YWJj"}), "base64", 2).is_err());
+        assert!(decode(&json!({"base64":"YWJj"}), "base64", Some(2)).is_err());
         assert!(crypto(
             "crypto.digest_bytes",
             &json!({"algorithm":"unknown","data_base64":""})

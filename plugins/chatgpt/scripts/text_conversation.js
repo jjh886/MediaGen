@@ -6,10 +6,7 @@ function chatgptApiTextOptions(init, request) {
   if (requestedModel.endsWith('-wm')) {
     throw new Error('invalid_input: Work 模型需要独立的 Work 任务，不能用于普通文本生成')
   }
-  const aliases = ['chatgpt api text', 'chatgpt-api-text', 'chatgpt-web']
-  const model = aliases.includes(requestedModel.toLowerCase())
-    ? String(init?.default_model_slug || 'auto')
-    : requestedModel || String(init?.default_model_slug || 'auto')
+  const model = requestedModel || String(init?.default_model_slug || 'auto')
   chatgptApiAssertModelAvailable(init, model)
   return {
     model,

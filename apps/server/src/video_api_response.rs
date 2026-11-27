@@ -54,7 +54,7 @@ pub(crate) fn completed_video_metadata(
     })
 }
 
-pub(crate) fn result_has_video(result: &Value) -> bool {
+pub(crate) fn result_has_remote_video(result: &Value) -> bool {
     first_video(result).is_some_and(|video| video_download_url(&video).is_some())
 }
 
@@ -216,7 +216,7 @@ mod tests {
         let mut task = new_video_task("video-1", &manifest, "video-model", &request, "a", "owner");
         let video = json!({"download":{"url":"https://example.test/video.mp4?sig=abc","authorization":"url"},"cover_url":"https://example.test/cover.png","duration":10});
         for result in [json!({"videos":[video]}), video.clone()] {
-            assert!(result_has_video(&result));
+            assert!(result_has_remote_video(&result));
             task.result_data = Some(completed_video_metadata(&task, &request, &result).to_string());
             assert_eq!(
                 video_asset_url(&task, "video").as_deref(),
@@ -233,7 +233,7 @@ mod tests {
             json!({"url":"file:///private/video.mp4","authorization":"url"}),
             json!({"url":"https://user:pass@example.test/video.mp4","authorization":"url"}),
         ] {
-            assert!(!result_has_video(
+            assert!(!result_has_remote_video(
                 &json!({"videos":[{"download":descriptor}]})
             ));
         }

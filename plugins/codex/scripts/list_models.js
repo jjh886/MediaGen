@@ -58,10 +58,8 @@ function main(ctx) {
           max_context_window: item.max_context_window,
           service_tiers: codexServiceTiers(item, ctx.account?.tier),
           reasoning: {
-            efforts: (item.supported_reasoning_levels || [])
-              .map((level) => level.effort)
-              .filter((effort) => codexSupportedEffort(effort, item.slug)),
-            default_effort: codexSupportedEffort(item.default_reasoning_level, item.slug)
+            efforts: CODEX_REASONING_EFFORTS,
+            default_effort: CODEX_REASONING_EFFORTS.includes(item.default_reasoning_level)
               ? item.default_reasoning_level
               : undefined,
           },

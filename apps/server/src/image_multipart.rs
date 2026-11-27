@@ -8,8 +8,6 @@ use serde_json::Value;
 use crate::image_request::{OpenAiImageRef, OpenAiImageRequest};
 use crate::media_multipart::image_data_url;
 
-const MAX_BODY_BYTES: usize = crate::MAX_REQUEST_BODY_BYTES;
-
 pub type ParseError = (u16, &'static str, String);
 
 pub async fn parse_image_request(
@@ -26,7 +24,7 @@ pub async fn parse_image_request(
         return parse_multipart(Multipart::new(req.headers(), payload)).await;
     }
     if content_type.is_empty() || content_type.starts_with("application/json") {
-        return parse_json(payload).await;
+        return crate::media_multipart::read_json(payload).await;
     }
     Err((
         415,
@@ -35,20 +33,8 @@ pub async fn parse_image_request(
     ))
 }
 
-async fn parse_json(payload: web::Payload) -> Result<OpenAiImageRequest, ParseError> {
-    let bytes = read_payload(payload).await?;
-    serde_json::from_slice(&bytes).map_err(|err| {
-        (
-            400,
-            "invalid_request_error",
-            format!("JSON 请求体解析失败: {err}"),
-        )
-    })
-}
-
 async fn parse_multipart(mut multipart: Multipart) -> Result<OpenAiImageRequest, ParseError> {
     let mut request = OpenAiImageRequest::empty();
-    let mut total = 0usize;
     while let Some(item) = multipart.next().await {
         let mut field = item.map_err(|err| {
             (
@@ -60,7 +46,7 @@ async fn parse_multipart(mut multipart: Multipart) -> Result<OpenAiImageRequest,
         let name = field_name(&field);
         let filename = field_filename(&field);
         let content_type = field_content_type(&field);
-        let bytes = read_field(&mut field, &mut total).await?;
+        let bytes = read_field(&mut field).await?;
 
         if is_image_field(&name) || name == "mask" {
             let image_ref = OpenAiImageRef {
@@ -83,23 +69,7 @@ async fn parse_multipart(mut multipart: Multipart) -> Result<OpenAiImageRequest,
     Ok(request)
 }
 
-async fn read_payload(mut payload: web::Payload) -> Result<Bytes, ParseError> {
-    let mut body = BytesMut::new();
-    while let Some(chunk) = payload.next().await {
-        let chunk = chunk.map_err(|err| {
-            (
-                400,
-                "invalid_request_error",
-                format!("请求体读取失败: {err}"),
-            )
-        })?;
-        ensure_size(body.len() + chunk.len())?;
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body.freeze())
-}
-
-async fn read_field(field: &mut Field, total: &mut usize) -> Result<Bytes, ParseError> {
+async fn read_field(field: &mut Field) -> Result<Bytes, ParseError> {
     let mut body = BytesMut::new();
     while let Some(chunk) = field.next().await {
         let chunk = chunk.map_err(|err| {
@@ -109,8 +79,6 @@ async fn read_field(field: &mut Field, total: &mut usize) -> Result<Bytes, Parse
                 format!("multipart 内容读取失败: {err}"),
             )
         })?;
-        *total += chunk.len();
-        ensure_size(*total)?;
         body.extend_from_slice(&chunk);
     }
     Ok(body.freeze())
@@ -186,18 +154,6 @@ fn is_image_field(name: &str) -> bool {
     matches!(name, "image" | "image[]") || name.starts_with("image[")
 }
 
-fn ensure_size(size: usize) -> Result<(), ParseError> {
-    if size <= MAX_BODY_BYTES {
-        Ok(())
-    } else {
-        Err((
-            413,
-            "request_too_large",
-            "图片请求体不能超过 50MB".to_string(),
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,12 +191,10 @@ mod tests {
     }
 
     #[test]
-    fn detects_image_fields_and_size_limits() {
+    fn detects_image_fields() {
         assert!(is_image_field("image"));
         assert!(is_image_field("image[]"));
         assert!(is_image_field("image[0]"));
         assert!(!is_image_field("mask"));
-        assert!(ensure_size(MAX_BODY_BYTES).is_ok());
-        assert_eq!(ensure_size(MAX_BODY_BYTES + 1).unwrap_err().0, 413);
     }
 }

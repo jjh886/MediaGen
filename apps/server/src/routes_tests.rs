@@ -356,7 +356,7 @@ async fn stream_image_generation_returns_sse_response() {
         .uri("/v1/images/generations")
         .insert_header(("authorization", "Bearer stream-key"))
         .set_json(json!({
-            "model": "gpt-image-test",
+            "model": "fake-model",
             "prompt": "draw a square",
             "stream": true
         }))
@@ -383,7 +383,7 @@ async fn stream_image_generation_returns_sse_response() {
         .uri("/v1/images/edits")
         .insert_header(("authorization", "Bearer stream-key"))
         .set_json(json!({
-            "model": "gpt-image-test",
+            "model": "fake-model",
             "prompt": "edit a square",
             "stream": true,
             "images": [{ "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==" }]
@@ -464,7 +464,7 @@ fn write_stream_plugin(root: &std::path::Path) {
               "steps": [
                 {
                   "action": "plugin.run_js",
-                  "script": "function main() { return { images: [{ url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==' }] }; }",
+                  "script": "function main(ctx) { if (ctx.model_id !== 'fake-model') throw Error('expected canonical model'); return { images: [{ url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==' }] }; }",
                   "save_as": "result"
                 }
               ]

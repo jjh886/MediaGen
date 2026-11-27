@@ -88,16 +88,13 @@ function codexNormalizeTextFile(part) {
   if (
     !mime.startsWith('text/') &&
     !['application/json', 'application/xml', 'application/javascript'].includes(mime) &&
-    !(!mime && textExtension.test(name))
+    !((!mime || mime === 'application/octet-stream') && textExtension.test(name))
   )
     return part
   const encoded = match ? match[2] : part.file_data
-  const bytes = host.call('crypto.base64_decode_latin1', { text: encoded }).value
   let text
   try {
-    text = decodeURIComponent(
-      Array.from(bytes, (char) => '%' + char.charCodeAt(0).toString(16).padStart(2, '0')).join('')
-    )
+    text = host.call('crypto.base64url_decode_utf8', { text: encoded }).value
   } catch (_) {
     throw new Error('invalid_input: Codex 文本附件必须使用有效 UTF-8 编码')
   }

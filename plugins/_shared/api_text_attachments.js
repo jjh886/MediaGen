@@ -219,8 +219,10 @@ function apiTextResponsesMedia(content) {
         part.size <= 0
       )
         throw new Error('invalid_input: 附件文件引用无效')
-      const name = apiTextAttachmentName(part.filename)
-      const extension = name.split('.').pop().toLowerCase()
+      const extension = String(part.filename || '')
+        .split('.')
+        .pop()
+        .toLowerCase()
       const mime =
         part.mime_type && part.mime_type !== 'application/octet-stream'
           ? part.mime_type
@@ -230,7 +232,14 @@ function apiTextResponsesMedia(content) {
         (part.type === 'input_image' && !mime.startsWith('image/'))
       )
         throw new Error('invalid_input: 附件 MIME 类型无效')
-      return [{ path: part.file_path, name, mime_type: mime, size: part.size }]
+      return [
+        {
+          path: part.file_path,
+          name: apiTextInputName(part, index, mime),
+          mime_type: mime,
+          size: part.size,
+        },
+      ]
     }
     let source = ''
     if (part.type === 'input_file') {
@@ -275,13 +284,14 @@ function apiTextResponsesMedia(content) {
     }
     if (part.type === 'input_image' && !mime.startsWith('image/'))
       throw new Error('invalid_input: input_image 必须是图片')
-    const extension =
-      Object.keys(API_TEXT_FILE_TYPES).find((key) => API_TEXT_FILE_TYPES[key] === mime) || 'bin'
-    const name = apiTextAttachmentName(
-      part.filename || 'attachment-' + (index + 1) + '.' + extension
-    )
-    return [{ name, mime_type: mime, base64, size }]
+    return [{ name: apiTextInputName(part, index, mime), mime_type: mime, base64, size }]
   })
+}
+
+function apiTextInputName(part, index, mime) {
+  const extension =
+    Object.keys(API_TEXT_FILE_TYPES).find((key) => API_TEXT_FILE_TYPES[key] === mime) || 'bin'
+  return apiTextAttachmentName(part.filename || 'attachment-' + (index + 1) + '.' + extension)
 }
 
 function apiTextAttachmentName(value) {

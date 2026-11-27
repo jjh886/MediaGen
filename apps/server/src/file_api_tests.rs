@@ -309,7 +309,7 @@ async fn large_upload_is_streamed_and_owned_file_id_becomes_an_isolated_workspac
     let mut too_large = prefix.as_bytes().to_vec();
     too_large.resize(too_large.len() + 52 * 1024 * 1024 + 1, b'x');
     too_large.extend_from_slice(b"\r\n--large--\r\n");
-    let rejected = actix_test::call_service(
+    let staged = actix_test::call_service(
         &app,
         actix_test::TestRequest::post()
             .uri("/v1/files")
@@ -319,8 +319,15 @@ async fn large_upload_is_streamed_and_owned_file_id_becomes_an_isolated_workspac
             .to_request(),
     )
     .await;
-    assert_eq!(rejected.status(), 413);
-    assert_eq!(std::fs::read_dir(&state.file_root).unwrap().count(), before);
+    assert_eq!(staged.status(), 200);
+    let larger: Value = actix_test::read_body_json(staged).await;
+    let mut use_file =
+        json!({"input":[{"role":"user","content":[{"type":"input_file","file_id":larger["id"]}]}]});
+    assert!(
+        crate::protocol_files::resolve(&state, "file-key", &mut use_file, &caps)
+            .await
+            .is_err()
+    );
 }
 
 use super::{mime_from_filename, sanitize_filename};
@@ -345,4 +352,26 @@ fn validates_file_id_before_path_join() {
     assert!(super::validate_file_id("file-123e4567-e89b-12d3-a456-426614174000").is_ok());
     assert!(super::validate_file_id("../secret").is_err());
     assert!(super::validate_file_id("file-../../secret").is_err());
+}
+
+#[actix_web::test]
+async fn existing_owned_file_without_optional_metadata_is_still_reusable() {
+    let state = test_state("read-existing-file");
+    let id = "file-123e4567-e89b-12d3-a456-426614174000";
+    let owner = crate::access_control::hash_secret("file-key");
+    tokio::fs::create_dir_all(&state.file_root).await.unwrap();
+    tokio::fs::write(super::content_path(&state.file_root, id), b"old")
+        .await
+        .unwrap();
+    let old = serde_json::json!({"id":id, "object":"file", "bytes":3, "created_at":1, "filename":"old.txt", "purpose":"user_data", "owner_hash":owner});
+    tokio::fs::write(super::metadata_path(&state.file_root, id), old.to_string())
+        .await
+        .unwrap();
+    let data = super::read_file_as_data_url(&state.file_root, id, &owner)
+        .await
+        .unwrap();
+    assert_eq!(data, "data:text/plain;base64,b2xk");
+    assert!(super::read_file_as_data_url(&state.file_root, id, "other")
+        .await
+        .is_err());
 }

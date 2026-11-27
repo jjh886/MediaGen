@@ -114,6 +114,117 @@ pub(super) async fn refresh_if_needed(
     super::discover_account(state, account).await
 }
 
+pub(super) fn merge_capabilities(variants: &[Value]) -> Value {
+    let mut merged = variants.first().cloned().unwrap_or(json!({}));
+    for field in [
+        "input_modalities",
+        "output_modalities",
+        "endpoints",
+        "voices",
+        "response_formats",
+        "service_tiers",
+        "image_sources",
+    ] {
+        let mut values = Vec::new();
+        for value in variants
+            .iter()
+            .flat_map(|variant| variant[field].as_array().into_iter().flatten())
+        {
+            if !values.contains(value) {
+                values.push(value.clone());
+            }
+        }
+        if !values.is_empty() {
+            merged[field] = json!(values);
+        }
+    }
+    for field in ["streaming", "tool_calling"] {
+        if variants.iter().any(|variant| variant[field] == true) {
+            merged[field] = json!(true);
+        }
+    }
+    let unsupported = merged["unsupported_parameters"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|value| {
+            variants.iter().all(|variant| {
+                variant["unsupported_parameters"]
+                    .as_array()
+                    .is_some_and(|list| list.contains(value))
+            })
+        })
+        .collect::<Vec<_>>();
+    merged["unsupported_parameters"] = json!(unsupported);
+    let mut efforts = Vec::new();
+    for effort in variants.iter().flat_map(|variant| {
+        variant["reasoning"]["efforts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+    }) {
+        if !efforts.contains(effort) {
+            efforts.push(effort.clone());
+        }
+    }
+    if !efforts.is_empty() {
+        merged["reasoning"]["efforts"] = json!(efforts);
+    }
+    merged
+}
+
+pub(super) fn apply_manifest_metadata(
+    manifest: &mediagen_core::PluginManifest,
+    models: &mut [ModelDef],
+) -> Result<(), &'static str> {
+    for model in models {
+        let base_id = model
+            .extra
+            .get("metadata_model_id")
+            .and_then(Value::as_str)
+            .unwrap_or(&model.model_id);
+        let defaults = manifest
+            .models
+            .iter()
+            .find(|m| m.model_id == base_id)
+            .and_then(|m| m.extra.get("capabilities"))
+            .or_else(|| {
+                manifest
+                    .extra
+                    .get("discovered_model_metadata")?
+                    .get(base_id)
+            })
+            .and_then(Value::as_object);
+        let caps = model
+            .extra
+            .entry("capabilities".to_string())
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .ok_or("invalid_model_catalog")?;
+        if let Some(defaults) = defaults {
+            for (field, value) in defaults {
+                caps.entry(field).or_insert_with(|| value.clone());
+            }
+            if let (Some(actual), Some(limits)) = (
+                caps.get_mut("attachment_limits")
+                    .and_then(Value::as_object_mut),
+                defaults.get("attachment_limits").and_then(Value::as_object),
+            ) {
+                for (key, value) in limits {
+                    actual.entry(key).or_insert_with(|| value.clone());
+                }
+            }
+        } else {
+            caps.entry("pricing")
+                .or_insert_with(|| json!({"status":"unavailable"}));
+            caps.entry("attachment_limits")
+                .or_insert_with(|| json!({"file_bytes":null,"max_files":null}));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +277,26 @@ mod tests {
             state.store.account_by_id("account").unwrap().login_state,
             "login_expired"
         );
+    }
+
+    #[test]
+    fn account_metadata_keeps_actual_limits_and_supplements_missing_fields() {
+        let model = json!({"model_id":"text","display_name":"Text","task_kind":"text","capabilities":{"attachment_limits":{"file_bytes":200,"max_files":3},"pricing":{"input":2}}});
+        let manifest = serde_json::from_value(
+            json!({"platform_id":"test","display_name":"Test","models":[model]}),
+        )
+        .unwrap();
+        let mut catalog: Vec<ModelDef> = serde_json::from_value(json!([
+            {"model_id":"text-high","metadata_model_id":"text","display_name":"High","capabilities":{"attachment_limits":{"max_files":1}}},
+            {"model_id":"unknown","display_name":"Unknown"}
+        ])).unwrap();
+        apply_manifest_metadata(&manifest, &mut catalog).unwrap();
+        assert_eq!(
+            catalog[0].extra["capabilities"]["attachment_limits"],
+            json!({"file_bytes":200,"max_files":1})
+        );
+        assert_eq!(catalog[0].extra["capabilities"]["pricing"]["input"], 2);
+        assert!(catalog[1].extra["capabilities"]["attachment_limits"]["max_files"].is_null());
     }
 
     #[test]
@@ -284,64 +415,4 @@ mod tests {
             .iter()
             .any(|model| model["id"] == "image-pro"));
     }
-}
-
-pub(super) fn merge_capabilities(variants: &[Value]) -> Value {
-    let mut merged = variants.first().cloned().unwrap_or(json!({}));
-    for field in [
-        "input_modalities",
-        "output_modalities",
-        "endpoints",
-        "voices",
-        "response_formats",
-        "service_tiers",
-        "image_sources",
-    ] {
-        let mut values = Vec::new();
-        for value in variants
-            .iter()
-            .flat_map(|variant| variant[field].as_array().into_iter().flatten())
-        {
-            if !values.contains(value) {
-                values.push(value.clone());
-            }
-        }
-        if !values.is_empty() {
-            merged[field] = json!(values);
-        }
-    }
-    for field in ["streaming", "tool_calling"] {
-        if variants.iter().any(|variant| variant[field] == true) {
-            merged[field] = json!(true);
-        }
-    }
-    let unsupported = merged["unsupported_parameters"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|value| {
-            variants.iter().all(|variant| {
-                variant["unsupported_parameters"]
-                    .as_array()
-                    .is_some_and(|list| list.contains(value))
-            })
-        })
-        .collect::<Vec<_>>();
-    merged["unsupported_parameters"] = json!(unsupported);
-    let mut efforts = Vec::new();
-    for effort in variants.iter().flat_map(|variant| {
-        variant["reasoning"]["efforts"]
-            .as_array()
-            .into_iter()
-            .flatten()
-    }) {
-        if !efforts.contains(effort) {
-            efforts.push(effort.clone());
-        }
-    }
-    if !efforts.is_empty() {
-        merged["reasoning"]["efforts"] = json!(efforts);
-    }
-    merged
 }

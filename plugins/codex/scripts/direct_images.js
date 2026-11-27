@@ -1,26 +1,14 @@
 // Codex 原生 Images 协议；模型、端点和回退条件全部由插件维护。
-const CODEX_DIRECT_IMAGE_MODELS = [
-  'gpt-image-2.6-flare',
-  'gpt-image-2.6-sunburst',
-  'gpt-image-2.5-flare',
-  'gpt-image-2.5-sunburst',
-  'gpt-image-2',
-]
-
 function codexImageModel(ctx) {
-  const model = String(ctx.model_id || 'gpt-image-2.5-flare')
-    .trim()
-    .replace(/^codex-/, '')
-  if (model === 'codex') return 'gpt-image-2.5-flare'
-  if (!CODEX_DIRECT_IMAGE_MODELS.includes(model)) {
-    throw new Error('unsupported_model: Codex 不支持图片模型 ' + model)
-  }
-  return model
+  const id = String(ctx.model_id || '')
+  if (!id.startsWith('codex-gpt-image-'))
+    throw new Error('unsupported_model: Codex 不支持图片模型 ' + id)
+  return id.slice('codex-'.length)
 }
 
 function codexDirectImageRequest(payload) {
   const tool = payload.tools?.find((item) => item.type === 'image_generation')
-  if (!tool || !CODEX_DIRECT_IMAGE_MODELS.includes(tool.model)) return null
+  if (!tool?.model?.startsWith('gpt-image-')) return null
   const content = payload.input.flatMap((item) => item.content || [])
   const images = content.filter((part) => part.type === 'input_image')
   const texts = content.filter((part) => part.type === 'input_text')

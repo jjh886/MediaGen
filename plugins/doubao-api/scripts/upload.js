@@ -249,7 +249,6 @@ function doubaoUploadReferences(ctx, session, options) {
   const paths = ctx.ref_image_locals || []
   const dataUrls = ctx.ref_image_dataurls || []
   const count = Math.max(paths.length, dataUrls.length)
-  if (count > 10) throw new Error('invalid_input: 豆包最多支持 10 张参考图')
   const messageId = doubaoMessageId()
   const references = []
   for (let index = 0; index < count; index++) {
@@ -270,11 +269,8 @@ function doubaoUploadReferences(ctx, session, options) {
       file = apiTextMaterializeAttachment(ctx, attachment, index)
       Object.assign(file, host.call('file.inspect_image', { path: file.path }))
     }
-    if (
-      !['image/png', 'image/jpeg', 'image/webp'].includes(file.mime_type) ||
-      file.size > 10 * 1024 * 1024
-    ) {
-      throw new Error('invalid_input: 豆包参考图须为不超过 10 MiB 的 PNG、JPEG 或 WebP')
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.mime_type)) {
+      throw new Error('invalid_input: 豆包参考图须为PNG、JPEG 或 WebP')
     }
     references.push(doubaoPrepareAttachment(session, file, messageId))
   }

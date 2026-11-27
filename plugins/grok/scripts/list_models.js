@@ -12,7 +12,7 @@ function main(ctx) {
       )
       .map((item) => ({
         model_id: item.id.trim().startsWith('grok-') ? item.id.trim() : 'grok-' + item.id.trim(),
-        aliases: [item.id.trim()],
+
         display_name: item.name || item.id.trim(),
         task_kind: 'text',
         capabilities: {

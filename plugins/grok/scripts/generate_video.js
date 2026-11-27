@@ -23,7 +23,6 @@ function main(ctx) {
   const seconds = Number(ctx.seconds || 6)
   if (!Number.isInteger(seconds) || seconds < 1 || seconds > 15)
     throw new Error('invalid_input: Grok 视频时长为 1–15 秒')
-  if (refs.length > 7) throw new Error('invalid_input: Grok 视频最多支持七张参考图')
   const saved = host.checkpoint() || {}
   let id = saved.upstream_job_id
   if (!id) {

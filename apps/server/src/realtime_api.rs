@@ -62,7 +62,7 @@ async fn create(
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.starts_with("multipart/form-data"))
     {
-        match crate::audio_api::multipart(&request, payload, 2 * 1024 * 1024).await {
+        match crate::audio_api::multipart(&request, payload, None).await {
             Ok(body) => body,
             Err(message) => return error(400, "invalid_request", &message),
         }
@@ -123,6 +123,7 @@ async fn create(
         Ok(value) => value,
         Err(_) => return error(429, "account_unavailable", "没有可用账号或账号代理不可用"),
     };
+    body["session"]["model"] = json!(model.model_id);
     let execution = run_plugin(
         &state,
         &manifest,

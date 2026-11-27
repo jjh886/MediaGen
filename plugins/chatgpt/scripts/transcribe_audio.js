@@ -14,11 +14,19 @@ function chatgptApiTranscribe(ctx) {
   if (!['json', 'text'].includes(request.response_format || 'json'))
     throw new Error('invalid_input: 当前转写模型仅支持 json 和 text')
   const auth = chatgptApiRefreshSession(chatgptApiReadAuth(ctx))
-  const body = { file: request.file }
+  const body = request.file.file_path ? {} : { file: request.file }
   if (request.language) body.language = request.language
   const response = chatgptApiRequireOk(
     chatgptApiRequest(auth, 'POST', '/backend-api/transcribe', {
-      body_format: 'multipart',
+      ...(request.file.file_path
+        ? {
+            body_format: 'multipart_file',
+            body_file: request.file.file_path,
+            body_file_name: request.file.filename,
+            body_file_mime: request.file.mime_type,
+            body_file_size: request.file.size,
+          }
+        : { body_format: 'multipart' }),
       body,
       timeout_ms: 300000,
     }),

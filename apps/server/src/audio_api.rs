@@ -16,22 +16,25 @@ pub(crate) async fn transcribe(
     if !crate::routes::api_key_allowed(&state, &request) {
         return error(401, "invalid_api_key", "API Key 无效");
     }
-    let body = match multipart(&request, payload, 25 * 1024 * 1024).await {
+    if tokio::fs::create_dir_all(&state.file_root).await.is_err() {
+        return error(500, "storage_error", "无法创建附件目录");
+    }
+    let Ok(upload) = tempfile::NamedTempFile::new_in(&state.file_root) else {
+        return error(500, "storage_error", "无法创建临时附件");
+    };
+    let mut body = match multipart(&request, payload, Some(&upload)).await {
         Ok(value) => value,
         Err(message) => return error(400, "invalid_request", &message),
     };
-    let Some(id) = body["model"].as_str() else {
+    let Some(id) = body["model"].as_str().map(str::to_owned) else {
         return error(400, "missing_model", "缺少 model");
     };
-    if body["file"]["base64"]
-        .as_str()
-        .is_none_or(|value| value.is_empty())
-    {
+    if body["file"]["size"].as_u64().unwrap_or(0) == 0 {
         return error(400, "missing_file", "缺少音频文件");
     }
     let key = crate::routes::api_key_from_request(&request).unwrap_or_default();
-    crate::model_api::refresh_before_dispatch(&state, id, &key).await;
-    let Some((manifest, model, _)) = crate::model_api::resolve(&state, id, &key) else {
+    crate::model_api::refresh_before_dispatch(&state, &id, &key).await;
+    let Some((manifest, model, _)) = crate::model_api::resolve(&state, &id, &key) else {
         return error(404, "model_not_found", "模型不存在");
     };
     if model.task_kind != mediagen_core::TaskKind::AudioTranscription {
@@ -42,6 +45,25 @@ pub(crate) async fn transcribe(
         model.extra.get("capabilities").unwrap_or(&Value::Null),
     ) {
         return error(400, "unsupported_parameter", &message);
+    }
+    if let Err(message) = crate::protocol_attachments::validate_size(
+        model.extra.get("capabilities").unwrap_or(&Value::Null),
+        "audio/",
+        body["file"]["size"].as_u64().unwrap_or(0),
+    ) {
+        return error(400, "attachment_limit_exceeded", &message);
+    }
+    if model
+        .extra
+        .get("capabilities")
+        .is_none_or(|caps| caps["attachment_transport"] != "workspace")
+    {
+        let Ok(bytes) = tokio::fs::read(upload.path()).await else {
+            return error(500, "storage_error", "音频附件读取失败");
+        };
+        let file = body["file"].as_object_mut().unwrap();
+        file.remove("file_path");
+        file.insert("base64".into(), json!(BASE64_STANDARD.encode(bytes)));
     }
     let flow = if request.path().ends_with("/translations") {
         "translate_audio"
@@ -55,7 +77,7 @@ pub(crate) async fn transcribe(
     let (mut account, _lease) = match crate::protocol_task::reserve(
         &state,
         &manifest,
-        id,
+        &id,
         "audio_transcription",
         &key,
         &task_id,
@@ -126,7 +148,7 @@ pub(crate) async fn transcribe(
 pub(crate) async fn multipart(
     request: &HttpRequest,
     payload: web::Payload,
-    limit: usize,
+    upload: Option<&tempfile::NamedTempFile>,
 ) -> Result<Value, String> {
     if !request
         .headers()
@@ -159,17 +181,35 @@ pub(crate) async fn multipart(
             .content_type()
             .map(ToString::to_string)
             .unwrap_or("application/octet-stream".into());
+        if name == "file" {
+            if let (Some(upload), Some(filename)) = (upload, &filename) {
+                use tokio::io::AsyncWriteExt;
+                let mut out =
+                    tokio::fs::File::from_std(upload.reopen().map_err(|_| "无法写入临时附件")?);
+                let mut size = 0u64;
+                while let Some(chunk) = part.next().await {
+                    let chunk = chunk.map_err(|_| "读取上传内容失败")?;
+                    out.write_all(&chunk)
+                        .await
+                        .map_err(|_| "音频附件写入失败")?;
+                    size = size.checked_add(chunk.len() as u64).ok_or("文件大小无效")?;
+                }
+                out.flush().await.map_err(|_| "音频附件写入失败")?;
+                result[&name] = json!({"file_path":upload.path(),"filename":filename,"mime_type":mime,"size":size});
+                continue;
+            }
+        }
         let mut bytes = Vec::new();
         while let Some(chunk) = part.next().await {
             let chunk = chunk.map_err(|_| "读取上传内容失败")?;
             total += chunk.len();
-            if total > limit {
+            if total > 2 * 1024 * 1024 {
                 return Err("上传内容超过大小限制".into());
             }
             bytes.extend_from_slice(&chunk);
         }
         result[&name] = if let Some(filename) = filename {
-            json!({"base64":BASE64_STANDARD.encode(bytes),"filename":filename,"mime_type":mime})
+            json!({"size": bytes.len(), "base64":BASE64_STANDARD.encode(bytes),"filename":filename,"mime_type":mime})
         } else {
             json!(String::from_utf8(bytes).map_err(|_| "表单字段不是 UTF-8")?)
         };
@@ -185,8 +225,8 @@ mod tests {
         let root = std::env::temp_dir().join(format!("audio-contract-{}", uuid::Uuid::new_v4()));
         let dir = root.join("plugins/test/scripts");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("transcribe.js"), "function main(ctx){if(ctx.request.prompt==='fail')throw new Error('LOGIN_EXPIRED');if(ctx.request.prompt==='slow')host.sleep(5000);return {text:ctx.request.language||'transcribed'}}").unwrap();
-        std::fs::write(root.join("plugins/test/manifest.json"), json!({"platform_id":"test","display_name":"Test","adapter_mode":"api","models":[{"model_id":"audio-test","display_name":"Audio","task_kind":"audio_transcription"}],"flows":{"transcribe_audio":{"steps":[{"action":"plugin.run_js","script_file":"transcribe.js"}]},"translate_audio":{"steps":[{"action":"plugin.run_js","script_file":"transcribe.js"}]}},"failure_strategy":[{"contains_any":["LOGIN_EXPIRED"],"category":"login_expired","account_state":"login_expired","retry_action":"failover"}]}).to_string()).unwrap();
+        std::fs::write(dir.join("transcribe.js"), "function main(ctx){if(ctx.request.model==='audio-workspace'){const f=ctx.request.file;if(!f.file_path.startsWith(ctx.workspace_dir+'/')||f.base64)throw Error('unexpected file transport');return {text:String(f.size)}}if(ctx.request.prompt==='fail')throw new Error('LOGIN_EXPIRED');if(ctx.request.prompt==='slow')host.sleep(5000);return {text:ctx.request.language||'transcribed'}}").unwrap();
+        std::fs::write(root.join("plugins/test/manifest.json"), json!({"platform_id":"test","display_name":"Test","adapter_mode":"api","models":[{"model_id":"audio-test","display_name":"Audio","task_kind":"audio_transcription"},{"model_id":"audio-workspace","display_name":"Workspace","task_kind":"audio_transcription","capabilities":{"attachment_transport":"workspace","attachment_limits":{"audio_bytes":27262976}}}],"flows":{"transcribe_audio":{"steps":[{"action":"plugin.run_js","script_file":"transcribe.js"}]},"translate_audio":{"steps":[{"action":"plugin.run_js","script_file":"transcribe.js"}]}},"failure_strategy":[{"contains_any":["LOGIN_EXPIRED"],"category":"login_expired","account_state":"login_expired","retry_action":"failover"}]}).to_string()).unwrap();
         let loader =
             mediagen_plugin_runtime::PluginLoader::load_from(&root.join("plugins")).unwrap();
         let state = crate::test_fixtures::server_state(root, loader);
@@ -206,6 +246,39 @@ mod tests {
     }
     fn form(extra: &str) -> String {
         format!("--boundary\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\naudio-test\r\n--boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\nRIFFtest\r\n{extra}--boundary--\r\n")
+    }
+    #[actix_web::test]
+    async fn transcription_uses_model_file_limit_even_when_model_field_follows_file() {
+        let state = state();
+        let app = at::init_service(
+            App::new()
+                .app_data(state)
+                .configure(crate::configure_routes),
+        )
+        .await;
+        let limit = 26 * 1024 * 1024;
+        for (size, status) in [(limit, 200), (limit + 1, 400)] {
+            let mut form = b"--boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".to_vec();
+            form.resize(form.len() + size, b'x');
+            form.extend_from_slice(b"\r\n--boundary\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\naudio-workspace\r\n--boundary--\r\n");
+            let response = at::call_service(
+                &app,
+                at::TestRequest::post()
+                    .uri("/v1/audio/transcriptions")
+                    .insert_header(("authorization", "Bearer key"))
+                    .insert_header(("content-type", "multipart/form-data; boundary=boundary"))
+                    .set_payload(form)
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(response.status().as_u16(), status);
+            let result: Value = at::read_body_json(response).await;
+            if status == 200 {
+                assert_eq!(result["text"], size.to_string());
+            } else {
+                assert_eq!(result["error"]["code"], "attachment_limit_exceeded");
+            }
+        }
     }
     #[actix_web::test]
     async fn multipart_transcription_translation_and_errors_follow_contract() {

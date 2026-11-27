@@ -14,7 +14,7 @@ pub(crate) async fn transcode(params: &Value) -> Result<Value, String> {
     let source = BASE64_STANDARD
         .decode(params["base64"].as_str().ok_or("缺少音频数据")?)
         .map_err(|_| "音频编码无效")?;
-    if source.is_empty() || source.len() > 50 * 1024 * 1024 {
+    if source.is_empty() {
         return Err("音频数据大小无效".into());
     }
     let bytes = crate::media_transcode::run(

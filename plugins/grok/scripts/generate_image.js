@@ -5,7 +5,6 @@ function main(ctx) {
   if (ctx.background && !['auto', 'opaque'].includes(ctx.background))
     throw new Error('invalid_input: Grok 不支持透明背景')
   const refs = ctx.ref_image_dataurls || []
-  if (refs.length > 3) throw new Error('invalid_input: Grok 最多支持三张参考图片')
   const body = {
     model: ctx.model_id,
     prompt: ctx.prompt,

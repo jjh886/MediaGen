@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use mediagen_core::{ModelDef, PluginManifest};
@@ -62,10 +62,7 @@ impl PluginLoader {
                 return Some((manifest, model));
             }
         }
-        self.model_aliases()
-            .into_iter()
-            .find(|(alias, _, _)| alias == model_id)
-            .map(|(_, manifest, model)| (manifest, model))
+        None
     }
 
     pub fn sorted_plugins(&self) -> Vec<&PluginManifest> {
@@ -83,27 +80,6 @@ impl PluginLoader {
             .into_iter()
             .flat_map(|manifest| manifest.models.iter().map(move |model| (manifest, model)))
             .collect()
-    }
-
-    pub fn model_aliases(&self) -> Vec<(String, &PluginManifest, &ModelDef)> {
-        let mut seen = HashSet::new();
-        let mut aliases = Vec::new();
-        for manifest in self.sorted_plugins() {
-            for model in &manifest.models {
-                for alias in &model.aliases {
-                    aliases.push((alias.clone(), manifest, model));
-                }
-            }
-        }
-        aliases.sort_by(|a, b| {
-            a.2.alias_priority
-                .cmp(&b.2.alias_priority)
-                .then_with(|| a.1.sort_order.cmp(&b.1.sort_order))
-                .then_with(|| a.1.platform_id.cmp(&b.1.platform_id))
-                .then_with(|| a.2.model_id.cmp(&b.2.model_id))
-        });
-        aliases.retain(|(alias, _, _)| seen.insert(alias.clone()));
-        aliases
     }
 }
 
@@ -161,7 +137,7 @@ mod tests {
     use super::PluginLoader;
 
     #[test]
-    fn duplicate_aliases_resolve_by_alias_priority() {
+    fn only_formal_model_ids_resolve() {
         let loader = PluginLoader {
             plugins: HashMap::from([
                 (
@@ -176,11 +152,11 @@ mod tests {
             plugin_dirs: HashMap::new(),
         };
 
-        let (manifest, model) = loader.resolve_model("shared").unwrap();
+        assert!(loader.resolve_model("shared").is_none());
+        let (manifest, model) = loader.resolve_model("fast-model").unwrap();
 
         assert_eq!(manifest.platform_id, "fast");
         assert_eq!(model.model_id, "fast-model");
-        assert_eq!(loader.model_aliases().len(), 1);
     }
 
     #[test]

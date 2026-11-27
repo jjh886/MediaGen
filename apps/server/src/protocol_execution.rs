@@ -61,10 +61,17 @@ pub(crate) async fn run_plugin(
         }
         return Ok(result);
     }
-    if flow_name == "generate_text"
-        && context["model_capabilities"]["attachment_transport"] == "workspace"
-    {
-        crate::protocol_files::materialize(state, &mut context["request"], &workspace).await?;
+    if context["model_capabilities"]["attachment_transport"] == "workspace" {
+        if flow_name == "generate_text" {
+            crate::protocol_files::materialize(state, &mut context["request"], &workspace).await?;
+        } else if matches!(flow_name, "transcribe_audio" | "translate_audio") {
+            crate::protocol_files::materialize_parts(
+                state,
+                vec![&mut context["request"]["file"]],
+                &workspace,
+            )
+            .await?;
+        }
     }
     let execution = async {
         let mut results = Vec::new();

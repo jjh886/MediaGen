@@ -5,7 +5,7 @@ import { existsSync } from 'fs'
 import { mkdir, readFile, stat, writeFile } from 'fs/promises'
 import { dirname, extname, resolve } from 'path'
 
-const DEFAULT_MODEL = 'gpt-6.1-sol'
+const DEFAULT_MODEL = 'gpt-6.2-sol'
 const DEFAULT_REASONING_EFFORT = 'low'
 const DEFAULT_SIZE = '1440x2560'
 const DEFAULT_QUALITY = 'high'
@@ -15,7 +15,6 @@ const DEFAULT_TIMEOUT_SECONDS = 1800
 const DEFAULT_PROGRESS_INTERVAL_SECONDS = 15
 const DEFAULT_MAX_ATTEMPTS = Infinity
 const RETRY_DELAYS_SECONDS = [5, 15, 30, 60]
-const MAX_IMAGE_BYTES = 50 * 1024 * 1024
 const QUALITY_VALUES = ['auto', 'low', 'medium', 'high']
 const FORMAT_VALUES = ['png', 'jpeg', 'webp']
 
@@ -130,7 +129,7 @@ async function imageContentItem(path, roleText) {
 async function assertImageFile(path) {
   if (!existsSync(path)) die(`图片不存在：${path}`)
   const info = await stat(path)
-  if (info.size > MAX_IMAGE_BYTES) die(`图片超过 50MB：${path}`)
+  if (!info.isFile() || !info.size) die(`参考图片不是有效文件：${path}`)
 }
 
 function mimeType(path) {

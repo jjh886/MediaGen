@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 
 #[path = "model_catalog_cache.rs"]
 mod cache;
+#[path = "model_list_item.rs"]
+mod list_item;
 use cache::{merge_capabilities, CachedModels};
 pub(crate) use cache::{refresh_before_dispatch, Catalog};
 
@@ -41,7 +43,7 @@ pub(crate) fn resolve(
             entry
                 .models
                 .iter()
-                .find(|model| model.matches_id(canonical))
+                .find(|model| model.model_id == canonical)
         }) else {
             continue;
         };
@@ -55,7 +57,7 @@ pub(crate) fn resolve(
                 entry
                     .models
                     .iter()
-                    .find(|candidate| candidate.matches_id(canonical))
+                    .find(|candidate| candidate.model_id == canonical)
             })
             .filter_map(|candidate| candidate.extra.get("capabilities"))
             .cloned()
@@ -98,7 +100,7 @@ pub(crate) fn account_model(
         entry
             .models
             .iter()
-            .find(|model| model.matches_id(canonical))
+            .find(|model| model.model_id == canonical)
     }) {
         return Some(model.clone());
     }
@@ -151,17 +153,19 @@ pub(crate) async fn list(
     if query.account_id.is_some() && accounts.is_empty() {
         return crate::protocol_api::error(404, "account_not_found", "账号不存在或无权访问");
     }
-    let mut failures = Vec::new();
     for account in accounts {
         if account.login_state == "disabled" || account.login_state == "login_expired" {
             continue;
         }
         if let Err(code) = cache::refresh_if_needed(&state, account.clone(), query.refresh).await {
-            failures.push(json!({"account_id":account.id,"code":code}));
+            tracing::warn!(account_id = %account.id, code, "模型目录刷新失败");
         }
     }
-    let data = catalog(&state, &key, query.account_id.as_deref());
-    HttpResponse::Ok().json(json!({"object":"list","data":data,"refresh_errors":failures}))
+    let data: Vec<_> = catalog(&state, &key, query.account_id.as_deref())
+        .into_iter()
+        .map(|model| list_item::summary(&model))
+        .collect();
+    HttpResponse::Ok().json(json!({"object":"list","data":data}))
 }
 
 pub(crate) async fn refresh_account(
@@ -211,18 +215,7 @@ async fn discover_account(state: &ServerState, account: AccountRecord) -> Result
     {
         return Err("invalid_model_catalog");
     }
-    for model in &mut models {
-        if !model.extra.contains_key("capabilities") {
-            if let Some(caps) = manifest
-                .models
-                .iter()
-                .find(|m| m.model_id == model.model_id)
-                .and_then(|m| m.extra.get("capabilities"))
-            {
-                model.extra.insert("capabilities".into(), caps.clone());
-            }
-        }
-    }
+    cache::apply_manifest_metadata(manifest, &mut models)?;
     let raw = {
         let mut cache = state
             .model_catalog
@@ -260,20 +253,11 @@ pub(crate) async fn retrieve(
     }
     let key = crate::routes::api_key_from_request(&request).unwrap_or_default();
     refresh_before_dispatch(&state, &path, &key).await;
-    let canonical = resolve(&state, &path, &key)
-        .map(|(_, model, _)| model.model_id)
-        .unwrap_or_else(|| path.to_string());
     match catalog(&state, &key, None)
         .into_iter()
-        .find(|item| item["id"] == canonical)
+        .find(|item| item["id"] == path.as_str())
     {
-        Some(mut model) => {
-            if canonical != path.as_str() {
-                model["alias_of"] = json!(canonical);
-                model["id"] = json!(path.as_str());
-            }
-            HttpResponse::Ok().json(model)
-        }
+        Some(model) => HttpResponse::Ok().json(model),
         None => crate::protocol_api::error(404, "model_not_found", "模型不存在"),
     }
 }
@@ -322,7 +306,7 @@ fn catalog(state: &ServerState, key: &str, account_id: Option<&str>) -> Vec<Valu
         }
         entries
             .entry(model.model_id.clone())
-            .or_insert_with(|| model_value(manifest, model, &model.model_id));
+            .or_insert_with(|| model_value(manifest, model));
     }
     for account in &accounts {
         let Some(manifest) = state.plugin_loader.get_plugin(&account.platform) else {
@@ -336,7 +320,7 @@ fn catalog(state: &ServerState, key: &str, account_id: Option<&str>) -> Vec<Valu
         {
             entries
                 .entry(model.model_id.clone())
-                .or_insert_with(|| model_value(manifest, model, &model.model_id));
+                .or_insert_with(|| model_value(manifest, model));
         }
     }
     for value in entries.values_mut() {
@@ -361,12 +345,8 @@ fn catalog(state: &ServerState, key: &str, account_id: Option<&str>) -> Vec<Valu
     entries.into_values().collect()
 }
 
-fn model_value(manifest: &PluginManifest, model: &ModelDef, id: &str) -> Value {
-    let mut result = json!({"id":id,"object":"model","created":0,"owned_by":manifest.platform_id,"display_name":model.display_name,"task_kind":model.task_kind,"capabilities":model_capabilities(manifest,model)});
-    if id != model.model_id {
-        result["alias_of"] = json!(model.model_id);
-    }
-    result
+fn model_value(manifest: &PluginManifest, model: &ModelDef) -> Value {
+    json!({"id":model.model_id,"object":"model","created":0,"owned_by":manifest.platform_id,"display_name":model.display_name,"task_kind":model.task_kind,"capabilities":model_capabilities(manifest,model)})
 }
 
 fn model_capabilities(manifest: &PluginManifest, model: &ModelDef) -> Value {
@@ -466,7 +446,7 @@ pub(crate) async fn account_models(
                 model.task_kind != mediagen_core::TaskKind::Text && entry.supports_declared(model)
             })
         })
-        .map(|model| model_value(manifest, model, &model.model_id))
+        .map(|model| model_value(manifest, model))
         .collect::<Vec<_>>();
     if let Some(entry) = entry {
         models.extend(
@@ -474,7 +454,7 @@ pub(crate) async fn account_models(
                 .models
                 .iter()
                 .filter(|model| model.catalog_visible())
-                .map(|model| model_value(manifest, model, &model.model_id)),
+                .map(|model| model_value(manifest, model)),
         );
     }
     HttpResponse::Ok().json(json!({"data":{"models":models,"refreshed_at":entry.map(|entry| entry.refreshed_at),"refresh_error":failure,"discovery_supported":manifest.flows.contains_key("list_models")}}))

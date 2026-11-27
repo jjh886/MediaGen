@@ -9,6 +9,63 @@ use crate::test_fixtures::{account_record, server_state};
 use crate::ServerState;
 
 #[actix_web::test]
+async fn inline_mp4_can_be_downloaded_only_by_its_owner_and_is_removed_on_delete() {
+    use base64::prelude::{Engine as _, BASE64_STANDARD};
+    let bytes = match std::env::var_os("MEDIAGEN_TEST_MP4") {
+        Some(path) => std::fs::read(path).unwrap(),
+        None => b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2".to_vec(),
+    };
+    let source = format!("data:video/mp4;base64,{}", BASE64_STANDARD.encode(&bytes));
+    let state = video_state("inline-result", &source, 0);
+    state.store.update_settings(SettingsUpdate {
+        api_keys: Some("video-key\nother-key".to_string()),
+        ..SettingsUpdate::default()
+    });
+    let state = actix_web::web::Data::new(state);
+    let app = test::init_service(
+        actix_web::App::new()
+            .app_data(state.clone())
+            .configure(crate::configure_routes),
+    )
+    .await;
+    let id = create_lifecycle_video(&app).await;
+    let completed = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let row = state.store.task_by_id(&id).unwrap();
+            assert_ne!(row.status, "failed", "{:?}", row.error_message);
+            if row.status == "completed" {
+                break row;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(!completed.result_data.unwrap().contains("base64"));
+    let get = |key: &str| {
+        test::TestRequest::get()
+            .uri(&format!("/v1/videos/{id}/content"))
+            .insert_header(("authorization", format!("Bearer {key}")))
+            .to_request()
+    };
+    assert_eq!(
+        test::call_service(&app, get("other-key")).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    let response = test::call_service(&app, get("video-key")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers().get("content-type").unwrap(), "video/mp4");
+    assert_eq!(test::read_body(response).await.as_ref(), bytes.as_slice());
+    assert_video_deleted(&app, &id).await;
+    assert_eq!(
+        std::fs::read_dir(state.file_root.join("video-results"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[actix_web::test]
 async fn video_create_retrieve_list_content_and_delete_follow_openai_contract() {
     let (content_url, server) = video_content_server().await;
     let state = video_state("lifecycle", &content_url, 0);
@@ -111,7 +168,8 @@ pub(crate) fn video_state(label: &str, content_url: &str, delay_ms: u64) -> Serv
             "models": [{
                 "model_id": "fake-video",
                 "display_name": "Fake Video",
-                "task_kind": "video"
+                "task_kind": "video",
+                "aliases": ["video-short"]
             }],
             "video_capabilities": {
                 "supports_generation": true,
@@ -124,7 +182,7 @@ pub(crate) fn video_state(label: &str, content_url: &str, delay_ms: u64) -> Serv
                     "steps": [{
                         "action": "plugin.run_js",
                         "script": format!(
-                            "function main() {{ host.sleep({delay_ms}); return {{ videos: [{{ video_url: '{}' }}] }}; }}",
+                            "function main(ctx) {{ if (ctx.model_id !== 'fake-video') throw Error('expected canonical model'); host.sleep({delay_ms}); return {{ videos: [{{ video_url: '{}' }}] }}; }}",
                             content_url.replace('\'', "")
                         ),
                         "save_as": "result"

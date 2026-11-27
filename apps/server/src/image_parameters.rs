@@ -4,6 +4,11 @@ use crate::image_request::{ImageEndpoint, OpenAiImageRequest};
 
 pub(crate) fn model_limits(limits: &Value, capabilities: &Value) -> Value {
     let mut limits = limits.as_object().cloned().unwrap_or_default();
+    for key in ["max_reference_images", "max_reference_videos"] {
+        if let Some(n) = capabilities["attachment_limits"][key].as_u64() {
+            limits.insert(key.into(), json!(n));
+        }
+    }
     let mut parameters = limits
         .get("parameter_values")
         .and_then(Value::as_object)

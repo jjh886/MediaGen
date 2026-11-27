@@ -9,6 +9,25 @@
   "models": [
     {
       "model_id": "chatgpt-image",
+      "capabilities": {
+        "reasoning": {
+          "efforts": []
+        },
+        "input_modalities": ["text", "image"],
+        "file_extensions": ["png", "jpg", "jpeg", "webp", "gif"],
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": 20971520,
+          "source": "https://help.openai.com/en/articles/8555545-uploading-files-and-audio-to-chatgpt",
+          "note": "图片工具单次参考图数量未核实。"
+        },
+        "pricing": {
+          "status": "unavailable",
+          "reference_only": true,
+          "source": "https://chatgpt.com/pricing/",
+          "note": "网页订阅功能，未查到该路由独立单价。"
+        }
+      },
       "display_name": "ChatGPT 生图",
       "task_kind": "image"
     },
@@ -17,6 +36,12 @@
       "display_name": "GPT-6.2",
       "task_kind": "text",
       "capabilities": {
+        "pricing": {
+          "status": "unavailable",
+          "reference_only": true,
+          "source": "https://chatgpt.com/pricing/",
+          "note": "网页订阅功能，未查到该路由独立单价。"
+        },
         "reasoning": {
           "efforts": ["none", "standard", "extended", "max"],
           "default_effort": "standard"
@@ -127,7 +152,12 @@
         "attachment_transport": "workspace",
         "attachment_limits": {
           "file_bytes": 536870912,
-          "image_bytes": 20971520
+          "image_bytes": 20971520,
+          "max_files": 20,
+          "source": "https://help.openai.com/en/articles/8555545-uploading-files-and-audio-to-chatgpt",
+          "spreadsheet_bytes_approx": 52428800,
+          "document_tokens": 2000000,
+          "note": "20 个为网页单条消息限制；表格约 50 MB，音频由插件先转写。"
         }
       }
     },
@@ -136,6 +166,12 @@
       "display_name": "GPT-6",
       "task_kind": "text",
       "capabilities": {
+        "pricing": {
+          "status": "unavailable",
+          "reference_only": true,
+          "source": "https://chatgpt.com/pricing/",
+          "note": "网页订阅功能，未查到该路由独立单价。"
+        },
         "reasoning": {
           "efforts": ["none", "standard", "extended", "max", "pro"],
           "default_effort": "standard"
@@ -246,7 +282,12 @@
         "attachment_transport": "workspace",
         "attachment_limits": {
           "file_bytes": 536870912,
-          "image_bytes": 20971520
+          "image_bytes": 20971520,
+          "max_files": 20,
+          "source": "https://help.openai.com/en/articles/8555545-uploading-files-and-audio-to-chatgpt",
+          "spreadsheet_bytes_approx": 52428800,
+          "document_tokens": 2000000,
+          "note": "20 个为网页单条消息限制；表格约 50 MB，音频由插件先转写。"
         }
       }
     },
@@ -255,6 +296,21 @@
       "display_name": "ChatGPT 语音朗读",
       "task_kind": "audio_speech",
       "capabilities": {
+        "pricing": {
+          "status": "unavailable",
+          "reference_only": true,
+          "source": "https://chatgpt.com/pricing/",
+          "note": "网页订阅功能，未查到该路由独立单价。"
+        },
+        "attachment_limits": {
+          "file_bytes": null,
+          "max_files": 0,
+          "source": "插件请求协议",
+          "note": "此入口不接受文件上传；音频流与文件上传分别计。"
+        },
+        "reasoning": {
+          "efforts": []
+        },
         "input_modalities": ["text"],
         "output_modalities": ["audio"],
         "endpoints": ["/v1/audio/speech"],
@@ -294,6 +350,22 @@
       "display_name": "ChatGPT 音频转写",
       "task_kind": "audio_transcription",
       "capabilities": {
+        "pricing": {
+          "status": "unavailable",
+          "reference_only": true,
+          "source": "https://chatgpt.com/pricing/",
+          "note": "网页订阅功能，未查到该路由独立单价。"
+        },
+        "attachment_limits": {
+          "max_files": 1,
+          "file_bytes": null,
+          "source": "https://chatgpt.com/",
+          "note": "网页转写接口每次提交一段音频，单文件大小未公布。"
+        },
+        "format_examples": ["wav", "mp3", "ogg", "webm", "flac", "aac", "m4a"],
+        "reasoning": {
+          "efforts": []
+        },
         "input_modalities": ["audio"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/audio/transcriptions", "/v1/audio/translations"],
@@ -305,7 +377,8 @@
           "timestamp_granularities",
           "include",
           "chunking_strategy"
-        ]
+        ],
+        "attachment_transport": "workspace"
       }
     }
   ],
@@ -327,7 +400,6 @@
     "supports_generation": true,
     "supports_edit": true,
     "supports_mask": false,
-    "max_reference_images": 16,
     "supported_output_formats": ["png", "jpeg", "webp"],
     "supports_variation": false,
     "streaming": true,
@@ -671,7 +743,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "2.1.0",
+  "version": "2.1.1",
   "schema_version": 1,
   "task_recovery": {
     "media_types": ["text", "image"],

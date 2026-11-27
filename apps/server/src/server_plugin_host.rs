@@ -375,7 +375,7 @@ async fn read_limited_file(path: &str, max_bytes: Option<u64>) -> Result<Vec<u8>
     let metadata = tokio::fs::metadata(path)
         .await
         .map_err(|err| format!("找不到文件 {path}: {err}"))?;
-    let limit = max_bytes.unwrap_or(MAX_FILE_BYTES);
+    let limit = max_bytes.unwrap_or(metadata.len());
     if metadata.len() > limit {
         return Err(format!("文件超过限制 {limit} bytes: {path}"));
     }

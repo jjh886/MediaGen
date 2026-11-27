@@ -27,10 +27,7 @@ function codexNormalizeResponsesRequest(value, platformConfig) {
       ? payload.options
       : {}
   const requestedModel = String(payload.model || '').trim()
-  const aliases = ['codex text', 'codex-text', 'codex-responses']
-  payload.model = aliases.includes(requestedModel.toLowerCase())
-    ? String(platformConfig?.model || CODEX_TEXT_DEFAULT_MODEL).trim()
-    : requestedModel || String(platformConfig?.model || CODEX_TEXT_DEFAULT_MODEL).trim()
+  payload.model = requestedModel || String(platformConfig?.model || CODEX_TEXT_DEFAULT_MODEL).trim()
   payload.model = payload.model.replace(/^codex-/, '')
   if (!codexSupportedTextModel(payload.model)) {
     throw new Error('unsupported_model: Codex 不支持文本模型 ' + payload.model)
@@ -56,12 +53,7 @@ function codexNormalizeResponsesRequest(value, platformConfig) {
   payload.store = false
   payload.stream = true
   for (const field of CODEX_UNSUPPORTED_RESPONSE_FIELDS) delete payload[field]
-  if (
-    ['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'].includes(
-      payload.model
-    ) &&
-    codexReasoningEffort(payload.reasoning?.effort) !== 'none'
-  ) {
+  if (['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6-sol', 'gpt-6-luna'].includes(payload.model)) {
     delete payload.logprobs
     delete payload.top_logprobs
     if (Array.isArray(payload.include))
@@ -83,7 +75,6 @@ function codexReasoningEffort(value) {
 
 // 账号目录优先；接口不可用时使用随插件发布的模型能力。
 function codexApplyReasoning(ctx, auth, payload) {
-  let capability = ctx.model_capabilities?.reasoning
   const response = host.tryCall('http.request', {
     method: 'GET',
     url: 'https://chatgpt.com/backend-api/codex/models?client_version=' + CODEX_UPSTREAM_VERSION,
@@ -105,30 +96,14 @@ function codexApplyReasoning(ctx, auth, payload) {
   if (payload.service_tier === 'ultrafast' && tiers && !tiers.includes('ultrafast')) {
     throw new Error('account_model_unavailable: 当前账号不支持此模型的 ultrafast 档位')
   }
-  if (model && Array.isArray(model.supported_reasoning_levels)) {
-    capability = {
-      efforts: model.supported_reasoning_levels.map((item) => item.effort),
-      default_effort: model.default_reasoning_level,
-    }
-  }
-  // 只使用插件和账号目录共同支持的档位。
-  if (capability) {
-    capability = {
-      ...capability,
-      efforts: (capability.efforts || []).filter((effort) =>
-        codexSupportedEffort(effort, payload.model)
-      ),
-    }
-    if (!capability.efforts.includes(capability.default_effort)) {
-      capability.default_effort = undefined
-    }
-  }
   const requested = codexReasoningEffort(payload.reasoning?.effort)
-  if (requested && !capability?.efforts?.includes(requested)) {
-    throw new Error('invalid_input: ' + payload.model + ' 不支持思考深度 ' + requested)
+  if (requested && !CODEX_REASONING_EFFORTS.includes(requested)) {
+    throw new Error('invalid_input: {"reason":"unsupported_reasoning_effort"}')
   }
-  const effort = requested || capability?.default_effort
-  if (effort) payload.reasoning = { ...payload.reasoning, effort }
+  const effort =
+    requested ||
+    (model?.default_reasoning_level ?? ctx.model_capabilities?.reasoning?.default_effort)
+  if (CODEX_REASONING_EFFORTS.includes(effort)) payload.reasoning = { ...payload.reasoning, effort }
   else if (payload.reasoning) delete payload.reasoning.effort
   codexEnsureReasoningEncryptedContent(payload)
 }
@@ -290,6 +265,9 @@ function codexResponsesHttpError(result) {
   const code = error?.code || (error?.type !== 'error' && error?.type)
   const message = [code, detail].filter(Boolean).join(': ') || 'Codex Responses 请求失败'
   if (code === 'model_not_found') return 'account_model_unavailable: ' + message
+  if (code === 'invalid_value' && error.param === 'reasoning.effort') {
+    return 'invalid_input: {"reason":"unsupported_reasoning_effort"}'
+  }
   const cooldownSeconds = codexResponsesCooldownSeconds({
     body: error,
     body_text: typeof body === 'object' && body !== null ? '' : result?.body_text,

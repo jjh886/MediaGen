@@ -265,9 +265,6 @@ fn profile_multipart(body: &Value) -> Result<wreq::multipart::Form, String> {
             let bytes = BASE64_STANDARD
                 .decode(encoded)
                 .map_err(|_| "上传文件编码无效")?;
-            if bytes.len() > MAX_FILE_BYTES as usize {
-                return Err("上传文件过大".into());
-            }
             let part = wreq::multipart::Part::bytes(bytes)
                 .file_name(value["filename"].as_str().unwrap_or("upload").to_string())
                 .mime_str(

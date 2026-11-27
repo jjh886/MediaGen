@@ -1,6 +1,6 @@
 function deepseekValidateAttachments(request) {
   const attachments = request.input.flatMap((item) => item.attachments || [])
-  if (attachments.length > 50) throw new Error('invalid_input: DeepSeek 单次附件不能超过 50 个')
+  if (attachments.length > 20) throw new Error('invalid_input: DeepSeek 每次最多上传 20 个附件')
   if (attachments.some((attachment) => /^(video|audio)\//.test(attachment.mime_type)))
     throw new Error('invalid_input: 当前 DeepSeek 网页不支持音视频附件')
   return attachments

@@ -74,7 +74,10 @@ function geminiReferences(ctx, session, request) {
   const attachments = request
     ? request.input.flatMap((item) => item.attachments || [])
     : apiTextResponsesMedia(
-        (ctx.ref_image_dataurls || []).map((url) => ({ type: 'input_image', image_url: url }))
+        (ctx.ref_image_locals?.length ? [] : ctx.ref_image_dataurls || []).map((url) => ({
+          type: 'input_image',
+          image_url: url,
+        }))
       )
   if (!request) {
     for (const [paths, type] of [

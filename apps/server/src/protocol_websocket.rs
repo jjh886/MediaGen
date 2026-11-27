@@ -1,9 +1,51 @@
 use crate::ServerState;
-use actix_web::{body::MessageBody, web, HttpMessage, HttpRequest, HttpResponse};
-use futures_util::{future::poll_fn, StreamExt};
+use actix_web::{
+    body::MessageBody, error::PayloadError, web, FromRequest, HttpMessage, HttpRequest,
+    HttpResponse,
+};
+use futures_util::{future::poll_fn, stream::try_unfold, StreamExt};
 use serde_json::{json, Value};
+use tokio_tungstenite::tungstenite::protocol::frame::{coding::OpCode, FrameHeader};
 
 pub(crate) struct LocalContinuation(pub String);
+
+// Actix 会按未收齐的帧头预留内存。只把完整帧交给它，缓冲区按实际到达的字节增长。
+fn complete_frames(payload: web::Payload) -> actix_web::dev::Payload {
+    let frames = try_unfold(
+        (payload, bytes::BytesMut::new()),
+        |(mut payload, mut buf)| async move {
+            loop {
+                let mut cursor = std::io::Cursor::new(buf.as_ref());
+                if let Some((header, length)) =
+                    FrameHeader::parse(&mut cursor).map_err(|_| PayloadError::EncodingCorrupted)?
+                {
+                    if header.mask.is_none()
+                        || header.rsv1
+                        || header.rsv2
+                        || header.rsv3
+                        || (matches!(header.opcode, OpCode::Control(_))
+                            && (!header.is_final || length > 125))
+                    {
+                        return Err(PayloadError::EncodingCorrupted);
+                    }
+                    let end = length
+                        .checked_add(cursor.position())
+                        .filter(|&n| n <= isize::MAX as u64)
+                        .ok_or(PayloadError::Overflow)? as usize;
+                    if buf.len() >= end {
+                        return Ok(Some((buf.split_to(end).freeze(), (payload, buf))));
+                    }
+                }
+                match payload.next().await {
+                    Some(chunk) => buf.extend_from_slice(&chunk?),
+                    None if buf.is_empty() => return Ok(None),
+                    None => return Err(PayloadError::Incomplete(None)),
+                }
+            }
+        },
+    );
+    actix_web::dev::Payload::from(frames.boxed_local())
+}
 
 pub(crate) async fn responses(
     state: web::Data<ServerState>,
@@ -13,16 +55,20 @@ pub(crate) async fn responses(
     if !crate::routes::api_key_allowed(&state, &request) {
         return crate::protocol_api::error(401, "invalid_api_key", "API Key 无效");
     }
-    let (response, mut session, messages) = match actix_ws::handle(&request, payload) {
+    let mut frames = complete_frames(payload);
+    let handshake = web::Payload::from_request(&request, &mut frames)
+        .await
+        .and_then(|payload| actix_ws::handle(&request, payload));
+    let (response, mut session, messages) = match handshake {
         Ok(value) => value,
         Err(_) => {
             return crate::protocol_api::error(400, "invalid_websocket", "WebSocket 握手无效")
         }
     };
     let mut messages = messages
-        .max_frame_size(crate::MAX_REQUEST_BODY_BYTES)
+        .max_frame_size(isize::MAX as usize)
         .aggregate_continuations()
-        .max_continuation_size(crate::MAX_REQUEST_BODY_BYTES);
+        .max_continuation_size(isize::MAX as usize);
     actix_web::rt::spawn(async move {
         request
             .extensions_mut()
@@ -33,9 +79,7 @@ pub(crate) async fn responses(
         let mut last_model = String::new();
         while let Some(message) = messages.next().await {
             let mut input = match message {
-                Ok(actix_ws::AggregatedMessage::Text(text))
-                    if text.len() <= crate::MAX_REQUEST_BODY_BYTES =>
-                {
+                Ok(actix_ws::AggregatedMessage::Text(text)) => {
                     match serde_json::from_str::<Value>(&text) {
                         Ok(value) => value,
                         Err(_) => {
@@ -102,7 +146,7 @@ pub(crate) async fn responses(
             let dispatch = crate::protocol_api::dispatch(
                 state.clone(),
                 request.clone(),
-                web::Bytes::from(input.to_string()),
+                input.clone(),
                 "responses",
             );
             tokio::pin!(dispatch);
@@ -172,17 +216,12 @@ async fn send_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn frame(text: &str) -> web::Bytes {
-        let mut bytes = vec![0x81];
-        if text.len() < 126 {
-            bytes.push(0x80 | text.len() as u8);
-        } else {
-            bytes.push(0x80 | 126);
-            bytes.extend_from_slice(&(text.len() as u16).to_be_bytes());
-        }
-        let mask = [1, 2, 3, 4];
-        bytes.extend_from_slice(&mask);
-        bytes.extend(text.bytes().enumerate().map(|(i, byte)| byte ^ mask[i % 4]));
+    fn frame(text: String) -> web::Bytes {
+        use tokio_tungstenite::tungstenite::protocol::frame::{coding::Data, Frame};
+        let mut frame = Frame::message(text, OpCode::Data(Data::Text), true);
+        frame.header_mut().mask = Some([1, 2, 3, 4]);
+        let mut bytes = Vec::with_capacity(frame.len());
+        frame.format(&mut bytes).unwrap();
         bytes.into()
     }
     fn events(bytes: &[u8]) -> Vec<Value> {
@@ -208,27 +247,28 @@ mod tests {
         }
         result
     }
-    async fn next_response(body: &mut actix_web::body::BoxBody) -> Value {
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    async fn next_event(body: &mut actix_web::body::BoxBody, kind: &str) -> Value {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
             loop {
                 let bytes = poll_fn(|cx| std::pin::Pin::new(&mut *body).poll_next(cx))
                     .await
                     .unwrap()
                     .unwrap();
                 for event in events(&bytes) {
-                    if event["type"] == "response.completed" {
-                        return event["response"].clone();
+                    if event["type"] == kind {
+                        return event;
                     }
+                    assert_ne!(event["type"], "error", "{event}");
                 }
             }
         })
         .await
         .unwrap()
     }
-    #[actix_web::test]
-    async fn websocket_continuation_preserves_lineage_and_disconnect_releases_execution() {
-        use actix_web::FromRequest;
-        let state = crate::protocol_api_tests::state();
+    async fn open_socket(
+        state: web::Data<ServerState>,
+        mut payload: actix_web::dev::Payload,
+    ) -> actix_web::body::BoxBody {
         let request = actix_web::test::TestRequest::get()
             .uri("/v1/responses")
             .insert_header(("authorization", "Bearer key-a"))
@@ -237,26 +277,90 @@ mod tests {
             .insert_header(("sec-websocket-version", "13"))
             .insert_header(("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ=="))
             .to_http_request();
-        let (mut sender, payload) = actix_http::h1::Payload::create(false);
-        let mut payload = actix_web::dev::Payload::from(payload);
         let payload = web::Payload::from_request(&request, &mut payload)
             .await
             .unwrap();
         let response = responses(state.clone(), request, payload).await;
         assert_eq!(response.status(), 101);
-        let mut body = response.into_body();
+        response.into_body()
+    }
+
+    #[actix_web::test]
+    async fn websocket_continuation_preserves_lineage_and_disconnect_releases_execution() {
+        let (mut sender, payload) = actix_http::h1::Payload::create(false);
+        let mut body = open_socket(crate::protocol_api_tests::state(), payload.into()).await;
         sender.feed_data(frame(
-            &json!({"type":"response.create","model":"text-model","input":"one"}).to_string(),
+            json!({"type":"response.create","model":"text-model","input":"one"}).to_string(),
         ));
-        let first = next_response(&mut body).await;
+        let first = next_event(&mut body, "response.completed").await["response"].clone();
         sender.feed_data(frame(
-            &json!({"type":"response.create","previous_response_id":first["id"],"input":"two"})
+            json!({"type":"response.create","previous_response_id":first["id"],"input":"two"})
                 .to_string(),
         ));
-        let second = next_response(&mut body).await;
+        let second = next_event(&mut body, "response.completed").await["response"].clone();
         assert_eq!(second["previous_response_id"], first["id"]);
         assert_eq!(second["store"], false);
         assert_ne!(second["id"], first["id"]);
+        sender.feed_eof();
+        drop(body);
+    }
+
+    #[actix_web::test]
+    async fn single_frame_inline_attachment_reaches_plugin_at_model_limit() {
+        let size = 51 * 1024 * 1024;
+        let root = tempfile::tempdir().unwrap();
+        let mut state = crate::test_fixtures::protocol_state_in(root.path().to_owned(), false)
+            .get_ref()
+            .clone();
+        let dir = state.plugin_loader.get_plugin_dir("test").unwrap();
+        let manifest_path = dir.join("manifest.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        let caps = &mut manifest["models"][0]["capabilities"];
+        caps["input_modalities"] = json!(["text", "file"]);
+        caps["attachment_limits"] = json!({"file_bytes":size});
+        caps["attachment_transport"] = json!("workspace");
+        std::fs::write(&manifest_path, manifest.to_string()).unwrap();
+        let script_path = dir.join("scripts/text.js");
+        let script = r#"function main(ctx) {
+            const f = ctx.request.input[0].content[0];
+            const tail = host.call('file.read_base64', {path:f.file_path, offset:f.size-3, length:3});
+            const response = {id: 'resp_'+ctx.request_id, object:'response', model:ctx.request.model,
+                status:'completed', output:[], metadata:{filename:f.filename, bytes:f.size, tail:tail.base64}};
+            host.emit({type:'response.completed',sequence_number:0,response});
+            return {response};
+        }"#;
+        std::fs::write(script_path, script).unwrap();
+        state.plugin_loader =
+            mediagen_plugin_runtime::PluginLoader::load_from(dir.parent().unwrap())
+                .unwrap()
+                .into();
+        let (mut sender, payload) = actix_http::h1::Payload::create(false);
+        let mut body = open_socket(web::Data::new(state), payload.into()).await;
+        let message = |extra: &str| {
+            let encoded = "YWJj".repeat(size / 3) + extra;
+            frame(json!({"type":"response.create","model":"text-model","input":[{"role":"user","content":[{"type":"input_file","filename":"notes.txt","file_data":encoded}]}]}).to_string())
+        };
+        let bytes = message("");
+        // 把同一个 FIN 文本帧分批交给传输层，覆盖帧头跨网络读取的情况。
+        sender.feed_data(bytes.slice(..5));
+        tokio::task::yield_now().await;
+        sender.feed_data(bytes.slice(5..14));
+        tokio::task::yield_now().await;
+        sender.feed_data(bytes.slice(14..));
+        drop(bytes);
+        let completed = next_event(&mut body, "response.completed").await;
+        assert_eq!(
+            completed["response"]["metadata"],
+            json!({"filename":"notes.txt","bytes":size,"tail":"YWJj"})
+        );
+        sender.feed_data(message("YQ=="));
+        let rejected = next_event(&mut body, "error").await;
+        assert_eq!(rejected["error"]["code"], "invalid_attachment");
+        assert!(rejected["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains(&size.to_string()));
         sender.feed_eof();
         drop(body);
     }

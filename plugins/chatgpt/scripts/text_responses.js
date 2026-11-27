@@ -386,7 +386,6 @@ function chatgptApiUploadTextImages(auth, request) {
   for (const item of request.input) {
     const labels = []
     for (const source of item.images || []) {
-      if (references.length >= 10) throw new Error('invalid_input: 每次最多支持 10 张图片')
       const match = source.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([a-zA-Z0-9+/=\s]+)$/)
       if (!match)
         throw new Error('invalid_input: ChatGPT 图片输入请使用 base64 data URL 或已上传的 file_id')

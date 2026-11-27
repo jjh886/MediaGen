@@ -14,8 +14,6 @@ use crate::image_multipart::{field_filename, field_name};
 use crate::routes::{api_key_allowed, api_key_from_request};
 use crate::ServerState;
 
-const MAX_FILE_BYTES: usize = 50 * 1024 * 1024;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct FileRecord {
     pub id: String,
@@ -41,21 +39,7 @@ pub async fn upload_file(
         return file_error(401, "authentication_error", "invalid api key");
     }
     let owner_hash = owner_hash_from_request(&request);
-    let max_bytes = state
-        .plugin_loader
-        .plugins()
-        .values()
-        .flat_map(|plugin| &plugin.models)
-        .filter_map(|model| model.extra.get("capabilities"))
-        .filter_map(|caps| caps["attachment_limits"].as_object())
-        .flat_map(|limits| {
-            ["file_bytes", "image_bytes", "video_bytes"]
-                .into_iter()
-                .filter_map(|key| limits.get(key).and_then(serde_json::Value::as_u64))
-        })
-        .max()
-        .unwrap_or(MAX_FILE_BYTES as u64);
-    match parse_upload(payload, request, &state.file_root, max_bytes).await {
+    match parse_upload(payload, request, &state.file_root).await {
         Ok(upload) => save_upload(&state.file_root, upload, owner_hash).await,
         Err((status, message)) => file_error(status, "invalid_request_error", &message),
     }
@@ -184,9 +168,6 @@ pub(crate) async fn read_file_as_data_url(
     owner_hash: &str,
 ) -> Result<String, String> {
     let record = read_record_for_owner(root, id, owner_hash).await?;
-    if record.bytes > MAX_FILE_BYTES as u64 {
-        return Err("当前插件未声明文件流式传输，无法内联读取此文件".into());
-    }
     let bytes = tokio::fs::read(content_path(root, id))
         .await
         .map_err(|err| err.to_string())?;
@@ -213,7 +194,6 @@ async fn parse_upload(
     payload: web::Payload,
     request: HttpRequest,
     root: &Path,
-    max_bytes: u64,
 ) -> Result<UploadInput, (u16, String)> {
     use tokio::io::AsyncWriteExt;
     tokio::fs::create_dir_all(root)
@@ -264,12 +244,6 @@ async fn parse_upload(
                     size = size
                         .checked_add(chunk.len() as u64)
                         .ok_or((413, "文件过大".into()))?;
-                    if size > max_bytes {
-                        return Err((
-                            413,
-                            format!("文件超过已安装平台支持的最大单文件容量 {max_bytes} bytes"),
-                        ));
-                    }
                     file.write_all(&chunk)
                         .await
                         .map_err(|_| (500, "文件写入失败".into()))?;

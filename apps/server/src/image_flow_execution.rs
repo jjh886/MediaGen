@@ -36,7 +36,12 @@ pub(crate) async fn prepare_flow_request(
     if ref_dataurls.len() != ref_urls.len() {
         return Err("invalid_input: 无法读取参考图片".into());
     }
-    let ref_image_locals = fetch_ref_images_as_local_files(&ref_urls, proxy_url).await;
+    let caps = model.extra.get("capabilities").unwrap_or(&Value::Null);
+    for url in &ref_dataurls {
+        crate::protocol_attachments::validate_data_url_size(caps, url)
+            .map_err(|m| format!("invalid_input: {m}"))?;
+    }
+    let ref_image_locals = fetch_ref_images_as_local_files(&ref_dataurls, proxy_url).await;
     if ref_image_locals.len() != ref_urls.len() {
         crate::image_assets::cleanup_temp_files(&ref_image_locals).await;
         return Err("invalid_input: 无法读取参考图片".into());
@@ -52,12 +57,13 @@ pub(crate) async fn prepare_flow_request(
         crate::image_assets::cleanup_temp_files(&ref_image_locals).await;
         return Err("invalid_input: 无法读取蒙版图片".into());
     }
-    let mut flow_request = body.to_flow_request(
-        model.display_name.clone(),
-        endpoint,
-        ref_dataurls,
-        mask_dataurl,
-    );
+    if let Some(mask) = &mask_dataurl {
+        if let Err(message) = crate::protocol_attachments::validate_data_url_size(caps, mask) {
+            crate::image_assets::cleanup_temp_files(&ref_image_locals).await;
+            return Err(format!("invalid_input: {message}"));
+        }
+    }
+    let mut flow_request = body.to_flow_request(model, endpoint, ref_dataurls, mask_dataurl);
     flow_request.ref_image_locals = ref_image_locals.clone();
     Ok((flow_request, ref_image_locals))
 }

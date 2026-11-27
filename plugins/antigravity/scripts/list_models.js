@@ -49,8 +49,9 @@ function main(ctx) {
         ...efforts.map((level) => ({
           ...base,
           model_id: base.model_id + '-' + level,
-          aliases: [variants[level], base.model_id + '(' + level + ')'],
+
           catalog_hidden: true,
+          metadata_model_id: base.model_id,
           capabilities: {
             ...base.capabilities,
             ...agInputCapabilities(models, { [level]: variants[level] }),

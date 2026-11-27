@@ -10,14 +10,27 @@ use super::types::WeixinInboundImage;
 use crate::ServerState;
 
 const CDN_BASE_URL: &str = "https://novac2c.cdn.weixin.qq.com/c2c";
-const MAX_REFERENCE_BYTES: usize = 20 * 1024 * 1024;
 
 pub(crate) async fn upload_reference_image(
     state: &ServerState,
     image: &WeixinInboundImage,
 ) -> Result<String, String> {
-    let encrypted = download_cdn_image(image).await?;
+    let model_id = state.store.get_weixin_preferences().default_model_id;
+    let (_, model) = state
+        .plugin_loader
+        .resolve_model(&model_id)
+        .ok_or("请先选择可用的图片模型")?;
+    let caps = model
+        .extra
+        .get("capabilities")
+        .unwrap_or(&serde_json::Value::Null);
+    let limits = &caps["attachment_limits"];
+    let max_bytes = limits["image_bytes"]
+        .as_u64()
+        .or_else(|| limits["file_bytes"].as_u64());
+    let encrypted = download_cdn_image(image, max_bytes.map(|n| n.saturating_add(16))).await?;
     let plaintext = decrypt_image(state, image, encrypted)?;
+    crate::protocol_attachments::validate_size(caps, "image/", plaintext.len() as u64)?;
     let media_type = validate_image(&plaintext)?;
     Ok(format!(
         "data:{media_type};base64,{}",
@@ -25,14 +38,17 @@ pub(crate) async fn upload_reference_image(
     ))
 }
 
-async fn download_cdn_image(image: &WeixinInboundImage) -> Result<Vec<u8>, String> {
+async fn download_cdn_image(
+    image: &WeixinInboundImage,
+    limit: Option<u64>,
+) -> Result<Vec<u8>, String> {
     let url = inbound_image_url(image)?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| format!("初始化微信参考图下载失败: {error}"))?;
-    let response = client
+    let mut response = client
         .get(url)
         .timeout(Duration::from_secs(30))
         .send()
@@ -43,18 +59,19 @@ async fn download_cdn_image(image: &WeixinInboundImage) -> Result<Vec<u8>, Strin
     }
     if response
         .content_length()
-        .is_some_and(|size| size as usize > MAX_REFERENCE_BYTES + 32)
+        .zip(limit)
+        .is_some_and(|(n, max)| n > max)
     {
-        return Err("微信参考图超过 20MB".to_string());
+        return Err("微信参考图超过所选模型容量".into());
     }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| format!("读取微信参考图失败: {error}"))?;
-    if bytes.is_empty() || bytes.len() > MAX_REFERENCE_BYTES + 32 {
-        return Err("微信参考图大小无效".to_string());
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| "读取微信参考图失败")? {
+        if limit.is_some_and(|n| bytes.len().saturating_add(chunk.len()) as u64 > n) {
+            return Err("微信参考图超过所选模型容量".into());
+        }
+        bytes.extend_from_slice(&chunk);
     }
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 fn inbound_image_url(image: &WeixinInboundImage) -> Result<Url, String> {
@@ -107,7 +124,7 @@ fn decrypt_image(
 }
 
 fn validate_image(bytes: &[u8]) -> Result<&'static str, String> {
-    if bytes.is_empty() || bytes.len() > MAX_REFERENCE_BYTES {
+    if bytes.is_empty() {
         return Err("微信参考图大小无效".to_string());
     }
     image::load_from_memory(bytes).map_err(|_| "微信参考图格式无效".to_string())?;

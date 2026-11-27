@@ -11,7 +11,7 @@ use crate::media_execution::{
 };
 use crate::routes::{api_key_allowed, api_key_from_request, cancel_task_browser_sessions};
 use crate::video_api_response::{
-    completed_video_metadata, openai_video, result_has_video, task_owned_by, video_asset_url,
+    completed_video_metadata, openai_video, result_has_remote_video, task_owned_by, video_asset_url,
 };
 use crate::video_flow_execution::{execute_video_flow, prepare_video_flow_request};
 use crate::video_request::OpenAiVideoRequest;
@@ -94,6 +94,11 @@ pub async fn delete_video(
     if matches!(task.status.as_str(), "queued" | "processing") {
         return openai_error(409, "invalid_state_error", "运行中的视频请先取消");
     }
+    if let Err(err) = tokio::fs::remove_file(mp4_path(&state.file_root, &video_id)).await {
+        if err.kind() != std::io::ErrorKind::NotFound {
+            return openai_error(500, "storage_error", "删除视频文件失败");
+        }
+    }
     state.store.delete_task(&video_id);
     HttpResponse::Ok().json(json!({
         "id": video_id,
@@ -116,6 +121,13 @@ pub async fn retrieve_video_content(
         return openai_error(409, "video_not_ready", "视频尚未生成完成");
     }
     let variant = query.variant.as_deref().unwrap_or("video");
+    if matches!(variant, "video" | "") && stored_mp4(&task) {
+        return match actix_files::NamedFile::open_async(mp4_path(&state.file_root, &task.id)).await
+        {
+            Ok(file) => file.disable_content_disposition().into_response(&request),
+            Err(_) => openai_error(404, "video_content_missing", "视频产物不存在"),
+        };
+    }
     let Some(url) = video_asset_url(&task, variant) else {
         return openai_error(400, "unsupported_variant", "该视频不支持请求的资源类型");
     };
@@ -230,7 +242,7 @@ async fn run_video_attempts(
             .store
             .set_task_account(&context.task_id, &context.account.id);
         match run_single_video_attempt(state, body, &context).await {
-            Ok(result) => return complete_video_attempt(state, body, &context, result),
+            Ok(result) => return complete_video_attempt(state, body, &context, result).await,
             Err(message) => {
                 if let Some(response) = handle_attempt_failure(
                     state,
@@ -269,25 +281,39 @@ async fn run_single_video_attempt(
     result
 }
 
-fn complete_video_attempt(
+async fn complete_video_attempt(
     state: &web::Data<ServerState>,
     body: &OpenAiVideoRequest,
     context: &MediaFlowContext<'_>,
-    result: Value,
+    mut result: Value,
 ) -> Result<Value, ApiError> {
     ensure_task_not_cancelled(state, &context.task_id)?;
-    if !result_has_video(&result) {
-        let message = "插件没有返回可下载视频".to_string();
-        state.store.fail_task(&context.task_id, message.clone());
-        return Err((502, "video_result_error", message));
-    }
     let task = state
         .store
         .task_by_id(&context.task_id)
         .ok_or_else(|| (404, "not_found", "video not found".to_string()))?;
-    let metadata = completed_video_metadata(&task, body, &result);
+    let path = mp4_path(&state.file_root, &context.task_id);
+    let local = save_inline_mp4(&mut result, &path).await?;
+    if !local && !result_has_remote_video(&result) {
+        let message = "插件没有返回可下载视频".to_string();
+        state.store.fail_task(&context.task_id, message.clone());
+        return Err((502, "video_result_error", message));
+    }
+    let mut metadata = completed_video_metadata(&task, body, &result);
+    if local {
+        metadata["_stored_mp4"] = json!(true);
+    }
+    if state
+        .store
+        .complete_task(&context.task_id, metadata)
+        .is_none_or(|task| task.status != "completed")
+    {
+        if local {
+            let _ = tokio::fs::remove_file(&path).await;
+        }
+        return Err((409, "task_cancelled", "视频任务已结束".into()));
+    }
     state.store.mark_account_usage(&context.account.id);
-    state.store.complete_task(&context.task_id, metadata);
     state.store.add_audit_log(
         "engine",
         "info",
@@ -299,6 +325,56 @@ fn complete_video_attempt(
         Some(context.task_id.clone()),
     );
     Ok(result)
+}
+
+fn stored_mp4(task: &crate::store::TaskRecord) -> bool {
+    task.result_data
+        .as_deref()
+        .and_then(|v| serde_json::from_str::<Value>(v).ok())
+        .is_some_and(|v| v["_stored_mp4"] == true)
+}
+
+fn mp4_path(root: &std::path::Path, id: &str) -> std::path::PathBuf {
+    root.join("video-results")
+        .join(format!("{}.mp4", hash_secret(id)))
+}
+
+async fn save_inline_mp4(result: &mut Value, path: &std::path::Path) -> Result<bool, ApiError> {
+    use base64::prelude::{Engine as _, BASE64_STANDARD};
+    let video = if result["videos"].is_array() {
+        let Some(first) = result["videos"]
+            .as_array_mut()
+            .and_then(|items| items.first_mut())
+        else {
+            return Ok(false);
+        };
+        first
+    } else {
+        result
+    };
+    if video.get("download").is_some() {
+        return Ok(false);
+    }
+    for field in ["url", "video_url", "download_url"] {
+        let Some(data) = video[field]
+            .as_str()
+            .and_then(|url| url.strip_prefix("data:video/mp4;base64,"))
+        else {
+            continue;
+        };
+        let bytes = BASE64_STANDARD
+            .decode(data)
+            .map_err(|_| (502, "video_result_error", "视频 Base64 无效".into()))?;
+        if bytes.get(4..8) != Some(b"ftyp") {
+            return Err((502, "video_result_error", "视频缺少 MP4 文件头".into()));
+        }
+        crate::account_login_credentials::write_private_file(path, &bytes)
+            .await
+            .map_err(|msg| (500, "storage_error", msg))?;
+        video.as_object_mut().unwrap().remove(field);
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 fn authorized_owner_hash(state: &ServerState, request: &HttpRequest) -> Option<String> {

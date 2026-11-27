@@ -6,14 +6,197 @@
   "adapter_mode": "api",
   "login_url": "https://auth.openai.com/oauth/authorize",
   "workspace_url": "https://chatgpt.com/",
+  "discovered_model_metadata": {
+    "codex-gpt-6-astra": {
+      "attachment_limits": {
+        "max_files": null,
+        "file_bytes": null,
+        "source": "https://chatgpt.com/backend-api/codex/",
+        "note": "订阅入口未公布单文件大小和数量。"
+      },
+      "format_examples": [
+        "pdf",
+        "txt",
+        "md",
+        "csv",
+        "json",
+        "py",
+        "js",
+        "ts",
+        "png",
+        "jpg",
+        "jpeg",
+        "webp"
+      ],
+      "pricing": {
+        "reference_only": true,
+        "source": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+        "currency": "USD",
+        "unit": "1M tokens",
+        "input": 10,
+        "cached_input": 1,
+        "output": 50,
+        "status": "reference_only"
+      }
+    },
+    "codex-gpt-6-sol": {
+      "attachment_limits": {
+        "max_files": null,
+        "file_bytes": null,
+        "source": "https://chatgpt.com/backend-api/codex/",
+        "note": "订阅入口未公布单文件大小和数量。"
+      },
+      "format_examples": [
+        "pdf",
+        "txt",
+        "md",
+        "csv",
+        "json",
+        "py",
+        "js",
+        "ts",
+        "png",
+        "jpg",
+        "jpeg",
+        "webp"
+      ],
+      "pricing": {
+        "reference_only": true,
+        "source": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+        "currency": "USD",
+        "unit": "1M tokens",
+        "input": 2,
+        "cached_input": 0.2,
+        "output": 10,
+        "status": "reference_only"
+      }
+    },
+    "codex-gpt-5.6-sol": {
+      "attachment_limits": {
+        "max_files": null,
+        "file_bytes": null,
+        "source": "https://chatgpt.com/backend-api/codex/",
+        "note": "订阅入口未公布单文件大小和数量。"
+      },
+      "format_examples": [
+        "pdf",
+        "txt",
+        "md",
+        "csv",
+        "json",
+        "py",
+        "js",
+        "ts",
+        "png",
+        "jpg",
+        "jpeg",
+        "webp"
+      ],
+      "pricing": {
+        "reference_only": true,
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+        "currency": "USD",
+        "unit": "1M tokens",
+        "input": 4,
+        "cached_input": 0.4,
+        "output": 20,
+        "valid_through": "2026-11-30",
+        "status": "reference_only"
+      }
+    },
+    "codex-gpt-5.6-terra": {
+      "attachment_limits": {
+        "max_files": null,
+        "file_bytes": null,
+        "source": "https://chatgpt.com/backend-api/codex/",
+        "note": "订阅入口未公布单文件大小和数量。"
+      },
+      "format_examples": [
+        "pdf",
+        "txt",
+        "md",
+        "csv",
+        "json",
+        "py",
+        "js",
+        "ts",
+        "png",
+        "jpg",
+        "jpeg",
+        "webp"
+      ],
+      "pricing": {
+        "reference_only": true,
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+        "currency": "USD",
+        "unit": "1M tokens",
+        "input": 2,
+        "cached_input": 0.2,
+        "output": 12,
+        "status": "reference_only"
+      }
+    },
+    "codex-gpt-5.6-luna": {
+      "attachment_limits": {
+        "max_files": null,
+        "file_bytes": null,
+        "source": "https://chatgpt.com/backend-api/codex/",
+        "note": "订阅入口未公布单文件大小和数量。"
+      },
+      "format_examples": [
+        "pdf",
+        "txt",
+        "md",
+        "csv",
+        "json",
+        "py",
+        "js",
+        "ts",
+        "png",
+        "jpg",
+        "jpeg",
+        "webp"
+      ],
+      "pricing": {
+        "reference_only": true,
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+        "currency": "USD",
+        "unit": "1M tokens",
+        "input": 0.2,
+        "cached_input": 0.02,
+        "output": 1.2,
+        "status": "reference_only"
+      }
+    }
+  },
   "models": [
     {
       "model_id": "codex-gpt-image-2.6-sunburst",
       "display_name": "GPT Image 2.6 Sunburst",
       "task_kind": "image",
-      "aliases": ["gpt-image-2.6-sunburst"],
-      "alias_priority": 40,
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://developers.openai.com/api/docs/pricing",
+          "currency": "USD",
+          "unit": "1M image tokens",
+          "input": 8,
+          "cached_input": 2,
+          "output": 30,
+          "rates": {
+            "text_input_per_1M_tokens": 5,
+            "text_cached_input_per_1M_tokens": 1.25
+          },
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
+        },
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://chatgpt.com/backend-api/codex/",
+          "note": "订阅入口未公布单文件大小和数量。"
+        },
+        "file_extensions": ["png", "jpg", "jpeg", "webp"],
         "reasoning": {
           "efforts": []
         },
@@ -31,9 +214,29 @@
       "model_id": "codex-gpt-image-2.6-flare",
       "display_name": "GPT Image 2.6 Flare",
       "task_kind": "image",
-      "aliases": ["gpt-image-2.6-flare"],
-      "alias_priority": 40,
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://developers.openai.com/api/docs/pricing",
+          "currency": "USD",
+          "unit": "1M image tokens",
+          "input": 8,
+          "cached_input": 2,
+          "output": 30,
+          "rates": {
+            "text_input_per_1M_tokens": 5,
+            "text_cached_input_per_1M_tokens": 1.25
+          },
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
+        },
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://chatgpt.com/backend-api/codex/",
+          "note": "订阅入口未公布单文件大小和数量。"
+        },
+        "file_extensions": ["png", "jpg", "jpeg", "webp"],
         "reasoning": {
           "efforts": []
         },
@@ -51,11 +254,29 @@
       "model_id": "codex-gpt-6.2-sol",
       "display_name": "GPT-6.2 Sol",
       "task_kind": "text",
-      "aliases": ["gpt-6.2-sol"],
-      "alias_priority": 40,
       "capabilities": {
+        "format_examples": [
+          "pdf",
+          "txt",
+          "md",
+          "csv",
+          "json",
+          "py",
+          "js",
+          "ts",
+          "png",
+          "jpg",
+          "jpeg",
+          "webp"
+        ],
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://chatgpt.com/backend-api/codex/",
+          "note": "订阅入口未公布单文件大小和数量。"
+        },
         "reasoning": {
-          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "efforts": ["minimal", "low", "medium", "high", "xhigh", "max"],
           "default_effort": "low"
         },
         "context_window": 500000,
@@ -135,7 +356,11 @@
             "output_cost_per_token_priority": 2e-5,
             "cache_read_input_token_cost_batches": 5e-8
           },
-          "cached_input": 0.1
+          "cached_input": 0.1,
+          "reference_only": true,
+          "source": "https://developers.openai.com/api/docs/pricing",
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
         },
         "input_types": ["text", "image"]
       }
@@ -144,11 +369,29 @@
       "model_id": "codex-gpt-6.2-astra",
       "display_name": "GPT-6.2 Astra",
       "task_kind": "text",
-      "aliases": ["gpt-6.2-astra"],
-      "alias_priority": 40,
       "capabilities": {
+        "format_examples": [
+          "pdf",
+          "txt",
+          "md",
+          "csv",
+          "json",
+          "py",
+          "js",
+          "ts",
+          "png",
+          "jpg",
+          "jpeg",
+          "webp"
+        ],
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://chatgpt.com/backend-api/codex/",
+          "note": "订阅入口未公布单文件大小和数量。"
+        },
         "reasoning": {
-          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "efforts": ["minimal", "low", "medium", "high", "xhigh", "max"],
           "default_effort": "low"
         },
         "context_window": 272000,
@@ -228,7 +471,11 @@
             "output_cost_per_token_priority": 8e-5,
             "cache_read_input_token_cost_batches": 2e-7
           },
-          "cached_input": 0.4
+          "cached_input": 0.4,
+          "reference_only": true,
+          "source": "https://developers.openai.com/api/docs/pricing",
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
         },
         "input_types": ["text", "image"]
       }
@@ -237,11 +484,40 @@
       "model_id": "codex-gpt-6.1-terra",
       "display_name": "GPT-6.1 Terra",
       "task_kind": "text",
-      "aliases": ["gpt-6.1-terra"],
-      "alias_priority": 40,
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://developers.openai.com/api/docs/pricing",
+          "currency": "USD",
+          "unit": "1M tokens",
+          "input": 1,
+          "cached_input": 0.05,
+          "output": 5,
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
+        },
+        "format_examples": [
+          "pdf",
+          "txt",
+          "md",
+          "csv",
+          "json",
+          "py",
+          "js",
+          "ts",
+          "png",
+          "jpg",
+          "jpeg",
+          "webp"
+        ],
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://chatgpt.com/backend-api/codex/",
+          "note": "订阅入口未公布单文件大小和数量。"
+        },
         "reasoning": {
-          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "efforts": ["minimal", "low", "medium", "high", "xhigh", "max"],
           "default_effort": "low"
         },
         "tool_calling": true,
@@ -300,11 +576,29 @@
       "model_id": "codex-gpt-6-luna",
       "display_name": "GPT-6 Luna",
       "task_kind": "text",
-      "aliases": ["gpt-6-luna"],
-      "alias_priority": 40,
       "capabilities": {
+        "format_examples": [
+          "pdf",
+          "txt",
+          "md",
+          "csv",
+          "json",
+          "py",
+          "js",
+          "ts",
+          "png",
+          "jpg",
+          "jpeg",
+          "webp"
+        ],
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://chatgpt.com/backend-api/codex/",
+          "note": "订阅入口未公布单文件大小和数量。"
+        },
         "reasoning": {
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "efforts": ["minimal", "low", "medium", "high", "xhigh", "max"],
           "default_effort": "medium"
         },
         "tool_calling": true,
@@ -384,7 +678,11 @@
             "output_cost_per_token_priority": 1e-6,
             "cache_read_input_token_cost_batches": 5e-9
           },
-          "cached_input": 0.01
+          "cached_input": 0.01,
+          "reference_only": true,
+          "source": "https://developers.openai.com/api/docs/pricing",
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
         },
         "input_types": ["text", "image"]
       }
@@ -394,6 +692,26 @@
       "display_name": "Codex Live 实时语音",
       "task_kind": "realtime",
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://developers.openai.com/api/docs/pricing",
+          "currency": "USD",
+          "unit": "minute",
+          "rates": {
+            "active": 0.05,
+            "standby": 0.02
+          },
+          "note": "后端代理模型和工具另计。"
+        },
+        "attachment_limits": {
+          "file_bytes": null,
+          "max_files": 0,
+          "source": "插件请求协议",
+          "note": "此入口不接受文件上传；音频流与文件上传分别计。"
+        },
+        "reasoning": {
+          "efforts": []
+        },
         "input_modalities": ["text", "audio"],
         "output_modalities": ["text", "audio"],
         "endpoints": ["/v1/live/sessions", "/v1/live"],
@@ -413,14 +731,40 @@
             }
           }
         }
-      },
-      "aliases": ["gpt-live-1"]
+      }
     },
     {
       "model_id": "codex-gpt-realtime-2.1",
       "display_name": "Codex 官方实时语音",
       "task_kind": "realtime",
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://developers.openai.com/api/docs/pricing",
+          "currency": "USD",
+          "unit": "1M audio tokens",
+          "input": 32,
+          "cached_input": 0.4,
+          "output": 64,
+          "rates": {
+            "text_input_per_1M_tokens": 4,
+            "text_cached_input_per_1M_tokens": 0.4,
+            "text_output_per_1M_tokens": 24,
+            "image_input_per_1M_tokens": 5,
+            "image_cached_input_per_1M_tokens": 0.5
+          }
+        },
+        "attachment_limits": {
+          "file_bytes": null,
+          "max_files": 0,
+          "source": "插件请求协议",
+          "note": "此入口不接受文件上传；音频流与文件上传分别计。"
+        },
+        "reasoning": {
+          "efforts": ["minimal", "low", "medium", "high", "xhigh"],
+          "default_effort": "low",
+          "parameter": "session.reasoning.effort"
+        },
         "input_modalities": ["text", "audio"],
         "output_modalities": ["text", "audio"],
         "endpoints": ["/v1/realtime"],
@@ -439,8 +783,7 @@
           "marin",
           "cedar"
         ]
-      },
-      "aliases": ["gpt-realtime-2.1"]
+      }
     }
   ],
   "tiers": {
@@ -461,7 +804,6 @@
     "supports_generation": true,
     "supports_edit": true,
     "supports_mask": true,
-    "max_reference_images": 16,
     "supported_output_formats": ["png", "jpeg", "webp"],
     "supports_variation": false,
     "streaming": true,
@@ -748,10 +1090,6 @@
             "label": "GPT-6.1 Terra"
           },
           {
-            "value": "gpt-6.1-sol",
-            "label": "GPT-6.1 Sol · 输入 $2 / 输出 $10 每百万 Token"
-          },
-          {
             "value": "gpt-6-luna",
             "label": "GPT-6 Luna · 输入 $0.10 / 输出 $0.50 每百万 Token"
           },
@@ -780,6 +1118,6 @@
     ],
     "notice": "新模型是否可用取决于当前 Codex 账号授权。默认使用 GPT-6 Luna，可按账号支持情况切换。"
   },
-  "version": "1.5.0",
+  "version": "1.5.3",
   "schema_version": 1
 }

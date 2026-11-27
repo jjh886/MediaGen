@@ -11,8 +11,6 @@ use crate::media_execution::ApiError;
 use crate::media_multipart::image_data_url;
 use crate::video_request::OpenAiVideoRequest;
 
-const MAX_BODY_BYTES: usize = crate::MAX_REQUEST_BODY_BYTES;
-
 pub(crate) async fn parse_video_request(
     request: HttpRequest,
     payload: web::Payload,
@@ -26,7 +24,7 @@ pub(crate) async fn parse_video_request(
         return parse_multipart(Multipart::new(request.headers(), payload)).await;
     }
     if content_type.is_empty() || content_type.starts_with("application/json") {
-        return parse_json(payload).await;
+        return crate::media_multipart::read_json(payload).await;
     }
     Err((
         415,
@@ -35,20 +33,8 @@ pub(crate) async fn parse_video_request(
     ))
 }
 
-async fn parse_json(payload: web::Payload) -> Result<OpenAiVideoRequest, ApiError> {
-    let bytes = read_payload(payload).await?;
-    serde_json::from_slice(&bytes).map_err(|error| {
-        (
-            400,
-            "invalid_request_error",
-            format!("JSON 请求体解析失败: {error}"),
-        )
-    })
-}
-
 async fn parse_multipart(mut multipart: Multipart) -> Result<OpenAiVideoRequest, ApiError> {
     let mut request = OpenAiVideoRequest::empty();
-    let mut total = 0usize;
     while let Some(item) = multipart.next().await {
         let mut field = item.map_err(multipart_error)?;
         let name = field_name(&field);
@@ -56,7 +42,7 @@ async fn parse_multipart(mut multipart: Multipart) -> Result<OpenAiVideoRequest,
         let content_type = field
             .content_type()
             .map(|value| value.essence_str().to_string());
-        let bytes = read_field(&mut field, &mut total).await?;
+        let bytes = read_field(&mut field).await?;
         if matches!(name.as_str(), "input_reference" | "input_references[]") {
             let reference = OpenAiImageRef {
                 file_id: None,
@@ -107,37 +93,13 @@ fn apply_text_field(request: &mut OpenAiVideoRequest, name: &str, value: &str) {
     }
 }
 
-async fn read_payload(mut payload: web::Payload) -> Result<Bytes, ApiError> {
-    let mut body = BytesMut::new();
-    while let Some(chunk) = payload.next().await {
-        let chunk = chunk.map_err(multipart_error)?;
-        ensure_size(body.len() + chunk.len())?;
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body.freeze())
-}
-
-async fn read_field(field: &mut Field, total: &mut usize) -> Result<Bytes, ApiError> {
+async fn read_field(field: &mut Field) -> Result<Bytes, ApiError> {
     let mut body = BytesMut::new();
     while let Some(chunk) = field.next().await {
         let chunk = chunk.map_err(multipart_error)?;
-        *total += chunk.len();
-        ensure_size(*total)?;
         body.extend_from_slice(&chunk);
     }
     Ok(body.freeze())
-}
-
-fn ensure_size(size: usize) -> Result<(), ApiError> {
-    if size <= MAX_BODY_BYTES {
-        Ok(())
-    } else {
-        Err((
-            413,
-            "request_too_large",
-            "视频请求体不能超过 50MB".to_string(),
-        ))
-    }
 }
 
 fn multipart_error(error: impl std::fmt::Display) -> ApiError {

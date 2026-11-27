@@ -139,10 +139,7 @@ impl ServerPluginHost {
         let metadata = tokio::fs::metadata(&path)
             .await
             .map_err(|err| format!("file.read_base64 找不到文件 {path}: {err}"))?;
-        let max_bytes = params["max_bytes"]
-            .as_u64()
-            .unwrap_or(MAX_FILE_BYTES)
-            .min(MAX_FILE_BYTES);
+        let max_bytes = params["max_bytes"].as_u64().unwrap_or(metadata.len());
         if metadata.len() > max_bytes {
             return Err(format!(
                 "file.read_base64 文件超过限制 {max_bytes} bytes: {path}"
@@ -181,9 +178,6 @@ impl ServerPluginHost {
     pub(super) async fn inspect_image(&self, params: &Value) -> Result<Value, String> {
         let path = params["path"].as_str().unwrap_or("");
         let bytes = if let Some(encoded) = params["base64"].as_str() {
-            if encoded.len() > (MAX_FILE_BYTES as usize * 4 / 3 + 4) {
-                return Err("图片超过大小限制".into());
-            }
             BASE64_STANDARD
                 .decode(encoded)
                 .map_err(|_| "图片编码无效")?

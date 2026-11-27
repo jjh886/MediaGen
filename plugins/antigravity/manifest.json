@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "platform_id": "antigravity",
   "display_name": "Antigravity",
   "sort_order": 26,
@@ -13,6 +13,7 @@
       "display_name": "Gemini 4 Neon",
       "task_kind": "text",
       "capabilities": {
+        "format_examples": ["png", "jpg", "pdf", "txt", "mp3", "mp4"],
         "input_modalities": ["text", "image", "file", "audio", "video"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
@@ -36,24 +37,30 @@
         "attachment_transport": "inline",
         "pricing": {
           "reference_only": true,
-          "status": "unavailable"
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "currency": "USD",
+          "unit": "1M tokens",
+          "input": 3,
+          "cached_input": 0.15,
+          "output": 15,
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
         },
         "attachment_limits": {
-          "file_bytes": 52428800,
-          "request_body_bytes": 52428800,
           "max_files": null,
-          "audio_bytes": 20971520,
-          "video_bytes": 16777216
+          "file_bytes": null,
+          "source": "https://antigravity.google/",
+          "note": "可用 MIME 由账号目录按模型和档位返回。上游未提供字节数和数量。"
         },
         "generation_timeout_ms": 600000
-      },
-      "aliases": ["gemini-4-neon"]
+      }
     },
     {
       "model_id": "antigravity-gemini-4-carbon",
       "display_name": "Gemini 4 Carbon",
       "task_kind": "text",
       "capabilities": {
+        "format_examples": ["png", "jpg", "pdf", "txt", "mp3", "mp4"],
         "input_modalities": ["text", "image", "file", "audio", "video"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
@@ -79,9 +86,9 @@
           "currency": "USD",
           "unit": "1M tokens",
           "reference_only": true,
-          "input": 2.0,
+          "input": 2,
           "cached_input": 0.1,
-          "output": 10.0,
+          "output": 10,
           "reference_rates": {
             "cache_read_input_token_cost": 1e-7,
             "cache_read_input_token_cost_priority": 1.8e-7,
@@ -89,14 +96,23 @@
             "input_cost_per_token_priority": 3.6e-6,
             "output_cost_per_token": 1e-5,
             "output_cost_per_token_priority": 1.8e-5
-          }
+          },
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "valid_through": "2026-11-30",
+          "next_rates": {
+            "effective_from": "2026-12-01",
+            "input": 4,
+            "cached_input": 0.2,
+            "output": 20
+          },
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
         },
         "attachment_limits": {
-          "file_bytes": 52428800,
-          "request_body_bytes": 52428800,
           "max_files": null,
-          "audio_bytes": 20971520,
-          "video_bytes": 16777216
+          "file_bytes": null,
+          "source": "https://antigravity.google/",
+          "note": "可用 MIME 由账号目录按模型和档位返回。上游未提供字节数和数量。"
         },
         "generation_timeout_ms": 600000
       }
@@ -106,6 +122,7 @@
       "display_name": "Gemini 4 Argon",
       "task_kind": "text",
       "capabilities": {
+        "format_examples": ["png", "jpg", "pdf", "txt", "mp3", "mp4"],
         "input_modalities": ["text", "image", "file", "audio", "video"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
@@ -131,9 +148,9 @@
           "currency": "USD",
           "unit": "1M tokens",
           "reference_only": true,
-          "input": 2.0,
+          "input": 2,
           "cached_input": 0.1,
-          "output": 10.0,
+          "output": 10,
           "reference_rates": {
             "cache_read_input_token_cost": 1e-7,
             "cache_read_input_token_cost_priority": 1.8e-7,
@@ -141,14 +158,23 @@
             "input_cost_per_token_priority": 3.6e-6,
             "output_cost_per_token": 1e-5,
             "output_cost_per_token_priority": 1.8e-5
-          }
+          },
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "valid_through": "2026-11-30",
+          "next_rates": {
+            "effective_from": "2026-12-01",
+            "input": 4,
+            "cached_input": 0.2,
+            "output": 20
+          },
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
         },
         "attachment_limits": {
-          "file_bytes": 52428800,
-          "request_body_bytes": 52428800,
           "max_files": null,
-          "audio_bytes": 20971520,
-          "video_bytes": 16777216
+          "file_bytes": null,
+          "source": "https://antigravity.google/",
+          "note": "可用 MIME 由账号目录按模型和档位返回。上游未提供字节数和数量。"
         },
         "generation_timeout_ms": 600000
       }
@@ -158,6 +184,7 @@
       "display_name": "Gemini 4 Hydrogen",
       "task_kind": "text",
       "capabilities": {
+        "format_examples": ["png", "jpg", "pdf", "txt", "mp3", "mp4"],
         "input_modalities": ["text", "image", "file", "audio", "video"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
@@ -193,14 +220,16 @@
             "input_cost_per_token_priority": 2.7e-6,
             "output_cost_per_token": 7.5e-6,
             "output_cost_per_token_priority": 1.35e-5
-          }
+          },
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
         },
         "attachment_limits": {
-          "file_bytes": 52428800,
-          "request_body_bytes": 52428800,
           "max_files": null,
-          "audio_bytes": 20971520,
-          "video_bytes": 16777216
+          "file_bytes": null,
+          "source": "https://antigravity.google/",
+          "note": "可用 MIME 由账号目录按模型和档位返回。上游未提供字节数和数量。"
         },
         "generation_timeout_ms": 600000
       }
@@ -210,6 +239,7 @@
       "display_name": "Claude Sonnet 5.5",
       "task_kind": "text",
       "capabilities": {
+        "format_examples": ["png", "jpg"],
         "input_modalities": ["text", "image"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
@@ -237,22 +267,26 @@
             "cache_read_input_token_cost": 1e-7,
             "input_cost_per_token": 2e-6,
             "output_cost_per_token": 1e-5
-          }
+          },
+          "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
         },
         "attachment_limits": {
-          "file_bytes": 52428800,
-          "request_body_bytes": 52428800,
-          "max_files": null
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://antigravity.google/",
+          "note": "可用 MIME 由账号目录按模型和档位返回。上游未提供字节数和数量。"
         },
         "generation_timeout_ms": 600000
-      },
-      "aliases": ["claude-sonnet-5-5"]
+      }
     },
     {
       "model_id": "antigravity-claude-opus-5-5",
       "display_name": "Claude Opus 5.5",
       "task_kind": "text",
       "capabilities": {
+        "format_examples": ["png", "jpg"],
         "input_modalities": ["text", "image"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
@@ -286,22 +320,26 @@
             "cache_read_input_token_cost_priority": 4e-7,
             "input_cost_per_token_batches": 2e-6,
             "output_cost_per_token_batches": 1e-5
-          }
+          },
+          "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "status": "reference_only",
+          "note": " 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。"
         },
         "attachment_limits": {
-          "file_bytes": 52428800,
-          "request_body_bytes": 52428800,
-          "max_files": null
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://antigravity.google/",
+          "note": "可用 MIME 由账号目录按模型和档位返回。上游未提供字节数和数量。"
         },
         "generation_timeout_ms": 600000
-      },
-      "aliases": ["claude-opus-5-5"]
+      }
     },
     {
       "model_id": "antigravity-orchestrator-neon",
       "display_name": "Orchestrator Neon",
       "task_kind": "text",
       "capabilities": {
+        "format_examples": ["png", "jpg", "pdf", "txt", "mp3", "mp4"],
         "input_modalities": ["text", "image", "file", "audio", "video"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
@@ -323,25 +361,26 @@
         "max_output_tokens": 65535,
         "attachment_transport": "inline",
         "pricing": {
+          "status": "unavailable",
           "reference_only": true,
-          "status": "unavailable"
+          "source": "https://antigravity.google/docs/plans/",
+          "note": "协调器随账号配额或 AI credits 计费，未核实独立费率。"
         },
         "attachment_limits": {
-          "file_bytes": 52428800,
-          "request_body_bytes": 52428800,
           "max_files": null,
-          "audio_bytes": 20971520,
-          "video_bytes": 16777216
+          "file_bytes": null,
+          "source": "https://antigravity.google/",
+          "note": "可用 MIME 由账号目录按模型和档位返回。上游未提供字节数和数量。"
         },
         "generation_timeout_ms": 600000
-      },
-      "aliases": ["gemini-pro-orchestrator-neon"]
+      }
     },
     {
       "model_id": "antigravity-orchestrator-carbon",
       "display_name": "Orchestrator Carbon",
       "task_kind": "text",
       "capabilities": {
+        "format_examples": ["png", "jpg", "pdf", "txt", "mp3", "mp4"],
         "input_modalities": ["text", "image", "file", "audio", "video"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
@@ -363,25 +402,26 @@
         "max_output_tokens": 65535,
         "attachment_transport": "inline",
         "pricing": {
+          "status": "unavailable",
           "reference_only": true,
-          "status": "unavailable"
+          "source": "https://antigravity.google/docs/plans/",
+          "note": "协调器随账号配额或 AI credits 计费，未核实独立费率。"
         },
         "attachment_limits": {
-          "file_bytes": 52428800,
-          "request_body_bytes": 52428800,
           "max_files": null,
-          "audio_bytes": 20971520,
-          "video_bytes": 16777216
+          "file_bytes": null,
+          "source": "https://antigravity.google/",
+          "note": "可用 MIME 由账号目录按模型和档位返回。上游未提供字节数和数量。"
         },
         "generation_timeout_ms": 600000
-      },
-      "aliases": ["gemini-pro-orchestrator"]
+      }
     },
     {
       "model_id": "antigravity-orchestrator-argon",
       "display_name": "Orchestrator Argon",
       "task_kind": "text",
       "capabilities": {
+        "format_examples": ["png", "jpg", "pdf", "txt", "mp3", "mp4"],
         "input_modalities": ["text", "image", "file", "audio", "video"],
         "output_modalities": ["text"],
         "endpoints": ["/v1/responses", "/v1/chat/completions"],
@@ -403,19 +443,19 @@
         "max_output_tokens": 65535,
         "attachment_transport": "inline",
         "pricing": {
+          "status": "unavailable",
           "reference_only": true,
-          "status": "unavailable"
+          "source": "https://antigravity.google/docs/plans/",
+          "note": "协调器随账号配额或 AI credits 计费，未核实独立费率。"
         },
         "attachment_limits": {
-          "file_bytes": 52428800,
-          "request_body_bytes": 52428800,
           "max_files": null,
-          "audio_bytes": 20971520,
-          "video_bytes": 16777216
+          "file_bytes": null,
+          "source": "https://antigravity.google/",
+          "note": "可用 MIME 由账号目录按模型和档位返回。上游未提供字节数和数量。"
         },
         "generation_timeout_ms": 600000
-      },
-      "aliases": ["gemini-pro-orchestrator-argon"]
+      }
     }
   ],
   "tiers": {

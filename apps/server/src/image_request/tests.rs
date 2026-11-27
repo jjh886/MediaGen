@@ -93,13 +93,15 @@ fn converts_prompt_arrays_and_flow_request() {
     };
 
     let flow = request.to_flow_request(
-        "Remote Model".to_string(),
+        &serde_json::from_value(json!({"model_id":"canonical-id","display_name":"Remote Model"}))
+            .unwrap(),
         ImageEndpoint::Edit,
         vec!["data:image/png;base64,abc".to_string()],
         Some("data:image/png;base64,mask".to_string()),
     );
 
     assert_eq!(flow.prompt, "line one\nline two");
+    assert_eq!(flow.model_id, "canonical-id");
     assert_eq!(flow.max_images, 4);
     assert_eq!(flow.output_format, "webp");
     assert_eq!(flow.quality, "high");

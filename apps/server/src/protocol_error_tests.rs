@@ -123,7 +123,7 @@ fn diagnostics_keep_causes_and_remove_credentials_and_request_contents() {
 }
 
 #[actix_web::test]
-async fn request_body_accepts_above_old_limit_and_enforces_shared_boundary() {
+async fn request_body_accepts_above_old_transport_boundary() {
     use actix_web::{test, App};
     let state = crate::protocol_api_tests::state();
     let app = test::init_service(
@@ -149,22 +149,7 @@ async fn request_body_accepts_above_old_limit_and_enforces_shared_boundary() {
                 .to_request(),
         )
         .await;
-        assert_eq!(
-            response.status().as_u16(),
-            if size <= crate::MAX_REQUEST_BODY_BYTES {
-                200
-            } else {
-                413
-            }
-        );
-        let body: serde_json::Value = test::read_body_json(response).await;
-        if size > crate::MAX_REQUEST_BODY_BYTES {
-            assert_eq!(body["error"]["code"], "body_too_large");
-            assert!(body["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("50 MiB"));
-        }
+        assert_eq!(response.status().as_u16(), 200);
     }
 }
 

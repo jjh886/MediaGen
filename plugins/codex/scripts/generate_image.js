@@ -99,12 +99,15 @@ function promptForIndex(prompt, index, count) {
 }
 
 function buildPayload(ctx, prompt, request) {
+  const model = String(ctx.platform_config?.image_control_model || MODEL).trim() || MODEL
+  if (!codexSupportedTextModel(model))
+    throw new Error('unsupported_model: 当前 Codex 图片主控模型不可用')
   const content = []
   appendReferenceImages(content, ctx)
   content.push({ type: 'input_text', text: prompt || '' })
 
   return {
-    model: String(ctx.platform_config?.image_control_model || MODEL).trim() || MODEL,
+    model,
     instructions: INSTRUCTIONS,
     input: [{ role: 'user', content }],
     reasoning: { effort: 'medium', summary: 'auto' },
@@ -138,10 +141,7 @@ function referenceImageUrls(ctx) {
 function localReferenceDataUrls(ctx) {
   const urls = []
   for (const path of arrayOfStrings(ctx.ref_image_locals)) {
-    const file = host.call('file.read_base64', {
-      path,
-      max_bytes: 50 * 1024 * 1024,
-    })
+    const file = host.call('file.read_base64', { path })
     urls.push('data:' + file.mime + ';base64,' + file.base64)
   }
   return urls

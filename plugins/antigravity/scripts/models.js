@@ -55,12 +55,6 @@ const AG_EXTENSIONS = {
   html: 'text/html',
   htm: 'text/html',
 }
-const AG_ATTACHMENT_LIMITS = {
-  file_bytes: 50 * 1024 * 1024,
-  audio_bytes: 20 * 1024 * 1024,
-  video_bytes: 16 * 1024 * 1024,
-  request_body_bytes: 50 * 1024 * 1024,
-}
 const AG_GENERATION_TIMEOUT_MS = 600000
 
 function agMimeTypes(info) {
@@ -78,14 +72,6 @@ function agInputCapabilities(catalog, variants) {
   const kinds = mime.map((type) =>
     /^(image|audio|video)\//.test(type) ? type.split('/')[0] : 'file'
   )
-  const limits = {
-    source: 'MediaGen',
-    file_bytes: AG_ATTACHMENT_LIMITS.file_bytes,
-    max_files: null,
-    request_body_bytes: AG_ATTACHMENT_LIMITS.request_body_bytes,
-  }
-  if (kinds.includes('audio')) limits.audio_bytes = AG_ATTACHMENT_LIMITS.audio_bytes
-  if (kinds.includes('video')) limits.video_bytes = AG_ATTACHMENT_LIMITS.video_bytes
   // 基础型号只公布所有可用档位都接受的预算；带后缀的型号使用本档位预算。
   const budget = (key, fallback) =>
     Math.min(
@@ -100,7 +86,6 @@ function agInputCapabilities(catalog, variants) {
     supported_mime_types: mime,
     file_extensions: Object.keys(AG_EXTENSIONS).filter((ext) => mime.includes(AG_EXTENSIONS[ext])),
     ...(kinds.includes('image') ? { image_sources: ['data_url', 'file_id'] } : {}),
-    attachment_limits: limits,
     attachment_transport: 'inline',
     context_window: budget('maxTokens', 1024000),
     max_output_tokens: budget('maxOutputTokens', 65535),

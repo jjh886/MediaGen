@@ -3,7 +3,7 @@ use crate::test_fixtures::account_record;
 use mediagen_plugin_runtime::PluginLoader;
 
 #[actix_web::test]
-async fn cold_catalog_routes_alias_to_the_account_that_advertises_it() {
+async fn cold_catalog_accepts_only_the_advertised_model_id() {
     let state = crate::test_fixtures::protocol_state(true);
     state
         .store
@@ -25,7 +25,7 @@ async fn cold_catalog_routes_alias_to_the_account_that_advertises_it() {
         actix_test::TestRequest::post()
             .uri("/v1/responses")
             .insert_header(("authorization", "Bearer key-a"))
-            .set_json(json!({"model":"old-id","input":"hello"}))
+            .set_json(json!({"model":"renamed","input":"hello"}))
             .to_request(),
     )
     .await;
@@ -44,7 +44,8 @@ async fn cold_catalog_routes_alias_to_the_account_that_advertises_it() {
             .to_request(),
     )
     .await;
-    assert_eq!(details["alias_of"], "renamed");
+    assert_eq!(details["error"]["code"], "model_not_found");
+    assert!(crate::model_api::resolve(&state, "old-id", "key-a").is_none());
 }
 
 #[actix_web::test]
@@ -128,7 +129,7 @@ async fn dynamic_model_reservation_uses_other_free_accounts() {
 }
 
 #[actix_web::test]
-async fn discovery_failure_preserves_other_accounts_and_reports_partial_success() {
+async fn discovery_failure_preserves_other_accounts_in_the_standard_list() {
     let state = crate::test_fixtures::protocol_state(true);
     let mut broken = account_record("broken", "test", "Broken", "");
     broken.proxy_id = "deleted-proxy".into();
@@ -149,7 +150,8 @@ async fn discovery_failure_preserves_other_accounts_and_reports_partial_success(
     .await;
     assert_eq!(response.status(), 200);
     let body: Value = actix_test::read_body_json(response).await;
-    assert_eq!(body["refresh_errors"][0]["code"], "proxy_unavailable");
+    assert_eq!(body["object"], "list");
+    assert_eq!(body.as_object().unwrap().len(), 2);
     assert!(body["data"]
         .as_array()
         .unwrap()
@@ -251,8 +253,10 @@ async fn discovered_models_keep_plugin_prices_and_authoritative_capabilities() {
     let manifest_path = plugin_dir.join("manifest.json");
     let mut manifest: Value =
         serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
-    manifest["models"][0]["capabilities"]["pricing"] =
-        json!({"input":2,"output":10,"reference_only":true});
+    manifest["models"][0]["capabilities"]["pricing"] = json!({"input":2,"output":10,"reference_only":true,"reference_rates":{"input_cost_per_token":0.000002}});
+    manifest["models"][0]["capabilities"]["file_extensions"] = json!(["pdf"]);
+    manifest["models"][0]["capabilities"]["attachment_limits"] =
+        json!({"file_bytes":1024,"max_files":null,"source":"internal"});
     manifest["models"][0]["capabilities"]["context_window"] = json!(1050000);
     manifest["models"][0]["capabilities"]["reasoning"] =
         json!({"efforts":["low","high"],"default_effort":"high"});
@@ -266,6 +270,32 @@ async fn discovered_models_keep_plugin_prices_and_authoritative_capabilities() {
             .configure(crate::configure_routes),
     )
     .await;
+    let list: Value = actix_test::call_and_read_body_json(
+        &app,
+        actix_test::TestRequest::get()
+            .uri("/v1/models")
+            .insert_header(("authorization", "Bearer key-a"))
+            .to_request(),
+    )
+    .await;
+    let item = list["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"] == "text-model")
+        .unwrap();
+    assert_eq!(
+        item,
+        &json!({
+            "id":"text-model", "object":"model", "created":0, "owned_by":"test",
+            "capabilities":{
+                "pricing":{"input":2,"output":10,"reference_only":true},
+                "context_window":300000, "input_modalities":["text","image"],
+                "reasoning":{"efforts":["low"],"default_effort":"low"},
+                "file_extensions":["pdf"], "attachment_limits":{"file_bytes":1024,"max_files":null}
+            }
+        })
+    );
     for uri in ["/v1/models/text-model", "/api/accounts/account/models"] {
         let body: Value = actix_test::call_and_read_body_json(
             &app,

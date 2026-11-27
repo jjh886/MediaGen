@@ -207,6 +207,13 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
     }
     if message.contains("invalid_input") {
         if let Some(details) = structured_failure(message, "invalid_input") {
+            if details["reason"] == "unsupported_reasoning_effort" {
+                return (
+                    400,
+                    "invalid_input",
+                    "当前模型不支持所选思考深度，请查询模型目录中的可用档位".into(),
+                );
+            }
             if details["reason"] == "missing_tool_output" {
                 return (400, "invalid_input", "上游未找到工具调用对应的结果。请检查续聊输入是否包含相同 call_id 的 function_call_output。".into());
             }
@@ -232,7 +239,7 @@ pub(crate) fn public_failure(message: &str) -> (u16, &'static str, String) {
             if message.contains("invalid_input: 附件文件名无效") {
                 "附件文件名无效，请检查文件名"
             } else {
-                "请求输入格式无效，请检查输入内容与附件格式"
+                "请求输入无效，请检查输入内容和参数取值"
             }
             .into(),
         );

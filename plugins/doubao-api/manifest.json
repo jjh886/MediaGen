@@ -96,7 +96,7 @@
   "registration": {
     "enabled": false
   },
-  "version": "2.2.6",
+  "version": "2.2.7",
   "platform_id": "doubao-api",
   "display_name": "豆包",
   "sort_order": 50,
@@ -163,8 +163,25 @@
       "model_id": "doubao-api-text",
       "display_name": "豆包 文本",
       "task_kind": "text",
-      "aliases": ["doubao-text"],
       "capabilities": {
+        "pricing": {
+          "status": "unavailable",
+          "reference_only": true,
+          "source": "https://www.doubao.com/legal/ey01",
+          "note": "网页套餐，未查到该对话路由独立单价。"
+        },
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/doubao/chat/static/js/chat.21b19f3477.js",
+          "note": "网页聊天框默认每次 10 个，单文件 100 MiB、单图 20 MiB。实际账号配置可覆盖默认值。",
+          "web_defaults": {
+            "file_bytes": 104857600,
+            "image_bytes": 20971520,
+            "max_files": 10,
+            "max_reference_images": 10
+          }
+        },
         "reasoning": {
           "efforts": ["none", "standard"],
           "default_effort": "standard"
@@ -217,8 +234,33 @@
       "account_model": "doubao-api-seedream-5-pro",
       "display_name": "Seedream 5.0 Pro",
       "task_kind": "image",
-      "aliases": ["doubao-seedream-5-pro"],
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://docs.volcengine.com/docs/ark/agent-plan-personal-afp-credits-billing-rules?lang=zh",
+          "currency": "AFP",
+          "unit": "image",
+          "rates": {
+            "first_input": 0,
+            "additional_input": 10,
+            "output_up_to_2.61MP": 150,
+            "output_above_2.61MP": 300,
+            "layer_output_up_to_2.61MP": 75,
+            "layer_output_above_2.61MP": 150
+          },
+          "note": "火山方舟 Agent Plan 参考积分。 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。",
+          "status": "reference_only"
+        },
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://www.doubao.com/chat/",
+          "note": "以网页账号与所选模式为准。"
+        },
+        "file_extensions": ["png", "jpg", "jpeg", "webp"],
+        "reasoning": {
+          "efforts": []
+        },
         "input_types": ["text", "image"],
         "input_modalities": ["text", "image"],
         "output_modalities": ["image"],
@@ -230,8 +272,26 @@
       "account_model": "doubao-api-seedream-5-flash",
       "display_name": "Seedream 5.0 Flash",
       "task_kind": "image",
-      "aliases": ["doubao-seedream-5-flash"],
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://docs.volcengine.com/docs/ark/agent-plan-personal-afp-credits-billing-rules?lang=zh",
+          "currency": "AFP",
+          "unit": "image",
+          "output": 60,
+          "note": "火山方舟 Agent Plan 参考积分。 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。",
+          "status": "reference_only"
+        },
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://www.doubao.com/chat/",
+          "note": "以网页账号与所选模式为准。"
+        },
+        "file_extensions": ["png", "jpg", "jpeg", "webp"],
+        "reasoning": {
+          "efforts": []
+        },
         "input_types": ["text", "image"],
         "input_modalities": ["text", "image"],
         "output_modalities": ["image"],
@@ -243,8 +303,31 @@
       "account_model": "doubao-api-seedance-2-5",
       "display_name": "Seedance 2.5",
       "task_kind": "video",
-      "aliases": ["doubao-seedance-2-5"],
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://www.volcengine.com/product/doubao",
+          "currency": "CNY",
+          "unit": "1M video tokens",
+          "rates": {
+            "480p_720p_without_video": 70,
+            "480p_720p_with_video": 42,
+            "1080p_without_video": 77,
+            "1080p_with_video": 46
+          },
+          "note": "方舟 API 刊例；可用输入和分辨率以豆包网页为准。 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。",
+          "status": "reference_only"
+        },
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://www.doubao.com/chat/",
+          "note": "参考视频数量与时长由网页模型选择器返回。"
+        },
+        "file_extensions": ["png", "jpg", "jpeg", "webp"],
+        "reasoning": {
+          "efforts": []
+        },
         "input_types": ["text", "image"],
         "input_modalities": ["text", "image"],
         "output_modalities": ["video"],
@@ -256,8 +339,33 @@
       "account_model": "doubao-api-seedance-2",
       "display_name": "Seedance 2.0",
       "task_kind": "video",
-      "aliases": ["doubao-seedance-2"],
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://www.volcengine.com/product/doubao",
+          "currency": "CNY",
+          "unit": "1M video tokens",
+          "rates": {
+            "480p_720p_without_video": 46,
+            "480p_720p_with_video": 28,
+            "1080p_without_video": 51,
+            "1080p_with_video": 31,
+            "4k_without_video": 26,
+            "4k_with_video": 16
+          },
+          "note": "方舟 API 刊例；可用输入和分辨率以豆包网页为准。 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。",
+          "status": "reference_only"
+        },
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://www.doubao.com/chat/",
+          "note": "参考视频数量与时长由网页模型选择器返回。"
+        },
+        "file_extensions": ["png", "jpg", "jpeg", "webp"],
+        "reasoning": {
+          "efforts": []
+        },
         "input_types": ["text", "image"],
         "input_modalities": ["text", "image"],
         "output_modalities": ["video"],
@@ -269,8 +377,29 @@
       "account_model": "doubao-api-seedance-2-fast",
       "display_name": "Seedance 2.0 Fast",
       "task_kind": "video",
-      "aliases": ["doubao-seedance-2-fast"],
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://www.volcengine.com/product/doubao",
+          "currency": "CNY",
+          "unit": "1M video tokens",
+          "rates": {
+            "480p_720p_without_video": 37,
+            "480p_720p_with_video": 22
+          },
+          "note": "方舟 API 刊例；可用输入和分辨率以豆包网页为准。 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。",
+          "status": "reference_only"
+        },
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://www.doubao.com/chat/",
+          "note": "参考视频数量与时长由网页模型选择器返回。"
+        },
+        "file_extensions": ["png", "jpg", "jpeg", "webp", "mp4", "mov"],
+        "reasoning": {
+          "efforts": []
+        },
         "input_types": ["text", "image", "video"],
         "input_modalities": ["text", "image", "video"],
         "output_modalities": ["video"],
@@ -282,8 +411,29 @@
       "account_model": "doubao-api-seedance-2-mini",
       "display_name": "Seedance 2.0 Mini",
       "task_kind": "video",
-      "aliases": ["doubao-seedance-2-mini"],
       "capabilities": {
+        "pricing": {
+          "reference_only": true,
+          "source": "https://www.volcengine.com/product/doubao",
+          "currency": "CNY",
+          "unit": "1M video tokens",
+          "rates": {
+            "480p_720p_without_video": 23,
+            "480p_720p_with_video": 14
+          },
+          "note": "方舟 API 刊例；可用输入和分辨率以豆包网页为准。 当前账号通道的独立单价未公布，此处为官方其他计费通道参考价。",
+          "status": "reference_only"
+        },
+        "attachment_limits": {
+          "max_files": null,
+          "file_bytes": null,
+          "source": "https://www.doubao.com/chat/",
+          "note": "参考视频数量与时长由网页模型选择器返回。"
+        },
+        "file_extensions": ["png", "jpg", "jpeg", "webp"],
+        "reasoning": {
+          "efforts": []
+        },
         "input_types": ["text", "image"],
         "input_modalities": ["text", "image"],
         "output_modalities": ["video"],
@@ -444,13 +594,11 @@
     "supports_generation": true,
     "supports_edit": true,
     "supports_mask": false,
-    "max_reference_images": 10,
     "supported_output_formats": ["png", "jpeg", "webp"]
   },
   "video_capabilities": {
     "supports_generation": true,
     "supports_image_reference": true,
-    "max_reference_images": 10,
     "default_duration_seconds": 10,
     "supported_seconds": [
       "4",
@@ -486,7 +634,6 @@
     "max_duration_seconds": 30,
     "output_format": "mp4",
     "supports_video_reference": true,
-    "max_reference_videos": 1,
     "min_duration_seconds": 4
   },
   "task_recovery": {

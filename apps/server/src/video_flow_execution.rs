@@ -17,14 +17,16 @@ pub(crate) async fn prepare_video_flow_request(
 ) -> Result<(VideoFlowRequest, Vec<String>), crate::media_execution::ApiError> {
     let reference_urls = body.reference_urls();
     let reference_dataurls = fetch_ref_images_as_data_urls(&reference_urls, proxy_url).await;
-    let reference_locals = fetch_ref_images_as_local_files(&reference_urls, proxy_url).await;
-    let mut request = body.to_flow_request(
-        task_id,
-        model.display_name.clone(),
-        reference_dataurls,
-        reference_locals.clone(),
-    )?;
-    let mut files = reference_locals;
+    let caps = model.extra.get("capabilities").unwrap_or(&Value::Null);
+    if reference_urls.len() != reference_dataurls.len() {
+        return Err((400, "invalid_request", "无法读取参考图片".into()));
+    }
+    for url in &reference_dataurls {
+        crate::protocol_attachments::validate_data_url_size(caps, url)
+            .map_err(|m| (400, "attachment_limit_exceeded", m))?;
+    }
+    let mut request = body.to_flow_request(task_id, model, reference_dataurls, vec![])?;
+    let mut files = Vec::new();
     if let Some(reference) = body.extra.get("video_reference") {
         if !reference.is_object() {
             return Err((400, "invalid_request", "video_reference 必须是对象".into()));
@@ -37,6 +39,8 @@ pub(crate) async fn prepare_video_flow_request(
         if !matches!(mime.as_str(), "video/mp4" | "video/quicktime") {
             return Err((400, "invalid_request", "参考视频仅支持 MP4 或 MOV".into()));
         }
+        crate::protocol_attachments::validate_size(caps, &mime, bytes.len() as u64)
+            .map_err(|m| (400, "attachment_limit_exceeded", m))?;
         let ext = if mime == "video/mp4" { "mp4" } else { "mov" };
         let path = std::env::temp_dir().join(format!(
             "mediagen-reference-{}.{}",
@@ -54,6 +58,13 @@ pub(crate) async fn prepare_video_flow_request(
             .as_object_mut()
             .map(|extra| extra.remove("video_reference"));
     }
+    let locals = fetch_ref_images_as_local_files(&request.ref_image_dataurls, proxy_url).await;
+    files.extend(locals.iter().cloned());
+    if locals.len() != reference_urls.len() {
+        crate::image_assets::cleanup_temp_files(&files).await;
+        return Err((400, "invalid_request", "无法保存参考图片".into()));
+    }
+    request.ref_image_locals = locals;
     Ok((request, files))
 }
 

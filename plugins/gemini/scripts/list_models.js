@@ -1,9 +1,9 @@
 function main(ctx) {
   const session = geminiInitialize(apiSessionRead(ctx))
+  const models = geminiCatalog(session)
   return {
-    models: geminiCatalog(session).map((model) => ({
+    models: models.map((model) => ({
       model_id: model.id,
-      aliases: model.aliases || [],
       display_name: model.name,
       task_kind: 'text',
       capabilities: {

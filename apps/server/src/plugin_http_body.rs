@@ -38,9 +38,6 @@ pub(super) fn multipart_form(body: &Value) -> Result<reqwest::multipart::Form, S
             let bytes = BASE64_STANDARD
                 .decode(encoded)
                 .map_err(|_| "multipart 文件编码无效".to_string())?;
-            if bytes.len() > MAX_FILE_BYTES as usize {
-                return Err("上传文件过大".into());
-            }
             let part = reqwest::multipart::Part::bytes(bytes)
                 .file_name(value["filename"].as_str().unwrap_or("upload").to_string())
                 .mime_str(

@@ -204,15 +204,15 @@ impl OpenAiImageRequest {
 
     pub fn to_flow_request(
         &self,
-        model_display_name: String,
+        model: &mediagen_core::ModelDef,
         endpoint: ImageEndpoint,
         ref_dataurls: Vec<String>,
         mask_dataurl: Option<String>,
     ) -> ImageFlowRequest {
         ImageFlowRequest {
             task_id: None,
-            model_id: self.model.clone(),
-            model_display_name,
+            model_id: model.model_id.clone(),
+            model_display_name: model.display_name.clone(),
             prompt: self.prompt_text(),
             max_images: self.n.unwrap_or(1).clamp(1, 4),
             output_format: self.output_format(),
