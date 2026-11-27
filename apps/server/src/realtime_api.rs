@@ -51,7 +51,7 @@ pub(crate) fn configure(cfg: &mut web::ServiceConfig) {
 async fn create(
     state: web::Data<ServerState>,
     request: HttpRequest,
-    mut payload: web::Payload,
+    payload: web::Payload,
 ) -> HttpResponse {
     if !crate::routes::api_key_allowed(&state, &request) {
         return error(401, "invalid_api_key", "API Key 无效");
@@ -67,20 +67,9 @@ async fn create(
             Err(message) => return error(400, "invalid_request", &message),
         }
     } else {
-        let mut bytes = Vec::new();
-        while let Some(chunk) = payload.next().await {
-            let chunk = match chunk {
-                Ok(chunk) => chunk,
-                Err(_) => return error(400, "invalid_body", "读取请求失败"),
-            };
-            if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
-                return error(413, "body_too_large", "请求过大");
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        match serde_json::from_slice::<Value>(&bytes) {
+        match crate::media_multipart::read_json::<Value>(payload).await {
             Ok(body) => body,
-            Err(_) => return error(400, "invalid_json", "请求体不是有效 JSON"),
+            Err((status, code, message)) => return error(status, code, &message),
         }
     };
     let live_session = request.path() == "/v1/live/sessions";
@@ -395,25 +384,22 @@ async fn relay(
     if session.controller.swap(true, Ordering::SeqCst) {
         return error(409, "controller_busy", "通话已有辅助连接");
     }
-    let (response, mut client, stream) = match actix_ws::handle(&request, payload) {
-        Ok(value) => value,
-        Err(_) => {
-            session.controller.store(false, Ordering::SeqCst);
-            return error(400, "invalid_websocket", "WebSocket 握手无效");
-        }
-    };
-    let mut stream = stream
-        .max_frame_size(8 * 1024 * 1024)
-        .aggregate_continuations()
-        .max_continuation_size(8 * 1024 * 1024);
+    let (response, mut client, mut stream) =
+        match crate::protocol_websocket::accept(&request, payload).await {
+            Ok(value) => value,
+            Err(_) => {
+                session.controller.store(false, Ordering::SeqCst);
+                return error(400, "invalid_websocket", "WebSocket 握手无效");
+            }
+        };
     let mut outgoing = session.outgoing.subscribe();
     actix_web::rt::spawn(async move {
         let _controller = ControllerLease(session.controller.clone());
         loop {
             tokio::select! {
                 incoming=stream.next()=>match incoming{
-                    Some(Ok(actix_ws::AggregatedMessage::Text(text)))=>{if text.len()>8*1024*1024||session.incoming.send(Message::Text(text.to_string().into())).await.is_err(){break;}},
-                    Some(Ok(actix_ws::AggregatedMessage::Binary(bytes)))=>{if bytes.len()>8*1024*1024||session.incoming.send(Message::Binary(bytes)).await.is_err(){break;}},
+                    Some(Ok(actix_ws::AggregatedMessage::Text(text)))=>{if session.incoming.send(Message::Text(text.to_string().into())).await.is_err(){break;}},
+                    Some(Ok(actix_ws::AggregatedMessage::Binary(bytes)))=>{if session.incoming.send(Message::Binary(bytes)).await.is_err(){break;}},
                     Some(Ok(actix_ws::AggregatedMessage::Ping(bytes)))=>{if client.pong(&bytes).await.is_err(){break;}},
                     Some(Ok(actix_ws::AggregatedMessage::Pong(_)))=>{},
                     _=>break,

@@ -2405,6 +2405,7 @@ dependencies = [
 name = "mediagen-browser-gateway"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "chrono",
  "futures-util",
  "mediagen-core",
@@ -2416,6 +2417,7 @@ dependencies = [
  "tokio",
  "tokio-socks",
  "tokio-tungstenite",
+ "tokio-util",
  "uuid",
 ]
 

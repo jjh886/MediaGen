@@ -5,7 +5,7 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::time::timeout;
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::Message;
 
 static TASK_TARGETS: OnceLock<Mutex<HashMap<String, Vec<ExternalTarget>>>> = OnceLock::new();
 
@@ -184,7 +184,7 @@ async fn send_target_command(
         .and_then(Value::as_u64)
         .unwrap_or(30_000)
         .clamp(1, 30 * 60 * 1000);
-    let (mut socket, _) = connect_async(&websocket_url)
+    let mut socket = mediagen_browser_gateway::connect_cdp_socket(&websocket_url)
         .await
         .map_err(|error| format!("连接 CDP target 失败: {error}"))?;
     socket

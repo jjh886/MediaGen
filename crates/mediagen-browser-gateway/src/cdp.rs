@@ -6,11 +6,38 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::{timeout, Duration};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::{handshake::client::generate_key, Message};
 
 use crate::BrowserGatewayError;
 
 const CDP_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// CDP 的截图和浏览器下载结果可能在一个 JSON 帧内返回。
+pub async fn connect_cdp_socket(websocket_url: &str) -> Result<crate::websocket::Socket, String> {
+    let mut url = reqwest::Url::parse(websocket_url).map_err(|_| "CDP 地址无效")?;
+    let scheme = match url.scheme() {
+        "ws" => "http",
+        "wss" => "https",
+        _ => return Err("CDP WebSocket 协议无效".into()),
+    };
+    url.set_scheme(scheme)
+        .map_err(|_| "CDP WebSocket 协议无效")?;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .http1_only()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "初始化 CDP 客户端失败")?;
+    let key = generate_key();
+    let response = crate::websocket::upgrade_request(client.get(url), &key)
+        .send()
+        .await
+        .map_err(|err| err.without_url().to_string())?;
+    if response.headers().contains_key("sec-websocket-protocol") {
+        return Err("CDP 返回了未请求的子协议".into());
+    }
+    crate::websocket::finish_upgrade(response, &key).await
+}
 
 pub(crate) struct CdpClient {
     pub(crate) viewport_lock: Mutex<()>,
@@ -23,9 +50,9 @@ impl CdpClient {
     pub(crate) async fn connect(
         websocket_url: &str,
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Value>), BrowserGatewayError> {
-        let (socket, _) = connect_async(websocket_url)
+        let socket = connect_cdp_socket(websocket_url)
             .await
-            .map_err(|err| BrowserGatewayError::Cdp(err.to_string()))?;
+            .map_err(BrowserGatewayError::Cdp)?;
         let (mut write, mut read) = socket.split();
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
         let (event_tx, event_rx) = mpsc::unbounded_channel::<Value>();
@@ -134,5 +161,37 @@ impl CdpClient {
         self.sender
             .send(message)
             .map_err(|_| BrowserGatewayError::Cdp("CDP websocket 已断开".to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn media_response_can_exceed_websocket_defaults() {
+        let size = (64 << 20) + 1;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let peer = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let request = socket.next().await.unwrap().unwrap();
+            let command: Value = serde_json::from_str(request.to_text().unwrap()).unwrap();
+            let response = json!({"id":command["id"], "result":{"data":"A".repeat(size)}});
+            socket
+                .send(Message::Text(response.to_string().into()))
+                .await
+                .unwrap();
+        });
+        let (client, _events) = CdpClient::connect(&format!("ws://{address}"))
+            .await
+            .unwrap();
+        let result = client
+            .send("Page.captureScreenshot", json!({}))
+            .await
+            .unwrap();
+        assert_eq!(result["data"].as_str().unwrap().len(), size);
+        peer.await.unwrap();
     }
 }

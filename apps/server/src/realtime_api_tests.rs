@@ -112,7 +112,7 @@ async fn live_creation_encrypts_recovery_state_and_uses_one_request_id() {
             400,
         ),
         (
-            json!({"session":{"model":"missing"},"transport":{"type":"webrtc","sdp":"v=0"}}),
+            json!({"session":{"model":"missing"},"transport":{"type":"webrtc","sdp":format!("v=0{}", " ".repeat(2 << 20))}}),
             404,
         ),
     ] {

@@ -5,7 +5,6 @@ use actix_web::{
 };
 use futures_util::{future::poll_fn, stream::try_unfold, StreamExt};
 use serde_json::{json, Value};
-use tokio_tungstenite::tungstenite::protocol::frame::{coding::OpCode, FrameHeader};
 
 pub(crate) struct LocalContinuation(pub String);
 
@@ -15,23 +14,9 @@ fn complete_frames(payload: web::Payload) -> actix_web::dev::Payload {
         (payload, bytes::BytesMut::new()),
         |(mut payload, mut buf)| async move {
             loop {
-                let mut cursor = std::io::Cursor::new(buf.as_ref());
-                if let Some((header, length)) =
-                    FrameHeader::parse(&mut cursor).map_err(|_| PayloadError::EncodingCorrupted)?
+                if let Some(end) = mediagen_browser_gateway::websocket::frame_length(&buf, true)
+                    .map_err(|_| PayloadError::EncodingCorrupted)?
                 {
-                    if header.mask.is_none()
-                        || header.rsv1
-                        || header.rsv2
-                        || header.rsv3
-                        || (matches!(header.opcode, OpCode::Control(_))
-                            && (!header.is_final || length > 125))
-                    {
-                        return Err(PayloadError::EncodingCorrupted);
-                    }
-                    let end = length
-                        .checked_add(cursor.position())
-                        .filter(|&n| n <= isize::MAX as u64)
-                        .ok_or(PayloadError::Overflow)? as usize;
                     if buf.len() >= end {
                         return Ok(Some((buf.split_to(end).freeze(), (payload, buf))));
                     }
@@ -47,6 +32,27 @@ fn complete_frames(payload: web::Payload) -> actix_web::dev::Payload {
     actix_web::dev::Payload::from(frames.boxed_local())
 }
 
+pub(crate) async fn accept(
+    request: &HttpRequest,
+    payload: web::Payload,
+) -> Result<
+    (
+        HttpResponse,
+        actix_ws::Session,
+        actix_ws::AggregatedMessageStream,
+    ),
+    actix_web::Error,
+> {
+    let mut frames = complete_frames(payload);
+    let payload = web::Payload::from_request(request, &mut frames).await?;
+    let (response, session, messages) = actix_ws::handle(request, payload)?;
+    let messages = messages
+        .max_frame_size(isize::MAX as usize)
+        .aggregate_continuations()
+        .max_continuation_size(isize::MAX as usize);
+    Ok((response, session, messages))
+}
+
 pub(crate) async fn responses(
     state: web::Data<ServerState>,
     request: HttpRequest,
@@ -55,20 +61,12 @@ pub(crate) async fn responses(
     if !crate::routes::api_key_allowed(&state, &request) {
         return crate::protocol_api::error(401, "invalid_api_key", "API Key 无效");
     }
-    let mut frames = complete_frames(payload);
-    let handshake = web::Payload::from_request(&request, &mut frames)
-        .await
-        .and_then(|payload| actix_ws::handle(&request, payload));
-    let (response, mut session, messages) = match handshake {
+    let (response, mut session, mut messages) = match accept(&request, payload).await {
         Ok(value) => value,
         Err(_) => {
             return crate::protocol_api::error(400, "invalid_websocket", "WebSocket 握手无效")
         }
     };
-    let mut messages = messages
-        .max_frame_size(isize::MAX as usize)
-        .aggregate_continuations()
-        .max_continuation_size(isize::MAX as usize);
     actix_web::rt::spawn(async move {
         request
             .extensions_mut()
@@ -217,7 +215,10 @@ async fn send_error(
 mod tests {
     use super::*;
     fn frame(text: String) -> web::Bytes {
-        use tokio_tungstenite::tungstenite::protocol::frame::{coding::Data, Frame};
+        use tokio_tungstenite::tungstenite::protocol::frame::{
+            coding::{Data, OpCode},
+            Frame,
+        };
         let mut frame = Frame::message(text, OpCode::Data(Data::Text), true);
         frame.header_mut().mask = Some([1, 2, 3, 4]);
         let mut bytes = Vec::with_capacity(frame.len());

@@ -262,6 +262,18 @@ async fn encrypted_credentials_and_checkpoints_survive_new_runtime() {
     .unwrap();
     assert_eq!(result["conversation_id"], "upstream-id");
     assert!(!restored.safe_to_retry().await);
+    let media_size = (64 << 20) + 1;
+    restored
+        .checkpoint(&json!({"value":{"phase":"completed","result":"A".repeat(media_size)}}))
+        .await
+        .unwrap();
+    assert_eq!(
+        restored.checkpoint(&json!({})).await.unwrap()["result"]
+            .as_str()
+            .unwrap()
+            .len(),
+        media_size
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 

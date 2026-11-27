@@ -26,7 +26,7 @@ impl ServerPluginHost {
             if connections.len() >= 64 {
                 return Err("WebSocket 连接数量已达上限".into());
             }
-            let socket = connect_with_host(self, params, 16 << 20).await?;
+            let socket = connect_with_host(self, params).await?;
             let id = uuid::Uuid::new_v4().to_string();
             connections.insert(id.clone(), Arc::new(Mutex::new(socket)));
             let weak = Arc::downgrade(&self.sockets.0);
@@ -59,9 +59,6 @@ impl ServerPluginHost {
             }
             "http.websocket_send" => {
                 let text = required_str(params, "text")?;
-                if text.len() > 1 << 20 {
-                    return Err("WebSocket 消息超过 1 MiB".into());
-                }
                 tokio::time::timeout(
                     Duration::from_secs(15),
                     socket.send(Message::Text(text.into())),
@@ -130,7 +127,11 @@ mod tests {
             .unwrap();
             let message = socket.next().await.unwrap().unwrap();
             socket.send(Message::Ping(vec![1].into())).await.unwrap();
-            socket.send(message).await.unwrap();
+            assert_eq!(message.into_text().unwrap().len(), 2 << 20);
+            socket
+                .send(Message::Text("a".repeat(17 << 20).into()))
+                .await
+                .unwrap();
             assert!(matches!(
                 socket.next().await.unwrap().unwrap(),
                 Message::Pong(_)
@@ -146,7 +147,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let params = json!({"connection_id":result["connection_id"],"text":"你好"});
+        let params = json!({"connection_id":result["connection_id"],"text":"x".repeat(2 << 20)});
         assert!(other.execute("http.websocket_send", &params).await.is_err());
         assert_eq!(
             host.execute(
@@ -161,8 +162,11 @@ mod tests {
         assert_eq!(
             host.execute("http.websocket_receive", &params)
                 .await
-                .unwrap()["text"],
-            "你好"
+                .unwrap()["text"]
+                .as_str()
+                .unwrap()
+                .len(),
+            17 << 20
         );
         host.execute("http.websocket_close", &params).await.unwrap();
         assert!(host

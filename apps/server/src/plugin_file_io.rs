@@ -121,9 +121,6 @@ impl ServerPluginHost {
             .join("checkpoints")
             .join(format!("{key}.json"));
         if let Some(value) = params.get("value") {
-            if value.to_string().len() > 64 * 1024 * 1024 {
-                return Err("检查点超过大小限制".into());
-            }
             self.write_json(&json!({"path":path,"value":value,"encrypted":true}))
                 .await?;
             return Ok(value.clone());

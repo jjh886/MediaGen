@@ -40,10 +40,11 @@ pub(crate) async fn connect(
     {
         return error(400, "unsupported_transport", "该模型不支持实时主 WebSocket");
     }
-    let (response, mut session, messages) = match actix_ws::handle(&request, payload) {
-        Ok(value) => value,
-        Err(_) => return error(400, "invalid_websocket", "WebSocket 握手无效"),
-    };
+    let (response, mut session, mut messages) =
+        match crate::protocol_websocket::accept(&request, payload).await {
+            Ok(value) => value,
+            Err(_) => return error(400, "invalid_websocket", "WebSocket 握手无效"),
+        };
     let id = crate::request_identity::id(&request);
     let (account, lease) = match crate::protocol_task::reserve(
         &state,
@@ -92,10 +93,6 @@ pub(crate) async fn connect(
             }
         };
     state.store.mark_account_usage_for(&account.id, "realtime");
-    let mut messages = messages
-        .max_frame_size(8 * 1024 * 1024)
-        .aggregate_continuations()
-        .max_continuation_size(8 * 1024 * 1024);
     actix_web::rt::spawn(async move {
         let _lease = lease;
         let mut timer = tokio::time::interval(Duration::from_secs(20));
@@ -243,7 +240,7 @@ mod tests {
                         assert!(event["session"].get("type").is_none());
                         socket
                             .send(Message::Text(
-                                json!({"type":"response.audio.delta","delta":"YXVkaW8="})
+                                json!({"type":"response.audio.delta","delta":event["audio"]})
                                     .to_string()
                                     .into(),
                             ))
@@ -326,7 +323,8 @@ mod tests {
             .send(Message::Text("invalid json".into()))
             .await
             .unwrap();
-        socket.send(Message::Text(json!({"type":"session.update","session":{"type":"realtime","audio":{"output":{"voice":"voice"}}}}).to_string().into())).await.unwrap();
+        let audio = "YXVkaW8A".repeat(1152 * 1024);
+        socket.send(Message::Text(json!({"type":"session.update","audio":audio,"session":{"type":"realtime","audio":{"output":{"voice":"voice"}}}}).to_string().into())).await.unwrap();
         let mut invalid = false;
         tokio::time::timeout(Duration::from_secs(5), async {
             while let Some(Ok(frame)) = socket.next().await {
@@ -336,11 +334,12 @@ mod tests {
                         invalid = true;
                     }
                     if event["type"] == "response.output_audio.delta" {
-                        assert_eq!(event["delta"], "YXVkaW8=");
-                        break;
+                        assert_eq!(event["delta"].as_str().unwrap(), audio);
+                        return;
                     }
                 }
             }
+            panic!("大音频事件未返回");
         })
         .await
         .unwrap();

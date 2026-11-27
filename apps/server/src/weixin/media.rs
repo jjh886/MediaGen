@@ -11,7 +11,6 @@ use reqwest::Url;
 
 use super::client::{UploadRequest, WeixinIlinkClient};
 
-const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 3;
 
 pub(crate) struct ImageSendContext<'a> {
@@ -176,8 +175,8 @@ async fn read_image_response(response: reqwest::Response) -> Result<Vec<u8>, Str
 }
 
 fn validate_image_bytes(bytes: &[u8]) -> Result<(), String> {
-    if bytes.is_empty() || bytes.len() > MAX_IMAGE_BYTES {
-        return Err("生成图片大小无效".to_string());
+    if bytes.is_empty() {
+        return Err("生成图片为空".to_string());
     }
     image::guess_format(bytes).map_err(|_| "生成结果不是受支持的图片格式".to_string())?;
     Ok(())
@@ -186,12 +185,6 @@ fn validate_image_bytes(bytes: &[u8]) -> Result<(), String> {
 fn validate_image_response(response: &reqwest::Response) -> Result<(), String> {
     if !response.status().is_success() {
         return Err(format!("下载生成图片失败: HTTP {}", response.status()));
-    }
-    if response
-        .content_length()
-        .is_some_and(|size| size as usize > MAX_IMAGE_BYTES)
-    {
-        return Err("生成图片超过微信发送大小限制".to_string());
     }
     let content_type = response
         .headers()
@@ -250,6 +243,37 @@ mod tests {
             .unwrap();
         let data_url = format!("data:image/png;base64,{}", STANDARD.encode(bytes));
         assert!(decode_data_url(&data_url).is_ok());
+    }
+
+    #[tokio::test]
+    async fn accepts_large_image_download_with_content_length() {
+        use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+        use image::ImageEncoder;
+        let mut bytes = Vec::new();
+        let pixels = image::RgbImage::new(2730, 2730);
+        PngEncoder::new_with_quality(
+            &mut bytes,
+            CompressionType::Uncompressed,
+            FilterType::NoFilter,
+        )
+        .write_image(
+            pixels.as_raw(),
+            pixels.width(),
+            pixels.height(),
+            image::ExtendedColorType::Rgb8,
+        )
+        .unwrap();
+        let size = bytes.len();
+        assert!(size > 20 << 20);
+        let response = tokio_tungstenite::tungstenite::http::Response::builder()
+            .header("content-type", "image/png")
+            .header("content-length", size)
+            .body(bytes)
+            .unwrap();
+        assert_eq!(
+            read_image_response(response.into()).await.unwrap().len(),
+            size
+        );
     }
 
     #[test]

@@ -100,7 +100,7 @@ export const fileDocs: ApiExample[] = [
     description:
       '上传本地图片作为豆包视频参考，也可用 JSON input_reference 引用图片 file_id 或 image_url。',
     notes: [
-      '参考图为 PNG、JPEG 或 WebP，单张不超过 10 MiB，合计最多 10 张；最终数量和用途仍受具体模型限制。',
+      '参考图支持 PNG、JPEG 和 WebP，单张大小、数量和用途由所选模型决定。',
       '多图：multipart 重复传 input_references[]；JSON 使用 input_references 数组。input_reference 与数组数量合并计算。',
       'JSON 图片 file_id 须先通过 POST /v1/files 上传，且使用同一 API Key。',
       '返回任务后按查询、下载流程处理。',

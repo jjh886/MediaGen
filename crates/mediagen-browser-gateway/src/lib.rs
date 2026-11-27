@@ -23,7 +23,10 @@ mod types;
 #[cfg(test)]
 mod types_tests;
 
+pub use cdp::connect_cdp_socket;
 pub use fingerprint::{BrowserFingerprint, BROWSER_OS_METADATA_KEY, BROWSER_VERSION_METADATA_KEY};
 pub use input_types::*;
 pub use manager::*;
 pub use types::*;
+
+pub mod websocket;

@@ -27,8 +27,6 @@ pub(crate) fn encode(
             .map_err(|_| "上游图片格式无效")?;
         let actual = reader.format();
         let mut limits = image::Limits::default();
-        limits.max_image_width = Some(8192);
-        limits.max_image_height = Some(8192);
         limits.max_alloc = Some(256 * 1024 * 1024);
         reader.limits(limits);
         let mut image = reader.decode().map_err(|_| "上游图片损坏或尺寸过大")?;
@@ -171,6 +169,18 @@ mod tests {
             assert!(!response.to_string().contains("https://"));
         }
         assert!(encode(vec!["broken".into()], json!({}), "png", None, None).is_err());
+    }
+
+    #[test]
+    fn returns_wide_original_image_without_resizing() {
+        let mut png = Cursor::new(Vec::new());
+        image::RgbImage::new(8193, 1)
+            .write_to(&mut png, ImageFormat::Png)
+            .unwrap();
+        let original = STANDARD.encode(png.into_inner());
+        let result = encode(vec![original.clone()], json!({}), "png", None, None).unwrap();
+        assert_eq!(result["size"], "8193x1");
+        assert_eq!(result["data"][0]["b64_json"].as_str().unwrap(), original);
     }
 
     #[tokio::test]

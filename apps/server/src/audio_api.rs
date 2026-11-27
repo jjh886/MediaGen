@@ -160,7 +160,6 @@ pub(crate) async fn multipart(
     }
     let mut parts = Multipart::new(request.headers(), payload);
     let mut result = json!({});
-    let mut total = 0;
     while let Some(part) = parts.next().await {
         let mut part = part.map_err(|_| "multipart 格式无效")?;
         let name = part.name().ok_or("字段缺少名称")?.to_string();
@@ -202,10 +201,6 @@ pub(crate) async fn multipart(
         let mut bytes = Vec::new();
         while let Some(chunk) = part.next().await {
             let chunk = chunk.map_err(|_| "读取上传内容失败")?;
-            total += chunk.len();
-            if total > 2 * 1024 * 1024 {
-                return Err("上传内容超过大小限制".into());
-            }
             bytes.extend_from_slice(&chunk);
         }
         result[&name] = if let Some(filename) = filename {
@@ -247,6 +242,31 @@ mod tests {
     fn form(extra: &str) -> String {
         format!("--boundary\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\naudio-test\r\n--boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\nRIFFtest\r\n{extra}--boundary--\r\n")
     }
+    #[actix_web::test]
+    async fn multipart_accepts_large_prompt_with_audio() {
+        let app = at::init_service(
+            App::new()
+                .app_data(state())
+                .configure(crate::configure_routes),
+        )
+        .await;
+        let prompt = format!(
+            "--boundary\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\n{}\r\n",
+            "a".repeat((2 << 20) + 1)
+        );
+        let response = at::call_service(
+            &app,
+            at::TestRequest::post()
+                .uri("/v1/audio/transcriptions")
+                .insert_header(("authorization", "Bearer key"))
+                .insert_header(("content-type", "multipart/form-data; boundary=boundary"))
+                .set_payload(form(&prompt))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+    }
+
     #[actix_web::test]
     async fn transcription_uses_model_file_limit_even_when_model_field_follows_file() {
         let state = state();

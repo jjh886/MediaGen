@@ -1,28 +1,20 @@
 use crate::{server_plugin_host::ServerPluginHost, store::AccountRecord};
 use futures_util::{SinkExt, StreamExt};
+pub(crate) use mediagen_browser_gateway::websocket::Socket;
+use mediagen_browser_gateway::websocket::{finish_upgrade, upgrade_request};
 use serde_json::Value;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
-use tokio_tungstenite::{
-    tungstenite::{
-        handshake::{client::generate_key, derive_accept_key},
-        protocol::{Role, WebSocketConfig},
-        Message,
-    },
-    WebSocketStream,
-};
-
-pub(crate) type Socket = WebSocketStream<reqwest::Upgraded>;
+use tokio_tungstenite::tungstenite::{handshake::client::generate_key, Message};
 
 pub(crate) async fn connect(account: &AccountRecord, descriptor: &Value) -> Result<Socket, String> {
     let host = ServerPluginHost::new_for_account(account);
-    connect_with_host(&host, descriptor, 8 * 1024 * 1024).await
+    connect_with_host(&host, descriptor).await
 }
 
 pub(crate) async fn connect_with_host(
     host: &ServerPluginHost,
     descriptor: &Value,
-    max_bytes: usize,
 ) -> Result<Socket, String> {
     let mut descriptor = descriptor.clone();
     descriptor["http1_only"] = serde_json::json!(true);
@@ -40,12 +32,8 @@ pub(crate) async fn connect_with_host(
     let request = host
         .client_for(descriptor)?
         .get(url)
-        .version(reqwest::Version::HTTP_11)
-        .headers(host.request_headers(descriptor)?)
-        .header("connection", "Upgrade")
-        .header("upgrade", "websocket")
-        .header("sec-websocket-version", "13")
-        .header("sec-websocket-key", &key);
+        .headers(host.request_headers(descriptor)?);
+    let request = upgrade_request(request, &key);
     let response = tokio::time::timeout(Duration::from_secs(30), request.send())
         .await
         .map_err(|_| "WebSocket 握手超时")?
@@ -56,23 +44,7 @@ pub(crate) async fn connect_with_host(
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Err("call_not_found".into());
     }
-    if response.status() != reqwest::StatusCode::SWITCHING_PROTOCOLS
-        || response
-            .headers()
-            .get("sec-websocket-accept")
-            .and_then(|value| value.to_str().ok())
-            != Some(derive_accept_key(key.as_bytes()).as_str())
-    {
-        return Err(format!(
-            "上游拒绝 WebSocket 握手（HTTP {}）",
-            response.status().as_u16()
-        ));
-    }
-    let stream = response.upgrade().await.map_err(|_| "WebSocket 升级失败")?;
-    let config = WebSocketConfig::default()
-        .max_message_size(Some(max_bytes))
-        .max_frame_size(Some(max_bytes));
-    Ok(WebSocketStream::from_raw_socket(stream, Role::Client, Some(config)).await)
+    finish_upgrade(response, &key).await
 }
 
 pub(crate) struct DriveContext {

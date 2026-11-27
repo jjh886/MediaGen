@@ -5,6 +5,7 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
+bytes.workspace = true
 chrono.workspace = true
 futures-util.workspace = true
 mediagen-core = { path = "../mediagen-core" }
@@ -14,6 +15,7 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util = { version = "0.7", features = ["codec", "io"] }
 tokio-socks = "0.5.3"
 tokio-tungstenite.workspace = true
 uuid.workspace = true

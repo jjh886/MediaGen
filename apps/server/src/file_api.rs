@@ -209,9 +209,6 @@ async fn parse_upload(
                 let mut bytes = Vec::new();
                 while let Some(chunk) = field.next().await {
                     let chunk = chunk.map_err(|_| (400, "上传表单中断".into()))?;
-                    if bytes.len() + chunk.len() > 1024 {
-                        return Err((400, "purpose 字段过长".into()));
-                    }
                     bytes.extend_from_slice(&chunk);
                 }
                 purpose = String::from_utf8(bytes)

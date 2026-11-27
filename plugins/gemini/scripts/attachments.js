@@ -10,9 +10,6 @@ function geminiUploadRequest(session, url, options) {
 }
 
 function geminiUpload(session, attachment) {
-  const limit = attachment.mime_type.startsWith('video/') ? 2 * 1024 ** 3 : 100 * 1024 ** 2
-  if (attachment.size > limit)
-    throw new Error('invalid_input: Gemini 附件超过上游单文件大小限制（视频2GB，其他文件100MB）')
   if (!session.tokens.push_id) throw new Error('upstream_client_outdated: Gemini 页面缺少上传参数')
   const headers = {
     'x-tenant-id': 'bard-storage',
@@ -88,7 +85,7 @@ function geminiReferences(ctx, session, request) {
       for (const path of paths) {
         const file = host.call(
           type.startsWith('image/') ? 'file.inspect_image' : 'file.inspect_media',
-          { path, max_bytes: type.startsWith('video/') ? 2 * 1024 ** 3 : 100 * 1024 ** 2 }
+          { path }
         )
         const name = path.split(/[\\/]/).pop()
         const extension = name.split('.').pop().toLowerCase()
