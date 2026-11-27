@@ -1,19 +1,39 @@
 use actix_multipart::{Field, Multipart};
 use actix_web::http::header;
-use actix_web::{web, HttpRequest};
+use actix_web::{web, HttpMessage, HttpRequest};
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use serde_json::Value;
 
-use crate::image_request::{OpenAiImageRef, OpenAiImageRequest};
+use crate::image_request::{ImageEndpoint, OpenAiImageRef, OpenAiImageRequest};
 use crate::media_multipart::image_data_url;
 
 pub type ParseError = (u16, &'static str, String);
 
 pub async fn parse_image_request(
-    req: HttpRequest,
+    req: &HttpRequest,
     payload: web::Payload,
+    endpoint: ImageEndpoint,
 ) -> Result<OpenAiImageRequest, ParseError> {
+    if endpoint == ImageEndpoint::Generation {
+        // 兼容原 JSON 提取器支持的 +json 类型和压缩请求体。
+        if !req.mime_type().ok().flatten().is_some_and(|mime| {
+            mime.subtype() == "json" || mime.suffix().is_some_and(|suffix| suffix == "json")
+        }) {
+            return Err((
+                400,
+                "invalid_request_error",
+                "图片生成接口要求 JSON 请求体".into(),
+            ));
+        }
+        let decoded = actix_web::dev::Decompress::from_headers(payload, req.headers());
+        return crate::media_multipart::read_json(decoded)
+            .await
+            .map_err(|err| match err {
+                (400, _, message) => (400, "invalid_request_error", message),
+                other => other,
+            });
+    }
     let content_type = req
         .headers()
         .get(header::CONTENT_TYPE)

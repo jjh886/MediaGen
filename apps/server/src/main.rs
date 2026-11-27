@@ -1,5 +1,3 @@
-pub(crate) const MAX_REQUEST_BODY_BYTES: usize = 50 * 1024 * 1024;
-
 mod access_control;
 mod account_browser_profile;
 mod account_login;
@@ -271,6 +269,8 @@ fn configure_routes(cfg: &mut web::ServiceConfig) {
 }
 
 fn configure_management_routes(cfg: &mut web::ServiceConfig) {
+    // 显式关闭 JSON 提取器的固定大小上限，省略配置会恢复 Actix 默认的 2 MiB。
+    cfg.app_data(web::JsonConfig::default().limit(usize::MAX));
     cfg.route("/health", web::get().to(health))
         .route("/api/setup", web::post().to(setup))
         .route("/api/plugins", web::get().to(plugins))
@@ -323,22 +323,6 @@ fn configure_management_routes(cfg: &mut web::ServiceConfig) {
 }
 
 fn configure_openai_routes(cfg: &mut web::ServiceConfig) {
-    cfg.app_data(
-        web::JsonConfig::default()
-            .limit(MAX_REQUEST_BODY_BYTES)
-            .error_handler(|error, request| {
-                if !request.path().starts_with("/v1/") {
-                    return error.into();
-                }
-                let status = actix_web::ResponseError::status_code(&error).as_u16();
-                let response = protocol_api::error(
-                    status,
-                    "invalid_request_error",
-                    "请求 JSON 无效、参数类型错误或请求体超出限制",
-                );
-                actix_web::error::InternalError::from_response(error, response).into()
-            }),
-    );
     cfg.route(
         "/v1/responses/compact",
         web::post().to(protocol_api::compact),

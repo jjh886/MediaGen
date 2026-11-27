@@ -1,22 +1,14 @@
 use super::*;
 
-pub(super) async fn read_response_bounded(
+pub(super) async fn read_response_body(
     mut response: super::http_transport::TransportResponse,
 ) -> Result<Vec<u8>, String> {
-    if response
-        .headers
-        .get("content-length")
-        .and_then(|value| value.parse::<u64>().ok())
-        .is_some_and(|size| size > MAX_FILE_BYTES)
-    {
-        return Err("HTTP 响应超过大小限制".into());
-    }
     let mut bytes = Vec::new();
     while let Some(chunk) = response.body.next().await {
         let chunk = chunk?;
-        if bytes.len().saturating_add(chunk.len()) > MAX_FILE_BYTES as usize {
-            return Err("HTTP 响应超过大小限制".into());
-        }
+        bytes
+            .try_reserve(chunk.len())
+            .map_err(|_| "读取 HTTP 响应时内存不足")?;
         bytes.extend_from_slice(&chunk);
     }
     Ok(bytes)
@@ -38,9 +30,9 @@ async fn read_json_stream(
         };
         let Some(chunk) = chunk else { break };
         let chunk = chunk?;
-        if bytes.len().saturating_add(chunk.len()) > MAX_FILE_BYTES as usize {
-            return Err("HTTP 响应超过大小限制".into());
-        }
+        bytes
+            .try_reserve(chunk.len())
+            .map_err(|_| "读取 HTTP 响应时内存不足")?;
         bytes.extend_from_slice(&chunk);
         if framed.is_none() {
             if let Some(first) = bytes.iter().find(|b| !b.is_ascii_whitespace()) {
@@ -96,9 +88,13 @@ fn read_json_frame(bytes: &[u8]) -> Result<Option<(usize, Value)>, String> {
     let size = std::str::from_utf8(&bytes[start..end])
         .ok()
         .and_then(|s| s.trim_end_matches('\r').parse::<usize>().ok())
-        .filter(|n| *n > 0 && *n <= MAX_FILE_BYTES as usize)
+        .filter(|n| *n > 0)
         .ok_or("JSON 长度帧大小无效")?;
     let payload = &bytes[end + 1..];
+    // UTF-8 字节数至少等于 UTF-16 码元数；分片未到齐时避免反复解析大附件。
+    if payload.len() < size {
+        return Ok(None);
+    }
     let mut decoder = serde_json::Deserializer::from_slice(payload).into_iter::<Value>();
     let value = match decoder.next() {
         Some(Ok(value)) => value,
@@ -144,7 +140,7 @@ impl ServerPluginHost {
             let (bytes, framed) = if ok {
                 read_json_stream(response, &events, params["collect_body"] == true).await?
             } else {
-                (read_response_bounded(response).await?, false)
+                (read_response_body(response).await?, false)
             };
             let text = String::from_utf8_lossy(&bytes);
             if framed {
@@ -178,7 +174,7 @@ impl ServerPluginHost {
         let collect = params["collect_body"] == true;
         let metadata = params["include_sse_metadata"] == true;
         let mut stream = response.body;
-        let mut decoder = crate::sse_decoder::Decoder::new(MAX_FILE_BYTES as usize);
+        let mut decoder = crate::sse_decoder::Decoder::default();
         loop {
             let chunk = tokio::select! {
                 _ = events.closed() => return Err("请求已取消".into()),
@@ -187,9 +183,9 @@ impl ServerPluginHost {
             let Some(chunk) = chunk else { break };
             let chunk = chunk?;
             if collect || framing != Some(false) {
-                if collected.len().saturating_add(chunk.len()) > MAX_FILE_BYTES as usize {
-                    return Err("事件流正文超过大小限制".into());
-                }
+                collected
+                    .try_reserve(chunk.len())
+                    .map_err(|_| "读取事件流时内存不足")?;
                 collected.extend_from_slice(&chunk);
             }
             if framing.is_none() {
@@ -222,7 +218,7 @@ impl ServerPluginHost {
             } else {
                 chunk.to_vec()
             };
-            for block in decoder.push(&pending)? {
+            for block in decoder.push(&pending) {
                 let stop = params["stop_condition"].as_str().is_some_and(|condition| {
                     std::str::from_utf8(&block)
                         .ok()
@@ -364,7 +360,7 @@ mod stop_tests {
             let address = listener.local_addr().unwrap();
             let payload = json!([[1, "x".repeat(64 * 1024)]]).to_string();
             let frame = format!("{}\n{}\n", payload.len(), payload);
-            let count = MAX_FILE_BYTES as usize / frame.len() + 2;
+            let count = 50 * 1024 * 1024 / frame.len() + 2;
             let server = tokio::spawn(async move {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let mut request = [0; 4096];

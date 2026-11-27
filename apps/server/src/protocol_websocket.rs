@@ -163,7 +163,7 @@ pub(crate) async fn responses(
             };
             let success = response.status().is_success();
             let mut body = response.into_body();
-            let mut decoder = crate::sse_decoder::Decoder::new(8 * 1024 * 1024);
+            let mut decoder = crate::sse_decoder::Decoder::default();
             let mut error_body = Vec::new();
             loop {
                 tokio::select! {
@@ -176,7 +176,7 @@ pub(crate) async fn responses(
                     chunk=poll_fn(|cx|std::pin::Pin::new(&mut body).poll_next(cx))=>{
                         let bytes=match chunk{Some(Ok(bytes))=>bytes,Some(Err(_))=>{let _=send_error(&mut session,"upstream_error","事件流中断").await;break;},None=>break};
                         if !success{if error_body.len()+bytes.len()>65536{break;}error_body.extend_from_slice(&bytes);continue;}
-                        let blocks=match decoder.push(&bytes){Ok(blocks)=>blocks,Err(_)=>return};
+                        let blocks=decoder.push(&bytes);
                         for block in blocks{
                             let text=String::from_utf8_lossy(&block);
                             for line in text.lines().filter_map(|line|line.strip_prefix("data: ")){

@@ -90,6 +90,20 @@ fn account_api_key_allows_bearer_authentication() {
 }
 
 #[actix_web::test]
+async fn management_settings_accepts_json_larger_than_50_mib() {
+    let app = crate::init_admin_test_app!(test_state("large-management-json"));
+    let mut body = vec![b' '; 51 * 1024 * 1024];
+    body.extend_from_slice(br#"{"check_interval_minutes":17}"#);
+    let request = actix_test::TestRequest::post()
+        .uri("/api/settings")
+        .insert_header(("content-type", "application/json"))
+        .set_payload(body)
+        .to_request();
+    let result = call_json(&app, request).await;
+    assert_eq!(result["data"]["check_interval_minutes"], 17);
+}
+
+#[actix_web::test]
 async fn health_exposes_install_root_for_local_launcher() {
     let app = crate::init_admin_test_app!(test_state("health-install-root"));
 

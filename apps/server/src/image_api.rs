@@ -18,9 +18,9 @@ use crate::ServerState;
 pub async fn generate_image(
     state: web::Data<ServerState>,
     request: HttpRequest,
-    body: web::Json<OpenAiImageRequest>,
+    payload: web::Payload,
 ) -> impl Responder {
-    handle_json_image(state, request, body.into_inner(), ImageEndpoint::Generation).await
+    handle_payload_image(state, request, payload, ImageEndpoint::Generation).await
 }
 
 pub async fn edit_image(
@@ -39,25 +39,6 @@ pub async fn variation_image(
     handle_payload_image(state, request, payload, ImageEndpoint::Variation).await
 }
 
-async fn handle_json_image(
-    state: web::Data<ServerState>,
-    request: HttpRequest,
-    mut body: OpenAiImageRequest,
-    endpoint: ImageEndpoint,
-) -> HttpResponse {
-    if !api_key_allowed(&state, &request) {
-        return openai_error(401, "authentication_error", "invalid api key");
-    }
-    let caller_key = api_key_from_request(&request);
-    body.apply_endpoint_defaults(endpoint);
-    let request_id = crate::request_identity::recovery_id(
-        &request,
-        caller_key.as_deref().unwrap_or_default(),
-        &serde_json::to_value(&body).expect("image request serialization"),
-    );
-    handle_image_request(state, body, endpoint, caller_key, request_id).await
-}
-
 async fn handle_payload_image(
     state: web::Data<ServerState>,
     request: HttpRequest,
@@ -68,14 +49,13 @@ async fn handle_payload_image(
         return openai_error(401, "authentication_error", "invalid api key");
     }
     let caller_key = api_key_from_request(&request);
-    let identity_request = request.clone();
-    let mut body = match parse_image_request(request, payload).await {
+    let mut body = match parse_image_request(&request, payload, endpoint).await {
         Ok(body) => body,
         Err((status, code, message)) => return openai_error(status, code, &message),
     };
     body.apply_endpoint_defaults(endpoint);
     let request_id = crate::request_identity::recovery_id(
-        &identity_request,
+        &request,
         caller_key.as_deref().unwrap_or_default(),
         &serde_json::to_value(&body).expect("image request serialization"),
     );

@@ -132,11 +132,7 @@ async fn request_body_accepts_above_old_transport_boundary() {
             .configure(crate::configure_routes),
     )
     .await;
-    for size in [
-        16 * 1024 * 1024 + 1,
-        crate::MAX_REQUEST_BODY_BYTES,
-        crate::MAX_REQUEST_BODY_BYTES + 1,
-    ] {
+    for size in [16 * 1024 * 1024 + 1, 50 * 1024 * 1024, 50 * 1024 * 1024 + 1] {
         let mut bytes = br#"{"model":"text-model","input":"hello","store":false}"#.to_vec();
         bytes.resize(size, b' ');
         let response = test::call_service(

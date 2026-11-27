@@ -1,9 +1,9 @@
-use actix_web::web;
 use futures_util::StreamExt;
 
 /// 大 JSON 请求先落盘，避免同时在内存里保留原始请求和解析后的附件。
 pub(crate) async fn read_json<T: serde::de::DeserializeOwned + Send + 'static>(
-    mut payload: web::Payload,
+    mut payload: impl futures_util::Stream<Item = Result<bytes::Bytes, actix_web::error::PayloadError>>
+        + Unpin,
 ) -> Result<T, (u16, &'static str, String)> {
     use tokio::io::{AsyncSeekExt, AsyncWriteExt};
     let io_error = |_| (500, "server_error", "读取临时请求文件失败".to_string());

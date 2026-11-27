@@ -258,10 +258,7 @@ impl ServerPluginHost {
         let headers = response.headers.clone();
         let final_url = response.final_url.clone();
         if params["response_body_format"].as_str() == Some("base64") {
-            let bytes = read_response_bounded(response).await?;
-            if bytes.len() as u64 > MAX_FILE_BYTES {
-                return Err(format!("HTTP 二进制响应超过限制 {} bytes", MAX_FILE_BYTES));
-            }
+            let bytes = read_response_body(response).await?;
             let mut result = json!({
                 "status": status,
                 "body_base64": BASE64_STANDARD.encode(bytes),
@@ -273,8 +270,7 @@ impl ServerPluginHost {
             }
             return Ok(result);
         }
-        let body_text =
-            String::from_utf8_lossy(&read_response_bounded(response).await?).into_owned();
+        let body_text = String::from_utf8_lossy(&read_response_body(response).await?).into_owned();
         let body = serde_json::from_str::<Value>(&body_text)
             .unwrap_or_else(|_| Value::String(body_text.clone()));
         let mut result = json!({
@@ -305,6 +301,58 @@ fn http_client_builder(params: &Value) -> reqwest::ClientBuilder {
 mod sync_tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn binary_download_and_collected_stream_events_can_exceed_50_mib() {
+        const SIZE: usize = 51 * 1024 * 1024;
+        let host = ServerPluginHost::new_with_metadata(String::new(), &HashMap::new());
+        for mime in [
+            "application/octet-stream",
+            "application/json",
+            "text/event-stream",
+        ] {
+            let binary = mime == "application/octet-stream";
+            let (prefix, suffix) = match mime {
+                // 长度帧正文包含字符串的两个引号。
+                "application/json" => (format!("{}\n\"", SIZE + 2), "\"\n"),
+                "text/event-stream" => ("data: \"".to_string(), "\"\n\n"),
+                _ => (String::new(), ""),
+            };
+            let body_len = prefix.len() + SIZE + suffix.len();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                assert!(socket.read(&mut [0; 4096]).await.unwrap() > 0);
+                let length = if binary {
+                    format!("Content-Length: {body_len}\r\n")
+                } else {
+                    String::new()
+                };
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\n{length}Connection: close\r\n\r\n{prefix}").as_bytes()).await.unwrap();
+                let chunk = vec![b'x'; 64 * 1024];
+                for _ in 0..SIZE / chunk.len() {
+                    socket.write_all(&chunk).await.unwrap();
+                }
+                socket.write_all(suffix.as_bytes()).await.unwrap();
+            });
+            let mut params = json!({"url":format!("http://{address}/"), "proxy":"direct"});
+            if binary {
+                params["response_body_format"] = json!("base64");
+                let response = host.http_request(&params, false).await.unwrap();
+                let base64 = response["body_base64"].as_str().unwrap();
+                assert_eq!(base64.len(), SIZE.div_ceil(3) * 4);
+                assert!(base64.ends_with("eHh4"));
+            } else {
+                params["collect_body"] = json!(true);
+                let (sender, mut events) = tokio::sync::mpsc::channel(1);
+                let response = host.stream_request(&params, sender).await.unwrap();
+                assert_eq!(response["body_text"].as_str().unwrap().len(), body_len);
+                assert_eq!(events.recv().await.unwrap().as_str().unwrap().len(), SIZE);
+            }
+            server.await.unwrap();
+        }
+    }
 
     #[tokio::test]
     async fn native_and_browser_file_uploads_stream_large_bodies_with_exact_lengths() {

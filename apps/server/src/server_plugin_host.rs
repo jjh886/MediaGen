@@ -20,7 +20,7 @@ use crate::store::AccountRecord;
 
 #[path = "plugin_http_stream.rs"]
 mod http_stream;
-use http_stream::read_response_bounded;
+use http_stream::read_response_body;
 #[path = "plugin_http_body.rs"]
 mod http_body;
 use http_body::apply_body;
@@ -43,8 +43,6 @@ mod wasm;
 
 #[path = "plugin_policy.rs"]
 mod policy;
-
-const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct ServerPluginHost {

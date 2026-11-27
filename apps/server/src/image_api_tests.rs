@@ -8,6 +8,31 @@ use crate::test_fixtures::{account_record, callback_receiver, read_callback_json
 use crate::ServerState;
 
 #[actix_web::test]
+async fn image_generation_accepts_json_larger_than_50_mib() {
+    let app = actix_test::init_service(
+        App::new()
+            .app_data(web::Data::new(queue_state("large-image-json")))
+            .configure(crate::configure_routes),
+    )
+    .await;
+    // 用合法 JSON 空白跨过旧边界，避免在队列表中永久保存大块测试数据。
+    let mut body = br#"{"model":"fake-image","prompt":"draw","async":true,"images":["#.to_vec();
+    body.resize(51 * 1024 * 1024, b' ');
+    body.extend_from_slice(br#"{"image_url":"data:image/png;base64,iVBORw0KGgo="}]}"#);
+    let response = actix_test::call_service(
+        &app,
+        actix_test::TestRequest::post()
+            .uri("/v1/images/generations")
+            .insert_header(("authorization", "Bearer image-key"))
+            .insert_header(("content-type", "application/vnd.test+json"))
+            .set_payload(body)
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), actix_web::http::StatusCode::ACCEPTED);
+}
+
+#[actix_web::test]
 async fn async_generation_returns_task_id_and_persists_encrypted_queue_item() {
     let state = queue_state("image-async-api");
     let app = actix_test::init_service(

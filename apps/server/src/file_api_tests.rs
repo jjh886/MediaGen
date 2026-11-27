@@ -241,6 +241,14 @@ async fn large_upload_is_streamed_and_owned_file_id_becomes_an_isolated_workspac
     let uploaded: Value = actix_test::read_body_json(response).await;
     assert_eq!(uploaded["bytes"], size);
     assert_eq!(uploaded["purpose"], "user_data");
+    let file_id = uploaded["id"].as_str().unwrap();
+    let downloaded = call_response(&app, auth_get!(&format!("/v1/files/{file_id}/content"))).await;
+    assert_eq!(downloaded.status(), 200);
+    let bytes = actix_test::read_body(downloaded).await;
+    assert_eq!(bytes.len(), size);
+    assert!(bytes.iter().all(|&byte| byte == b'x'));
+    drop(bytes);
+
     let original = json!({"model":"stream","input":[{"role":"user","content":[{"type":"input_file","file_id":uploaded["id"],"filename":"forged.txt","size":1}]}]});
     assert!(
         crate::protocol_files::resolve(&state, "other-key", &mut original.clone(), &caps)
